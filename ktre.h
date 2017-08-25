@@ -225,6 +225,7 @@ struct instr {
 		INSTR_KILL_TP,
 		INSTR_DIE,
 		INSTR_SET_START,
+		INSTR_WB,
 		INSTR_SAVE
 	} op;
 
@@ -297,6 +298,7 @@ struct node {
 		NODE_REP,
 		NODE_ATOM,
 		NODE_SET_START,
+		NODE_WB, /* word boundary */
 		NODE_NONE
 	} type;
 
@@ -456,6 +458,11 @@ again:
 
 		case 'K':
 			left->type = NODE_SET_START;
+			NEXT;
+			break;
+
+		case 'b':
+			left->type = NODE_WB;
 			NEXT;
 			break;
 
@@ -828,6 +835,7 @@ print_node(struct node *n)
 	case NODE_ANY:       DBG("(any)");                                  break;
 	case NODE_NONE:      DBG("(none)");                                 break;
 	case NODE_CHAR:      DBG("(char '%c')", n->c);                      break;
+	case NODE_WB:        DBG("(word boundary)");                        break;
 	case NODE_BACKREF:   DBG("(backreference to %d)", n->c);            break;
 	case NODE_CLASS:     DBG("(class '%s')", n->class);                 break;
 	case NODE_NOT:       DBG("(not '%s')", n->class);                   break;
@@ -935,6 +943,7 @@ compile(struct ktre *re, struct node *n)
 	case NODE_EOL:       emit(re, INSTR_EOL);                   break;
 	case NODE_ANY:       emit(re, INSTR_ANY);                   break;
 	case NODE_SET_START: emit(re, INSTR_SET_START);             break;
+	case NODE_WB:        emit(re, INSTR_WB);                    break;
 	case NODE_NONE:                                             break;
 
 	case NODE_BACKREF:
@@ -1064,6 +1073,7 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_BOL:       DBG("BOL");                                     break;
 		case INSTR_EOL:       DBG("EOL");                                     break;
 		case INSTR_DIE:       DBG("DIE");                                     break;
+		case INSTR_WB:        DBG("WB");                                      break;
 		default: assert(false);
 		}
 	}
@@ -1121,6 +1131,13 @@ run(struct ktre *re, const char *subject, int *vec)
 		case INSTR_EOL:
 			tp--;
 			if (subject[sp] == 0 || subject[sp] == '\n') new_thread(ip + 1, sp, opt, _tp);
+			break;
+
+		case INSTR_WB:
+			tp--;
+			if (sp && (strchr("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", subject[sp - 1])
+			           && !strchr("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", subject[sp])))
+				new_thread(ip + 1, sp, opt, _tp);
 			break;
 
 		case INSTR_CHAR:
