@@ -174,6 +174,10 @@ void ktre_free(struct ktre *re);
 #include <ctype.h>
 #include <setjmp.h>
 
+#define WHITESPACE " \t\r\n\v\f"
+#define WORD "_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+#define DIGIT "0123456789"
+
 static void *_malloc(size_t n);
 static void *_calloc(size_t n);
 static void *_realloc(void *ptr, size_t n);
@@ -433,37 +437,37 @@ again:
 		switch (*re->sp) {
 		case 's':
 			left->type = NODE_CLASS;
-			left->class = strclone(" \t\r\n\v\f");
+			left->class = strclone(WHITESPACE);
 			NEXT;
 			break;
 
 		case 'S':
 			left->type = NODE_NOT;
-			left->class = strclone(" \t\r\n\v\f");
+			left->class = strclone(WHITESPACE);
 			NEXT;
 			break;
 
 		case 'd':
 			left->type = NODE_CLASS;
-			left->class = strclone("0123456789");
+			left->class = strclone(DIGIT);
 			NEXT;
 			break;
 
 		case 'D':
 			left->type = NODE_NOT;
-			left->class = strclone("0123456789");
+			left->class = strclone(DIGIT);
 			NEXT;
 			break;
 
 		case 'w':
 			left->type = NODE_CLASS;
-			left->class = strclone("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
+			left->class = strclone(WORD);
 			NEXT;
 			break;
 
 		case 'W':
 			left->type = NODE_NOT;
-			left->class = strclone("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
+			left->class = strclone(WORD);
 			NEXT;
 			break;
 
@@ -527,15 +531,15 @@ again:
 
 				switch (*re->sp) {
 				case 's':
-					class_add_str(class, " \t\r\n\v\f");
+					class_add_str(class, WHITESPACE);
 					re->sp++;
 					break;
 				case 'd':
-					class_add_str(class, "0123456789");
+					class_add_str(class, DIGIT);
 					re->sp++;
 					break;
 				case 'w':
-					class_add_str(class, "_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
+					class_add_str(class, WORD);
 					re->sp++;
 					break;
 				case 'n':
@@ -604,7 +608,7 @@ again:
 			for (int i = len; i >= 0; i--) {
 				if (!isdigit(re->sp[i])) {
 					error(re, KTRE_ERROR_INVALID_RANGE, re->pat - re->sp + i,
-					      "non-digits and negative numbers are forbidden in counted repetitions");
+					      "non-digits and negative numbers are forbidden in subroutine calls");
 					left->type = NODE_NONE;
 					return left;
 				}
@@ -622,7 +626,7 @@ again:
 			left->type = NODE_CALL;
 			left->c = a;
 
-			re->sp += len + 2; /* skip over the ) and then advance to the next char */
+			re->sp += len + 1;
 		} else if (*re->sp == '?') { /* mode modifiers */
 			NEXT;
 			left->type = NODE_NONE;
@@ -706,7 +710,7 @@ again:
 
 	default:
 		/* ignore whitespace if we're in extended mode */
-		if (re->popt & KTRE_EXTENDED && strchr(" \t\r\n\v\f", *re->sp)) {
+		if (re->popt & KTRE_EXTENDED && strchr(WHITESPACE, *re->sp)) {
 			NEXT;
 			goto again;
 		}
@@ -851,6 +855,12 @@ parse(struct ktre *re)
 		m->type = NODE_OR;
 		m->a = n;
 		m->b = parse(re);
+
+		if (re->err) {
+			free_node(m->b);
+			longjmp(re->jmp, 1);
+		}
+
 		return m;
 	}
 
@@ -892,26 +902,27 @@ print_node(struct node *n)
 	} while(0);
 
 	switch (n->type) {
-	case NODE_ANY:       DBG("(any)");                                  break;
-	case NODE_NONE:      DBG("(none)");                                 break;
-	case NODE_CHAR:      DBG("(char '%c')", n->c);                      break;
-	case NODE_WB:        DBG("(word boundary)");                        break;
-	case NODE_BACKREF:   DBG("(backreference to %d)", n->c);            break;
-	case NODE_CLASS:     DBG("(class '%s')", n->class);                 break;
-	case NODE_NOT:       DBG("(not '%s')", n->class);                   break;
-	case NODE_BOL:       DBG("(bol)");                                  break;
-	case NODE_EOL:       DBG("(eol)");                                  break;
-	case NODE_SET_START: DBG("(set_start)");                            break;
-	case NODE_OPT_ON:    DBG("(opt on %d)", n->c);                      break;
-	case NODE_OPT_OFF:   DBG("(opt off %d)", n->c);                     break;
-	case NODE_CALL:      DBG("(call %d)", n->c);                        break;
-	case NODE_SEQUENCE:  N2 ("(sequence)");                             break;
-	case NODE_OR:        N2 ("(or)");                                   break;
-	case NODE_ASTERISK:  N1 ("(asterisk)");                             break;
-	case NODE_PLUS:      N1 ("(plus)");                                 break;
-	case NODE_GROUP:     N1 ("(group)");                                break;
-	case NODE_QUESTION:  N1 ("(question)");                             break;
-	case NODE_ATOM:      N1 ("(atom)");                                 break;
+	case NODE_ANY:       DBG("(any)");                                    break;
+	case NODE_NONE:      DBG("(none)");                                   break;
+	case NODE_CHAR:      DBG("(char '%c')", n->c);                        break;
+	case NODE_WB:        DBG("(word boundary)");                          break;
+	case NODE_BACKREF:   DBG("(backreference to %d)", n->c);              break;
+	case NODE_CLASS:     DBG("(class '%s')", n->class);                   break;
+	case NODE_NOT:       DBG("(not '%s')", n->class);                     break;
+	case NODE_BOL:       DBG("(bol)");                                    break;
+	case NODE_EOL:       DBG("(eol)");                                    break;
+	case NODE_SET_START: DBG("(set_start)");                              break;
+	case NODE_OPT_ON:    DBG("(opt on %d)", n->c);                        break;
+	case NODE_OPT_OFF:   DBG("(opt off %d)", n->c);                       break;
+	case NODE_CALL:      DBG("(call %d)", n->c);                          break;
+	case NODE_SEQUENCE:  N2 ("(sequence)");                               break;
+	case NODE_OR:        N2 ("(or)");                                     break;
+	case NODE_REP:       N1 ("(counted repetition %d - %d)", n->c, n->d); break;
+	case NODE_ASTERISK:  N1 ("(asterisk)");                               break;
+	case NODE_PLUS:      N1 ("(plus)");                                   break;
+	case NODE_GROUP:     N1 ("(group)");                                  break;
+	case NODE_QUESTION:  N1 ("(question)");                               break;
+	case NODE_ATOM:      N1 ("(atom)");                                   break;
 
 	default:
 		DBG("\nunimplemented printer for node of type %d\n", n->type);
@@ -984,6 +995,15 @@ compile(struct ktre *re, struct node *n)
 		re->group[old].compiled = true;
 		break;
 
+	case NODE_CALL:
+		if (n->c <= 0 || n->c >= re->num_groups) {
+			error(re, KTRE_ERROR_INVALID_BACKREFERENCE, n->loc, "subroutine number is invalid or calls a group that does not yet exist");
+			return;
+		}
+
+		emit_c(re, INSTR_CALL, re->group[n->c].address);
+		break;
+
 	case NODE_PLUS:
 		a = re->ip;
 		compile(re, n->a);
@@ -1036,9 +1056,23 @@ compile(struct ktre *re, struct node *n)
 		a = 0;
 		for (int i = 0; i < n->c; i++) {
 			a = re->ip;
-			compile(re, n->a);
+			if (n->a->type == NODE_GROUP && i == 0) {
+				a = re->ip;
+
+				emit_c(re, INSTR_JMP, -1);
+				old = re->num_groups;
+				compile(re, n->a);
+				PATCH_C(a, re->ip);
+
+				emit_c(re, INSTR_CALL, re->group[old].address);
+			} else if (n->a->type == NODE_GROUP) {
+				emit_c(re, INSTR_CALL, re->group[old].address);
+			} else {
+				compile(re, n->a);
+			}
 		}
 
+		/* TODO: make repetitions work with groups */
 		if (n->d == 0) {
 			emit_ab(re, INSTR_SPLIT, a, re->ip + 1);
 		} else {
@@ -1180,7 +1214,7 @@ run(struct ktre *re, const char *subject, int *vec)
 	struct thread {
 		int ip, sp;
 		int old, old_idx, opt;
-		int tp, ret;
+		int tp;
 	} t[MAX_THREAD];
 	int tp = 0;
 
@@ -1192,7 +1226,7 @@ run(struct ktre *re, const char *subject, int *vec)
 
 	while (tp) {
 		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, _tp = t[tp].tp;
-		DBG("\nip: %3d | sp: %3d | tp: %3d", ip, sp, tp);
+//		DBG("\nip: %3d | sp: %3d | tp: %3d", ip, sp, tp);
 
 		switch (re->c[ip].op) {
 		case INSTR_BACKREF:
@@ -1225,8 +1259,7 @@ run(struct ktre *re, const char *subject, int *vec)
 
 		case INSTR_WB:
 			--tp;
-			if (sp && (strchr("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", subject[sp - 1])
-			           && !strchr("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", subject[sp])))
+			if (sp && (strchr(WORD, subject[sp - 1]) && !strchr(WORD, subject[sp])))
 				new_thread(ip + 1, sp, opt, _tp);
 			break;
 
