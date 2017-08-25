@@ -140,12 +140,13 @@ struct ktre {
 	char const *pat;
 	char const *sp;  /* pointer to the character currently being parsed */
 	struct node *n;
+	int popt;        /* the options, as seen by the parser */
 };
 
 enum {
 	KTRE_INSENSITIVE = 1 << 0,
 	KTRE_UNANCHORED  = 1 << 1,
-	KTRE_EXTENDED  = 1 << 2,
+	KTRE_EXTENDED    = 1 << 2,
 };
 
 struct ktre *ktre_compile(const char *pat, int opt);
@@ -211,7 +212,7 @@ struct instr {
 		INSTR_ANY,
 		INSTR_CLASS,
 		INSTR_NOT,
-		INSTR_BACKREFERENCE,
+		INSTR_BACKREF,
 		INSTR_BOL,
 		INSTR_EOL,
 		INSTR_OPT_ON,
@@ -280,7 +281,7 @@ struct node {
 		NODE_ANY,
 		NODE_CLASS,
 		NODE_NOT,
-		NODE_BACKREFERENCE,
+		NODE_BACKREF,
 		NODE_BOL,
 		NODE_EOL,
 		NODE_OPT_ON,
@@ -302,8 +303,26 @@ struct node {
 	int loc;
 };
 
-#define NEXT                             \
-	do {                             \
+static void
+free_node(struct node *n)
+{
+	switch (n->type) {
+	case NODE_SEQUENCE: case NODE_OR:
+		free_node(n->a);
+		free_node(n->b);
+		break;
+	case NODE_ASTERISK: case NODE_PLUS:
+	case NODE_GROUP: case NODE_QUESTION:
+		free_node(n->a);
+	case NODE_CLASS: free(n->class); break;
+	default: break;
+	}
+
+	free(n);
+}
+
+#define NEXT                           \
+	do {                           \
 		if (*re->sp) re->sp++; \
 	} while (0)
 
@@ -326,8 +345,18 @@ error(struct ktre *re, enum ktre_error err, int loc, char *fmt, ...)
 
 static struct node *parse(struct ktre *re);
 
+static inline char
+lc(char c)
+{
+	if (c >= 'A' && c <= 'Z') {
+		c = (c - 'A') + 'a';
+	}
+
+	return c;
+}
+
 static char *
-append_to_str(char *class, char c)
+class_add_char(char *class, char c)
 {
 	size_t len = class ? strlen(class) : 0;
 	class = _realloc(class, len + 2);
@@ -337,7 +366,7 @@ append_to_str(char *class, char c)
 }
 
 static char *
-append_str_to_str(char *class, const char *c)
+class_add_str(char *class, const char *c)
 {
 	size_t len = class ? strlen(class) : 0;
 	class = _realloc(class, len + strlen(c) + 1);
@@ -397,7 +426,7 @@ again:
 			break;
 		case '0': case '1': case '2': case '3': case '4':
 		case '5': case '6': case '7': case '8': case '9':
-			left->type = NODE_BACKREFERENCE;
+			left->type = NODE_BACKREF;
 			left->c = *re->sp - '0';
 			if (isdigit(re->sp[1])) {
 				left->c *= 10;
@@ -433,7 +462,9 @@ again:
 		while (*re->sp && *re->sp != ']') {
 			if (re->sp[1] == '-' && re->sp[2] != ']') {
 				for (int i = re->sp[0]; i <= re->sp[2]; i++) {
-					class = append_to_str(class, i);
+					class = class_add_char(class, i);
+					if (i >= 'a' && i <= 'z') class_add_char(class, i - 'a' + 'A');
+					else class_add_char(class, lc(i));
 				}
 				re->sp += 3;
 			} else if (*re->sp == '\\') {
@@ -441,23 +472,28 @@ again:
 
 				switch (*re->sp) {
 				case 's':
-					append_str_to_str(class, " \t\r\n\v\f");
+					class_add_str(class, " \t\r\n\v\f");
 					re->sp++;
 					break;
 				case 'd':
-					append_str_to_str(class, "0123456789");
+					class_add_str(class, "0123456789");
 					re->sp++;
 					break;
 				case 'w':
-					append_str_to_str(class, "_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
+					class_add_str(class, "_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
 					re->sp++;
 					break;
 				case 'n':
-					append_to_str(class, '\n');
+					class_add_char(class, '\n');
 					re->sp++;
 				}
 			} else {
-				class = append_to_str(class, *re->sp);
+				if (re->popt & KTRE_INSENSITIVE) {
+					class = class_add_char(class, *re->sp);
+					if (*re->sp >= 'a' && *re->sp <= 'z') class_add_char(class, *re->sp - 'a' + 'A');
+					else class_add_char(class, lc(*re->sp));
+				}
+				else class = class_add_char(class, *re->sp);
 				re->sp++;
 			}
 		}
@@ -477,7 +513,7 @@ again:
 			while (*re->sp && *re->sp != ')') re->sp++;
 			if (*re->sp != ')') {
 				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '(' at character %d", re->sp - re->pat);
-				free(left->a);
+				free_node(left->a);
 				left->type = NODE_NONE;
 				return left;
 			}
@@ -502,6 +538,9 @@ again:
 					return left;
 				}
 
+				if (off || neg) re->popt &= ~opt;
+				else re->popt |= opt;
+
 				struct node *tmp = _malloc(sizeof *tmp);
 				tmp->type = NODE_SEQUENCE;
 				tmp->a = left;
@@ -516,7 +555,7 @@ again:
 
 			if (*re->sp != ')') {
 				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '(' at character %d", re->sp - re->pat);
-				free(left->a);
+				free_node(left->a);
 				left->type = NODE_NONE;
 				return left;
 			}
@@ -526,7 +565,7 @@ again:
 
 			if (*re->sp != ')') {
 				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat - 1, "unmatched '(' at character %d", re->sp - re->pat - 1);
-				free(left->a);
+				free_node(left->a);
 				left->type = NODE_NONE;
 				return left;
 			}
@@ -538,17 +577,30 @@ again:
 		NEXT;
 		left->type = NODE_ANY;
 		break;
+
 	case '^':
 		NEXT;
 		left->type = NODE_BOL;
 		break;
+
 	case '$':
 		NEXT;
 		left->type = NODE_EOL;
 		break;
+
+	case '#': /* extended mode comments */
+		if (re->popt & KTRE_EXTENDED) {
+			while (*re->sp && *re->sp != '\n') { NEXT; }
+		} else {
+			left->type = NODE_CHAR;
+			left->c = *re->sp;
+			NEXT;
+		}
+		break;
+
 	default:
 		/* ignore whitespace if we're in extended mode */
-		if (re->opt & KTRE_EXTENDED && strchr(" \t\r\n\v\f", *re->sp)) {
+		if (re->popt & KTRE_EXTENDED && strchr(" \t\r\n\v\f", *re->sp)) {
 			NEXT;
 			goto again;
 		}
@@ -695,24 +747,6 @@ parse(struct ktre *re)
 	return n;
 }
 
-/* freenode? */
-static void
-free_node(struct node *n)
-{
-	switch (n->type) {
-	case NODE_SEQUENCE: case NODE_OR:
-		free_node(n->a);
-		free_node(n->b);
-		break;
-	case NODE_ASTERISK: case NODE_PLUS:
-	case NODE_GROUP: case NODE_QUESTION:
-		free_node(n->a);
-	default: break;
-	}
-
-	free(n);
-}
-
 #ifdef KTRE_DEBUG
 static void
 print_node(struct node *n)
@@ -733,9 +767,7 @@ print_node(struct node *n)
 		else DBG("`-- ");
 	}
 
-#define pnode(x) l++; print_node(x); l--
-#define N(...) DBG(__VA_ARGS__); pnode(n->a)
-
+#define N(...) DBG(__VA_ARGS__); l++; print_node(n->a); l--
 	switch (n->type) {
 	case NODE_SEQUENCE:
 		DBG("(sequence)");
@@ -753,40 +785,36 @@ print_node(struct node *n)
 		print_node(n->b);
 		l--;
 		break;
-	case NODE_ASTERISK: N("(asterisk)");                         break;
-	case NODE_PLUS:     N("(plus)");                             break;
-	case NODE_GROUP:    N("(group)");                            break;
-	case NODE_QUESTION: N("(question)");                         break;
-	case NODE_ANY:      DBG("(any)");                            break;
-	case NODE_NONE:     DBG("(none)");                           break;
-	case NODE_CHAR:     DBG("(char '%c')", n->c);                break;
-	case NODE_BACKREFERENCE: DBG("(backreference to %d)", n->c); break;
-	case NODE_CLASS:    DBG("(class '%s')", n->class);           break;
-	case NODE_NOT:      DBG("(not '%s')", n->class);             break;
-	case NODE_BOL:      DBG("(bol)");                            break;
-	case NODE_EOL:      DBG("(eol)");                            break;
-	case NODE_OPT_ON:   DBG("(opt on %d)", n->c);                break;
-	case NODE_OPT_OFF:  DBG("(opt off %d)", n->c);               break;
-	case NODE_REP:
-		DBG("(counted repetition %d - %d)", n->c, n->d);
-		l++;
-		print_node(n->a);
-		l--;
-		break;
+
+	case NODE_ASTERISK: N("(asterisk)");                               break;
+	case NODE_PLUS:     N("(plus)");                                   break;
+	case NODE_GROUP:    N("(group)");                                  break;
+	case NODE_QUESTION: N("(question)");                               break;
+	case NODE_REP:      N("(counted repetition %d - %d)", n->c, n->d); break;
+	case NODE_ANY:      DBG("(any)");                                  break;
+	case NODE_NONE:     DBG("(none)");                                 break;
+	case NODE_CHAR:     DBG("(char '%c')", n->c);                      break;
+	case NODE_BACKREF:  DBG("(backreference to %d)", n->c);            break;
+	case NODE_CLASS:    DBG("(class '%s')", n->class);                 break;
+	case NODE_NOT:      DBG("(not '%s')", n->class);                   break;
+	case NODE_BOL:      DBG("(bol)");                                  break;
+	case NODE_EOL:      DBG("(eol)");                                  break;
+	case NODE_OPT_ON:   DBG("(opt on %d)", n->c);                      break;
+	case NODE_OPT_OFF:  DBG("(opt off %d)", n->c);                     break;
+
 	default:
 		DBG("\nunimplemented printer for node of type %d\n", n->type);
 		assert(false);
 	}
-#undef N
 }
 #endif
 
 static void
 compile(struct ktre *re, struct node *n)
 {
-#define patch_a(_re, _a, _c) _re->c[_a].a = _c;
-#define patch_b(_re, _a, _c) _re->c[_a].b = _c;
-#define patch_c(_re, _a, _c) _re->c[_a].c = _c;
+#define patch_a(loc, _a) re->c[loc].a = _a
+#define patch_b(loc, _b) re->c[loc].b = _b
+#define patch_c(loc, _c) re->c[loc].c = _c
 
 	switch (n->type) {
 	case NODE_SEQUENCE:
@@ -803,7 +831,7 @@ compile(struct ktre *re, struct node *n)
 		emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
 		compile(re, n->a);
 		emit_ab(re, INSTR_SPLIT, a + 1, re->ip + 1);
-		patch_b(re, a, re->ip);
+		patch_b(a, re->ip);
 	} break;
 
 	case NODE_QUESTION: {
@@ -815,7 +843,7 @@ compile(struct ktre *re, struct node *n)
 			emit_ab(re, INSTR_SPLIT, -1, re->ip + 1);
 			compile(re, n->a->a);
 			emit_ab(re, INSTR_SPLIT, re->ip + 1, a + 1);
-			patch_a(re, a, re->ip);
+			patch_a(a, re->ip);
 			break;
 		case NODE_PLUS:
 			a = re->ip;
@@ -826,13 +854,13 @@ compile(struct ktre *re, struct node *n)
 			a = re->ip;
 			emit_ab(re, INSTR_SPLIT, -1, re->ip + 1);
 			compile(re, n->a->a);
-			patch_a(re, a, re->ip);
+			patch_a(a, re->ip);
 			break;
 		default:
 			a = re->ip;
 			emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
 			compile(re, n->a);
-			patch_b(re, a, re->ip);
+			patch_b(a, re->ip);
 		}
 	} break;
 
@@ -860,9 +888,9 @@ compile(struct ktre *re, struct node *n)
 		compile(re, n->a);
 		int b = re->ip;
 		emit_c(re, INSTR_JP, -1);
-		patch_b(re, a, re->ip);
+		patch_b(a, re->ip);
 		compile(re, n->b);
-		patch_c(re, b, re->ip);
+		patch_c(b, re->ip);
 	} break;
 
 	case NODE_CLASS:
@@ -886,12 +914,12 @@ compile(struct ktre *re, struct node *n)
 	case NODE_OPT_OFF:
 		emit_c(re, INSTR_OPT_OFF, n->c);
 		break;
-	case NODE_BACKREFERENCE:
+	case NODE_BACKREF:
 		if (n->c <= 0 || n->c - 1 >= re->num_groups) {
 			error(re, KTRE_ERROR_INVALID_BACKREFERENCE, n->loc, "backreference number is invalid or references a group that does not yet exist");
 		return;
 		}
-		emit_c(re, INSTR_BACKREFERENCE,
+		emit_c(re, INSTR_BACKREF,
 		       n->c);
 		break;
 	case NODE_REP: {
@@ -911,7 +939,7 @@ compile(struct ktre *re, struct node *n)
 				a = re->ip;
 				emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
 				compile(re, n->a);
-				patch_b(re, a, re->ip);
+				patch_b(a, re->ip);
 			}
 		}
 	} break;
@@ -929,7 +957,7 @@ struct ktre *
 ktre_compile(const char *pat, int opt)
 {
 	struct ktre *re = _calloc(sizeof *re);
-	re->pat = pat, re->opt = opt, re->sp = pat;
+	re->pat = pat, re->opt = opt, re->sp = pat, re->popt = opt;
 	re->err_str = "no error";
 
 #ifdef KTRE_DEBUG
@@ -937,8 +965,8 @@ ktre_compile(const char *pat, int opt)
 	for (size_t i = 0; i < sizeof opt; i++) {
 		switch (opt & 1 << i) {
 		case KTRE_INSENSITIVE: DBG("\n\tINSENSITIVE"); break;
-		case KTRE_UNANCHORED: DBG("\n\tUNANCHORED"); break;
-		case KTRE_EXTENDED: DBG("\n\tEXTENDED"); break;
+		case KTRE_UNANCHORED:  DBG("\n\tUNANCHORED");  break;
+		case KTRE_EXTENDED:    DBG("\n\tEXTENDED");    break;
 		default: continue;
 		}
 	}
@@ -983,39 +1011,29 @@ ktre_compile(const char *pat, int opt)
 		DBG("\n%3d: ", i);
 
 		switch (re->c[i].op) {
-		case INSTR_CHAR:   DBG("CHAR   '%c'", re->c[i].c);                break;
-		case INSTR_SPLIT:  DBG("SPLIT %3d, %3d", re->c[i].a, re->c[i].b); break;
-		case INSTR_ANY:    DBG("ANY");                                    break;
-		case INSTR_MATCH:  DBG("MATCH");                                  break;
-		case INSTR_SAVE:   DBG("SAVE  %3d", re->c[i].c);                  break;
-		case INSTR_JP:     DBG("JP    %3d", re->c[i].c);                  break;
-		case INSTR_CLASS:  DBG("CLASS '%s'", re->c[i].class);             break;
-		case INSTR_NOT:    DBG("NOT   '%s'", re->c[i].class);             break;
-		case INSTR_BOL:    DBG("BOL");                                    break;
-		case INSTR_EOL:    DBG("EOL");                                    break;
-		case INSTR_OPT_ON: DBG("OPTON   %d", re->c[i].c);                 break;
-		case INSTR_OPT_OFF:DBG("OPTOFF  %d", re->c[i].c);                 break;
-		case INSTR_BACKREFERENCE: DBG("BACKREF %d", re->c[i].c);          break;
+		case INSTR_CHAR:    DBG("CHAR   '%c'", re->c[i].c);                break;
+		case INSTR_SPLIT:   DBG("SPLIT %3d, %3d", re->c[i].a, re->c[i].b); break;
+		case INSTR_ANY:     DBG("ANY");                                    break;
+		case INSTR_MATCH:   DBG("MATCH");                                  break;
+		case INSTR_SAVE:    DBG("SAVE  %3d", re->c[i].c);                  break;
+		case INSTR_JP:      DBG("JP    %3d", re->c[i].c);                  break;
+		case INSTR_CLASS:   DBG("CLASS '%s'", re->c[i].class);             break;
+		case INSTR_NOT:     DBG("NOT   '%s'", re->c[i].class);             break;
+		case INSTR_BOL:     DBG("BOL");                                    break;
+		case INSTR_EOL:     DBG("EOL");                                    break;
+		case INSTR_OPT_ON:  DBG("OPTON   %d", re->c[i].c);                 break;
+		case INSTR_OPT_OFF: DBG("OPTOFF  %d", re->c[i].c);                 break;
+		case INSTR_BACKREF: DBG("BACKREF %d", re->c[i].c);                 break;
 		default: assert(false);
 		}
 	}
 #endif
-	free_node(re->n);
 
 	return re;
 }
 
-static inline char
-lc(char c)
-{
-	if (c >= 'A' && c <= 'Z') {
-		c = (c - 'A') + 'a';
-	}
-
-	return c;
-}
-
-#define MAX_THREAD (1 << 11) /* 2048 should be enough */
+#define MAX_THREAD (1 << 12) /* no one will ever need more than 4096 threads */
+#define MAX_CALL_DEPTH 1024
 static bool
 run(struct ktre *re, const char *subject, int *vec)
 {
@@ -1023,10 +1041,10 @@ run(struct ktre *re, const char *subject, int *vec)
 		int ip, sp;
 		int old, old_idx, opt;
 	} t[MAX_THREAD];
-	int tp = 0; /* toilet paper */
+	int tp = 0;
 
-#define new_thread(_ip, _sp, _opt) \
-	t[++tp] = (struct thread){ _ip, _sp, -1, -1, _opt }
+#define new_thread(ip, sp, opt) \
+	t[++tp] = (struct thread){ ip, sp, -1, -1, opt }
 
 	/* push the initial thread */
 	new_thread(0, 0, re->opt);
@@ -1035,18 +1053,8 @@ run(struct ktre *re, const char *subject, int *vec)
 		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt;
 //		printf("\nip: %d, sp: %d, tp: %d", ip, sp, tp);
 
-		if (tp == MAX_THREAD - 1) {
-			error(re, KTRE_ERROR_STACK_OVERFLOW, 0, "regex exceeded the maximum number of executable threads");
-			return false;
-		}
-
-		if (tp <= 0) {
-			error(re, KTRE_ERROR_STACK_UNDERFLOW, 0, "regex killed more threads than it started");
-			return false;
-		}
-
 		switch (re->c[ip].op) {
-		case INSTR_BACKREFERENCE:
+		case INSTR_BACKREF:
 			tp--;
 			if (!strncmp(subject + sp, &subject[vec[re->c[ip].c * 2]], vec[re->c[ip].c * 2 + 1]))
 				new_thread(ip + 1, sp + vec[re->c[ip].c * 2 + 1], opt);
@@ -1121,19 +1129,32 @@ run(struct ktre *re, const char *subject, int *vec)
 		case INSTR_JP:
 			t[tp].ip = re->c[ip].c;
 			break;
+
 		case INSTR_OPT_ON:
 			t[tp].opt |= re->c[ip].c;
 			t[tp].ip++;
 			break;
+
 		case INSTR_OPT_OFF:
 			t[tp].opt &= ~re->c[ip].c;
 			t[tp].ip++;
 			break;
+
 		default:
 #ifdef KTRE_DEBUG
 			DBG("\nunimplemented instruction %d\n", re->c[ip].op);
 			assert(false);
 #endif
+			return false;
+		}
+
+		if (tp == MAX_THREAD - 1) {
+			error(re, KTRE_ERROR_STACK_OVERFLOW, 0, "regex exceeded the maximum number of executable threads");
+			return false;
+		}
+
+		if (tp <= -1) {
+			error(re, KTRE_ERROR_STACK_UNDERFLOW, 0, "regex killed more threads than it started");
 			return false;
 		}
 	}
@@ -1144,10 +1165,7 @@ run(struct ktre *re, const char *subject, int *vec)
 void
 ktre_free(struct ktre *re)
 {
-	for (int i = 0; i < re->ip; i++)
-		if (re->c[i].op == INSTR_CLASS)
-			free(re->c[i].class);
-
+	free_node(re->n);
 	free(re->c);
 	if (re->err) free(re->err_str);
 	free(re);
