@@ -181,7 +181,7 @@ static void *_realloc(void *ptr, size_t n);
 static void
 add_group(struct ktre *re)
 {
-	re->group = _realloc(re->group, sizeof re->group[0] * re->gp);
+	re->group = _realloc(re->group, sizeof re->group[0] * (re->gp + 1));
 	re->group[re->gp].compiled = false;
 	re->group[re->gp].address = -1;
 	re->gp++;
@@ -337,6 +337,7 @@ struct node {
 static void
 free_node(struct node *n)
 {
+	/* sometimes errors can produce NULL nodes */
 	if (!n) return;
 
 	switch (n->type) {
@@ -928,6 +929,7 @@ compile(struct ktre *re, struct node *n)
 		emit_c(re, INSTR_SAVE, re->num_groups * 2);
 		old = re->num_groups;
 		re->num_groups++;
+		re->group[old].address = re->ip;
 		compile(re, n->a);
 		emit_c(re, INSTR_SAVE, old * 2 + 1);
 		re->group[old].compiled = true;
@@ -1058,6 +1060,8 @@ ktre_compile(const char *pat, int opt)
 
 	/* the entire match is grouped */
 	emit_c(re, INSTR_SAVE, 0);
+	add_group(re);
+	re->group[0].address = 0;
 	re->num_groups++;
 
 	compile(re, re->n);
@@ -1077,6 +1081,10 @@ ktre_compile(const char *pat, int opt)
 
 #ifdef KTRE_DEBUG
 	print_node(re->n);
+
+	for (int i = 0; i < re->num_groups; i++) {
+		DBG("\ngroup %d address: %d", i, re->group[i].address);
+	}
 
 	for (int i = 0; i < re->ip; i++) {
 		DBG("\n%3d: ", i);
