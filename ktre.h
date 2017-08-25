@@ -111,6 +111,8 @@
 #ifndef KTRE_H
 #define KTRE_H
 
+#include <setjmp.h>
+
 enum ktre_error {
 	KTRE_ERROR_NO_ERROR,
 	KTRE_ERROR_UNMATCHED_PAREN,
@@ -141,6 +143,7 @@ struct ktre {
 	char const *sp;  /* pointer to the character currently being parsed */
 	struct node *n;
 	int popt;        /* the options, as seen by the parser */
+	jmp_buf jmp;     /* the parser must return as soon as it encounters an error */
 };
 
 enum {
@@ -158,6 +161,7 @@ void ktre_free(struct ktre *re);
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <setjmp.h>
 
 #ifdef KTRE_DEBUG
 #include <assert.h>
@@ -287,6 +291,7 @@ struct node {
 		NODE_OPT_ON,
 		NODE_OPT_OFF,
 		NODE_REP,
+		NODE_ATOM,
 		NODE_NONE
 	} type;
 
@@ -306,6 +311,8 @@ struct node {
 static void
 free_node(struct node *n)
 {
+	if (!n) return;
+
 	switch (n->type) {
 	case NODE_SEQUENCE: case NODE_OR:
 		free_node(n->a);
@@ -500,6 +507,8 @@ again:
 
 		if (*re->sp != ']') {
 			error(re, KTRE_ERROR_UNTERMINATED_CLASS, loc, "unterminated character class");
+			left->type = NODE_NONE;
+			return left;
 		}
 
 		left->class = class;
@@ -512,12 +521,23 @@ again:
 		if (*re->sp == '?' && re->sp[1] == '#') { /* comments */
 			while (*re->sp && *re->sp != ')') re->sp++;
 			if (*re->sp != ')') {
-				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '(' at character %d", re->sp - re->pat);
+				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
 				free_node(left->a);
 				left->type = NODE_NONE;
 				return left;
 			}
 			left->type = NODE_NONE;
+		} else if (*re->sp == '?' && re->sp[1] == '>') {
+			NEXT;
+			left->type = NODE_ATOM;
+			left->a = parse(re);
+
+			if (*re->sp != ')') {
+				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
+				free_node(left->a);
+				left->type = NODE_NONE;
+				return left;
+			}
 		} else if (*re->sp == '?') { /* mode modifiers */
 			NEXT;
 			left->type = NODE_NONE;
@@ -533,7 +553,7 @@ again:
 				case 't': opt |=  KTRE_EXTENDED;    off = true; break;
 				case '-': neg = true; NEXT; continue;
 				default:
-					error(re, KTRE_ERROR_INVALID_MODE_MODIFIER, re->sp - re->pat, "invalid mode modifier at character %d", re->sp - re->pat);
+					error(re, KTRE_ERROR_INVALID_MODE_MODIFIER, re->sp - re->pat, "invalid mode modifier");
 					left->type = NODE_NONE;
 					return left;
 				}
@@ -554,7 +574,7 @@ again:
 			}
 
 			if (*re->sp != ')') {
-				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '(' at character %d", re->sp - re->pat);
+				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
 				free_node(left->a);
 				left->type = NODE_NONE;
 				return left;
@@ -564,7 +584,7 @@ again:
 			left->a = parse(re);
 
 			if (*re->sp != ')') {
-				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat - 1, "unmatched '(' at character %d", re->sp - re->pat - 1);
+				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat - 1, "unmatched '('");
 				free_node(left->a);
 				left->type = NODE_NONE;
 				return left;
@@ -713,6 +733,10 @@ term(struct ktre *re)
 
 	while (*re->sp && *re->sp != '|' && *re->sp != ')') {
 		struct node *right = factor(re);
+		if (re->err) {
+			free_node(right);
+			longjmp(re->jmp, 1);
+		}
 
 		if (left->type == NODE_NONE) {
 			free(left);
@@ -767,30 +791,29 @@ print_node(struct node *n)
 		else DBG("`-- ");
 	}
 
-#define N(...) DBG(__VA_ARGS__); l++; print_node(n->a); l--
-	switch (n->type) {
-	case NODE_SEQUENCE:
-		DBG("(sequence)");
-		l++;
-		split;
-		print_node(n->a);
-		join;
-		print_node(n->b);
-		l--;
-		break;
-	case NODE_OR: DBG("(or)");
-		l++;
-		split;
-		print_node(n->a); join;
-		print_node(n->b);
-		l--;
-		break;
+#define N(...)                                                \
+	do {                                                  \
+		DBG(__VA_ARGS__); l++; print_node(n->a); l--; \
+	} while(0);
 
+#define N2(...)                         \
+	do {                            \
+		DBG(__VA_ARGS__);       \
+		l++; split;             \
+		print_node(n->a); join; \
+		print_node(n->b);       \
+		l--;                    \
+	} while(0);
+
+	switch (n->type) {
+	case NODE_SEQUENCE: N2("(sequence)");                              break;
+	case NODE_OR:       N2("(or)");                                    break;
 	case NODE_ASTERISK: N("(asterisk)");                               break;
 	case NODE_PLUS:     N("(plus)");                                   break;
 	case NODE_GROUP:    N("(group)");                                  break;
 	case NODE_QUESTION: N("(question)");                               break;
 	case NODE_REP:      N("(counted repetition %d - %d)", n->c, n->d); break;
+	case NODE_ATOM:     N("(atom)");                                   break;
 	case NODE_ANY:      DBG("(any)");                                  break;
 	case NODE_NONE:     DBG("(none)");                                 break;
 	case NODE_CHAR:     DBG("(char '%c')", n->c);                      break;
@@ -812,9 +835,9 @@ print_node(struct node *n)
 static void
 compile(struct ktre *re, struct node *n)
 {
-#define patch_a(loc, _a) re->c[loc].a = _a
-#define patch_b(loc, _b) re->c[loc].b = _b
-#define patch_c(loc, _c) re->c[loc].c = _c
+#define PATCH_A(loc, _a) re->c[loc].a = _a
+#define PATCH_B(loc, _b) re->c[loc].b = _b
+#define PATCH_C(loc, _c) re->c[loc].c = _c
 
 	switch (n->type) {
 	case NODE_SEQUENCE:
@@ -831,7 +854,7 @@ compile(struct ktre *re, struct node *n)
 		emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
 		compile(re, n->a);
 		emit_ab(re, INSTR_SPLIT, a + 1, re->ip + 1);
-		patch_b(a, re->ip);
+		PATCH_B(a, re->ip);
 	} break;
 
 	case NODE_QUESTION: {
@@ -843,7 +866,7 @@ compile(struct ktre *re, struct node *n)
 			emit_ab(re, INSTR_SPLIT, -1, re->ip + 1);
 			compile(re, n->a->a);
 			emit_ab(re, INSTR_SPLIT, re->ip + 1, a + 1);
-			patch_a(a, re->ip);
+			PATCH_A(a, re->ip);
 			break;
 		case NODE_PLUS:
 			a = re->ip;
@@ -854,13 +877,13 @@ compile(struct ktre *re, struct node *n)
 			a = re->ip;
 			emit_ab(re, INSTR_SPLIT, -1, re->ip + 1);
 			compile(re, n->a->a);
-			patch_a(a, re->ip);
+			PATCH_A(a, re->ip);
 			break;
 		default:
 			a = re->ip;
 			emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
 			compile(re, n->a);
-			patch_b(a, re->ip);
+			PATCH_B(a, re->ip);
 		}
 	} break;
 
@@ -888,9 +911,9 @@ compile(struct ktre *re, struct node *n)
 		compile(re, n->a);
 		int b = re->ip;
 		emit_c(re, INSTR_JP, -1);
-		patch_b(a, re->ip);
+		PATCH_B(a, re->ip);
 		compile(re, n->b);
-		patch_c(b, re->ip);
+		PATCH_C(b, re->ip);
 	} break;
 
 	case NODE_CLASS:
@@ -939,7 +962,7 @@ compile(struct ktre *re, struct node *n)
 				a = re->ip;
 				emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
 				compile(re, n->a);
-				patch_b(a, re->ip);
+				PATCH_B(a, re->ip);
 			}
 		}
 	} break;
@@ -971,6 +994,11 @@ ktre_compile(const char *pat, int opt)
 		}
 	}
 #endif
+
+	int j = setjmp(re->jmp);
+	if (j) {
+		return re;
+	}
 
 	re->n = parse(re);
 	if (re->failed) {
