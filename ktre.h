@@ -1370,7 +1370,7 @@ run(struct ktre *re, const char *subject, int *vec)
 			}
 
 			t[tp].ip++;
-			new_thread(ip + 2, sp, opt, tp, limit, ret);
+			new_thread(ip + 1, sp, opt, tp, limit, ret);
 			break;
 
 		default:
