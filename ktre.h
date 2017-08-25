@@ -245,7 +245,9 @@ struct instr {
 		INSTR_DIE,
 		INSTR_SET_START,
 		INSTR_WB,
-		INSTR_SAVE
+		INSTR_SAVE,
+		INSTR_CALL,
+		INSTR_RET
 	} op;
 
 	union {
@@ -318,6 +320,7 @@ struct node {
 		NODE_ATOM,
 		NODE_SET_START,
 		NODE_WB, /* word boundary */
+		NODE_CALL,
 		NODE_NONE
 	} type;
 
@@ -584,6 +587,42 @@ again:
 				left->type = NODE_NONE;
 				return left;
 			}
+		} else if (*re->sp == '?' && isdigit(re->sp[1])) { /* subroutine call */
+			NEXT;
+			int len = 0, a = -1;
+
+			while (re->sp[len] && re->sp[len] != ')') len++;
+			if (re->sp[len] != ')') {
+				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp + len - re->pat - 1, "unmatched '('");
+				free_node(left->a);
+				left->type = NODE_NONE;
+				return left;
+			}
+
+			len--;
+
+			for (int i = len; i >= 0; i--) {
+				if (!isdigit(re->sp[i])) {
+					error(re, KTRE_ERROR_INVALID_RANGE, re->pat - re->sp + i,
+					      "non-digits and negative numbers are forbidden in counted repetitions");
+					left->type = NODE_NONE;
+					return left;
+				}
+
+				if (i == len) a = re->sp[i] - '0';
+				else {
+					int d = re->sp[i] - '0';
+					for (int j = 0; j < len - i; j++) {
+						d *= 10;
+					}
+					a += d;
+				}
+			}
+
+			left->type = NODE_CALL;
+			left->c = a;
+
+			re->sp += len + 2; /* skip over the ) and then advance to the next char */
 		} else if (*re->sp == '?') { /* mode modifiers */
 			NEXT;
 			left->type = NODE_NONE;
@@ -865,6 +904,7 @@ print_node(struct node *n)
 	case NODE_SET_START: DBG("(set_start)");                            break;
 	case NODE_OPT_ON:    DBG("(opt on %d)", n->c);                      break;
 	case NODE_OPT_OFF:   DBG("(opt off %d)", n->c);                     break;
+	case NODE_CALL:      DBG("(call %d)", n->c);                        break;
 	case NODE_SEQUENCE:  N2 ("(sequence)");                             break;
 	case NODE_OR:        N2 ("(or)");                                   break;
 	case NODE_ASTERISK:  N1 ("(asterisk)");                             break;
@@ -926,12 +966,21 @@ compile(struct ktre *re, struct node *n)
 	} break;
 
 	case NODE_GROUP:
+		emit_c(re, INSTR_CALL, re->ip + 2);
+		a = re->ip;
+		emit_c(re, INSTR_JMP, -1);
 		emit_c(re, INSTR_SAVE, re->num_groups * 2);
+
 		old = re->num_groups;
 		re->num_groups++;
-		re->group[old].address = re->ip;
+		re->group[old].address = re->ip - 1;
+
 		compile(re, n->a);
+
 		emit_c(re, INSTR_SAVE, old * 2 + 1);
+		emit(re, INSTR_RET);
+		PATCH_C(a, re->ip);
+
 		re->group[old].compiled = true;
 		break;
 
@@ -1051,6 +1100,10 @@ ktre_compile(const char *pat, int opt)
 		return re;
 	}
 
+#ifdef KTRE_DEBUG
+	print_node(re->n);
+#endif
+
 	/* just emit the bytecode for .*? */
 	if (re->opt & KTRE_UNANCHORED) {
 		emit_ab(re, INSTR_SPLIT, 3, 1);
@@ -1080,8 +1133,6 @@ ktre_compile(const char *pat, int opt)
 	emit(re, INSTR_MATCH);
 
 #ifdef KTRE_DEBUG
-	print_node(re->n);
-
 	for (int i = 0; i < re->num_groups; i++) {
 		DBG("\ngroup %d address: %d", i, re->group[i].address);
 	}
@@ -1094,11 +1145,12 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_CLASS:     DBG("CLASS   '%s'", re->c[i].class);            break;
 		case INSTR_NOT:       DBG("NOT     '%s'", re->c[i].class);            break;
 		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].c);                break;
-		case INSTR_SAVE:      DBG("SAVE     %d", re->c[i].c);                 break;
-		case INSTR_JMP:       DBG("JMP      %d", re->c[i].c);                 break;
-		case INSTR_OPT_ON:    DBG("OPTON    %d", re->c[i].c);                 break;
-		case INSTR_OPT_OFF:   DBG("OPTOFF   %d", re->c[i].c);                 break;
-		case INSTR_BACKREF:   DBG("BACKREF  %d", re->c[i].c);                 break;
+		case INSTR_SAVE:      DBG("SAVE     %d",  re->c[i].c);                break;
+		case INSTR_JMP:       DBG("JMP      %d",  re->c[i].c);                break;
+		case INSTR_OPT_ON:    DBG("OPTON    %d",  re->c[i].c);                break;
+		case INSTR_OPT_OFF:   DBG("OPTOFF   %d",  re->c[i].c);                break;
+		case INSTR_BACKREF:   DBG("BACKREF  %d",  re->c[i].c);                break;
+		case INSTR_CALL:      DBG("CALL     %d",  re->c[i].a);                break;
 		case INSTR_SET_START: DBG("SET_START");                               break;
 		case INSTR_PUSH_TP:   DBG("PUSH_TP");                                 break;
 		case INSTR_KILL_TP:   DBG("KILL_TP");                                 break;
@@ -1107,6 +1159,7 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_BOL:       DBG("BOL");                                     break;
 		case INSTR_EOL:       DBG("EOL");                                     break;
 		case INSTR_DIE:       DBG("DIE");                                     break;
+		case INSTR_RET:       DBG("RET");                                     break;
 		case INSTR_WB:        DBG("WB");                                      break;
 		default: assert(false);
 		}
@@ -1117,14 +1170,17 @@ ktre_compile(const char *pat, int opt)
 }
 
 #define MAX_THREAD (1 << 12) /* no one will ever need more than 4096 threads */
-#define MAX_CALL_DEPTH 1024
+#define MAX_CALL_DEPTH 2048
+
 static bool
 run(struct ktre *re, const char *subject, int *vec)
 {
+	int frame[MAX_CALL_DEPTH], fp = 0;
+
 	struct thread {
 		int ip, sp;
 		int old, old_idx, opt;
-		int tp;
+		int tp, ret;
 	} t[MAX_THREAD];
 	int tp = 0;
 
@@ -1136,46 +1192,46 @@ run(struct ktre *re, const char *subject, int *vec)
 
 	while (tp) {
 		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, _tp = t[tp].tp;
-//		printf("\nip: %d, sp: %d, tp: %d", ip, sp, tp);
+		DBG("\nip: %3d | sp: %3d | tp: %3d", ip, sp, tp);
 
 		switch (re->c[ip].op) {
 		case INSTR_BACKREF:
-			tp--;
+			--tp;
 			if (!strncmp(subject + sp, &subject[vec[re->c[ip].c * 2]], vec[re->c[ip].c * 2 + 1]))
 				new_thread(ip + 1, sp + vec[re->c[ip].c * 2 + 1], opt, _tp);
 			break;
 
 		case INSTR_CLASS:
-			tp--;
+			--tp;
 			if (strchr(re->c[ip].class, subject[sp]))
 				new_thread(ip + 1, sp + 1, opt, _tp);
 			break;
 
 		case INSTR_NOT:
-			tp--;
+			--tp;
 			if (!strchr(re->c[ip].class, subject[sp]))
 				new_thread(ip + 1, sp + 1, opt, _tp);
 			break;
 
 		case INSTR_BOL:
-			tp--;
+			--tp;
 			if (sp == 0) new_thread(ip + 1, sp, opt, _tp);
 			break;
 
 		case INSTR_EOL:
-			tp--;
+			--tp;
 			if (subject[sp] == 0 || subject[sp] == '\n') new_thread(ip + 1, sp, opt, _tp);
 			break;
 
 		case INSTR_WB:
-			tp--;
+			--tp;
 			if (sp && (strchr("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", subject[sp - 1])
 			           && !strchr("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", subject[sp])))
 				new_thread(ip + 1, sp, opt, _tp);
 			break;
 
 		case INSTR_CHAR:
-			tp--;
+			--tp;
 			if (opt & KTRE_INSENSITIVE) {
 				if (lc(subject[sp]) == lc(re->c[ip].c)) {
 					new_thread(ip + 1, sp + 1, opt, _tp);
@@ -1188,7 +1244,7 @@ run(struct ktre *re, const char *subject, int *vec)
 			break;
 
 		case INSTR_ANY:
-			tp--;
+			--tp;
 			if (subject[sp] != 0) new_thread(ip + 1, sp + 1, opt, _tp);
 			break;
 
@@ -1200,10 +1256,11 @@ run(struct ktre *re, const char *subject, int *vec)
 		case INSTR_MATCH:
 			if (subject[sp] == 0)
 				return true;
-			tp--;
+			--tp;
 			break;
 
 		case INSTR_SAVE:
+//			DBG("\nsaving: %d, sp: %d", re->c[ip].c, sp);
 			if (t[tp].old == -1) {
 				t[tp].old = vec[re->c[ip].c];
 				t[tp].old_idx = re->c[ip].c;
@@ -1214,7 +1271,7 @@ run(struct ktre *re, const char *subject, int *vec)
 				new_thread(ip + 1, sp, opt, _tp);
 			} else {
 				vec[t[tp].old_idx] = t[tp].old;
-				tp--;
+				--tp;
 			}
 			break;
 
@@ -1240,7 +1297,7 @@ run(struct ktre *re, const char *subject, int *vec)
 		case INSTR_KILL_TP:
 			while (tp && t[tp].tp == tp) {
 				t[tp - 1].sp = t[tp].sp;
-				tp--;
+				--tp;
 			}
 
 			t[tp].ip++;
@@ -1254,6 +1311,16 @@ run(struct ktre *re, const char *subject, int *vec)
 		case INSTR_SET_START:
 			vec[0] = sp;
 			t[tp].ip++;
+			break;
+
+		case INSTR_CALL:
+			--tp;
+			frame[fp++] = ip + 1;
+			new_thread(re->c[ip].c, sp, opt, _tp);
+			break;
+
+		case INSTR_RET:
+			t[tp].ip = frame[--fp];
 			break;
 
 		default:
