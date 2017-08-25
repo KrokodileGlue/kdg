@@ -144,6 +144,12 @@ struct ktre {
 	struct node *n;
 	int popt;        /* the options, as seen by the parser */
 	jmp_buf jmp;     /* the parser must return as soon as it encounters an error */
+
+	struct group {
+		int address;
+		_Bool compiled;
+	} *group;
+	int gp;
 };
 
 enum {
@@ -157,16 +163,29 @@ _Bool ktre_exec(struct ktre *re, const char *subject, int **vec);
 void ktre_free(struct ktre *re);
 
 #ifdef KTRE_IMPLEMENTATION
+#ifdef KTRE_DEBUG
+#include <assert.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#endif
+
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 #include <setjmp.h>
 
-#ifdef KTRE_DEBUG
-#include <assert.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__)
-#endif
+static void *_malloc(size_t n);
+static void *_calloc(size_t n);
+static void *_realloc(void *ptr, size_t n);
+
+static void
+add_group(struct ktre *re)
+{
+	re->group = _realloc(re->group, sizeof re->group[0] * re->gp);
+	re->group[re->gp].compiled = false;
+	re->group[re->gp].address = -1;
+	re->gp++;
+}
 
 static void *
 _malloc(size_t n)
@@ -606,6 +625,7 @@ again:
 				return left;
 			}
 		} else {
+			add_group(re);
 			left->type = NODE_GROUP;
 			left->a = parse(re);
 
@@ -817,7 +837,7 @@ print_node(struct node *n)
 		else DBG("`-- ");
 	}
 
-#define N(...)                                                \
+#define N1(...)                                               \
 	do {                                                  \
 		DBG(__VA_ARGS__); l++; print_node(n->a); l--; \
 	} while(0);
@@ -846,11 +866,11 @@ print_node(struct node *n)
 	case NODE_OPT_OFF:   DBG("(opt off %d)", n->c);                     break;
 	case NODE_SEQUENCE:  N2 ("(sequence)");                             break;
 	case NODE_OR:        N2 ("(or)");                                   break;
-	case NODE_ASTERISK:  N  ("(asterisk)");                             break;
-	case NODE_PLUS:      N  ("(plus)");                                 break;
-	case NODE_GROUP:     N  ("(group)");                                break;
-	case NODE_QUESTION:  N  ("(question)");                             break;
-	case NODE_ATOM:      N  ("(atom)");                                 break;
+	case NODE_ASTERISK:  N1 ("(asterisk)");                             break;
+	case NODE_PLUS:      N1 ("(plus)");                                 break;
+	case NODE_GROUP:     N1 ("(group)");                                break;
+	case NODE_QUESTION:  N1 ("(question)");                             break;
+	case NODE_ATOM:      N1 ("(atom)");                                 break;
 
 	default:
 		DBG("\nunimplemented printer for node of type %d\n", n->type);
@@ -910,6 +930,7 @@ compile(struct ktre *re, struct node *n)
 		re->num_groups++;
 		compile(re, n->a);
 		emit_c(re, INSTR_SAVE, old * 2 + 1);
+		re->group[old].compiled = true;
 		break;
 
 	case NODE_PLUS:
@@ -947,12 +968,17 @@ compile(struct ktre *re, struct node *n)
 	case NODE_NONE:                                             break;
 
 	case NODE_BACKREF:
-		if (n->c <= 0 || n->c - 1 >= re->num_groups) {
+		if (n->c <= 0 || n->c >= re->num_groups) {
 			error(re, KTRE_ERROR_INVALID_BACKREFERENCE, n->loc, "backreference number is invalid or references a group that does not yet exist");
-		return;
+			return;
 		}
-		emit_c(re, INSTR_BACKREF,
-		       n->c);
+
+		if (!re->group[n->c].compiled) {
+			error(re, KTRE_ERROR_INVALID_BACKREFERENCE, n->loc, "backreferences may not reference the group they occur in");
+			return;
+		}
+
+		emit_c(re, INSTR_BACKREF, n->c);
 		break;
 
 	case NODE_REP:
@@ -1261,7 +1287,7 @@ ktre_exec(struct ktre *re, const char *subject, int **vec)
 		re->err = 0;
 	}
 
-	*vec = _calloc(sizeof (*vec[0]) * re->num_groups * 2);
+	*vec = _calloc(sizeof *vec[0] * re->num_groups * 2);
 
 	if (run(re, subject, *vec)) {
 		return true;
