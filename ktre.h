@@ -224,6 +224,7 @@ struct instr {
 		INSTR_PUSH_TP,
 		INSTR_KILL_TP,
 		INSTR_DIE,
+		INSTR_SET_START,
 		INSTR_SAVE
 	} op;
 
@@ -295,6 +296,7 @@ struct node {
 		NODE_OPT_OFF,
 		NODE_REP,
 		NODE_ATOM,
+		NODE_SET_START,
 		NODE_NONE
 	} type;
 
@@ -409,31 +411,37 @@ again:
 			left->class = strclone(" \t\r\n\v\f");
 			NEXT;
 			break;
+
 		case 'S':
 			left->type = NODE_NOT;
 			left->class = strclone(" \t\r\n\v\f");
 			NEXT;
 			break;
+
 		case 'd':
 			left->type = NODE_CLASS;
 			left->class = strclone("0123456789");
 			NEXT;
 			break;
+
 		case 'D':
 			left->type = NODE_NOT;
 			left->class = strclone("0123456789");
 			NEXT;
 			break;
+
 		case 'w':
 			left->type = NODE_CLASS;
 			left->class = strclone("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
 			NEXT;
 			break;
+
 		case 'W':
 			left->type = NODE_NOT;
 			left->class = strclone("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
 			NEXT;
 			break;
+
 		case '0': case '1': case '2': case '3': case '4':
 		case '5': case '6': case '7': case '8': case '9':
 			left->type = NODE_BACKREF;
@@ -445,11 +453,18 @@ again:
 			}
 			NEXT;
 			break;
+
+		case 'K':
+			left->type = NODE_SET_START;
+			NEXT;
+			break;
+
 		case 'n':
 			left->type = NODE_CHAR;
 			left->c = '\n';
 			NEXT;
 			break;
+
 		default:
 			left->type = NODE_CHAR;
 			left->c = *re->sp;
@@ -810,24 +825,24 @@ print_node(struct node *n)
 	} while(0);
 
 	switch (n->type) {
-	case NODE_SEQUENCE: N2("(sequence)");                              break;
-	case NODE_OR:       N2("(or)");                                    break;
-	case NODE_ASTERISK: N("(asterisk)");                               break;
-	case NODE_PLUS:     N("(plus)");                                   break;
-	case NODE_GROUP:    N("(group)");                                  break;
-	case NODE_QUESTION: N("(question)");                               break;
-	case NODE_REP:      N("(counted repetition %d - %d)", n->c, n->d); break;
-	case NODE_ATOM:     N("(atom)");                                   break;
-	case NODE_ANY:      DBG("(any)");                                  break;
-	case NODE_NONE:     DBG("(none)");                                 break;
-	case NODE_CHAR:     DBG("(char '%c')", n->c);                      break;
-	case NODE_BACKREF:  DBG("(backreference to %d)", n->c);            break;
-	case NODE_CLASS:    DBG("(class '%s')", n->class);                 break;
-	case NODE_NOT:      DBG("(not '%s')", n->class);                   break;
-	case NODE_BOL:      DBG("(bol)");                                  break;
-	case NODE_EOL:      DBG("(eol)");                                  break;
-	case NODE_OPT_ON:   DBG("(opt on %d)", n->c);                      break;
-	case NODE_OPT_OFF:  DBG("(opt off %d)", n->c);                     break;
+	case NODE_ANY:       DBG("(any)");                                  break;
+	case NODE_NONE:      DBG("(none)");                                 break;
+	case NODE_CHAR:      DBG("(char '%c')", n->c);                      break;
+	case NODE_BACKREF:   DBG("(backreference to %d)", n->c);            break;
+	case NODE_CLASS:     DBG("(class '%s')", n->class);                 break;
+	case NODE_NOT:       DBG("(not '%s')", n->class);                   break;
+	case NODE_BOL:       DBG("(bol)");                                  break;
+	case NODE_EOL:       DBG("(eol)");                                  break;
+	case NODE_SET_START: DBG("(set_start)");                            break;
+	case NODE_OPT_ON:    DBG("(opt on %d)", n->c);                      break;
+	case NODE_OPT_OFF:   DBG("(opt off %d)", n->c);                     break;
+	case NODE_SEQUENCE:  N2 ("(sequence)");                             break;
+	case NODE_OR:        N2 ("(or)");                                   break;
+	case NODE_ASTERISK:  N  ("(asterisk)");                             break;
+	case NODE_PLUS:      N  ("(plus)");                                 break;
+	case NODE_GROUP:     N  ("(group)");                                break;
+	case NODE_QUESTION:  N  ("(question)");                             break;
+	case NODE_ATOM:      N  ("(atom)");                                 break;
 
 	default:
 		DBG("\nunimplemented printer for node of type %d\n", n->type);
@@ -911,15 +926,16 @@ compile(struct ktre *re, struct node *n)
 		compile(re, n->b);
 		break;
 
-	case NODE_CLASS:   emit_class(re, INSTR_CLASS, n->class); break;
-	case NODE_NOT:     emit_class(re, INSTR_NOT, n->class);   break;
-	case NODE_OPT_ON:  emit_c(re, INSTR_OPT_ON,  n->c);       break;
-	case NODE_OPT_OFF: emit_c(re, INSTR_OPT_OFF, n->c);       break;
-	case NODE_CHAR:    emit_c(re, INSTR_CHAR,    n->c);       break;
-	case NODE_BOL:     emit(re, INSTR_BOL);                   break;
-	case NODE_EOL:     emit(re, INSTR_EOL);                   break;
-	case NODE_ANY:     emit(re, INSTR_ANY);                   break;
-	case NODE_NONE:                                           break;
+	case NODE_CLASS:     emit_class(re, INSTR_CLASS, n->class); break;
+	case NODE_NOT:       emit_class(re, INSTR_NOT, n->class);   break;
+	case NODE_OPT_ON:    emit_c(re, INSTR_OPT_ON,  n->c);       break;
+	case NODE_OPT_OFF:   emit_c(re, INSTR_OPT_OFF, n->c);       break;
+	case NODE_CHAR:      emit_c(re, INSTR_CHAR,    n->c);       break;
+	case NODE_BOL:       emit(re, INSTR_BOL);                   break;
+	case NODE_EOL:       emit(re, INSTR_EOL);                   break;
+	case NODE_ANY:       emit(re, INSTR_ANY);                   break;
+	case NODE_SET_START: emit(re, INSTR_SET_START);             break;
+	case NODE_NONE:                                             break;
 
 	case NODE_BACKREF:
 		if (n->c <= 0 || n->c - 1 >= re->num_groups) {
@@ -1031,22 +1047,23 @@ ktre_compile(const char *pat, int opt)
 		DBG("\n%3d: ", i);
 
 		switch (re->c[i].op) {
-		case INSTR_SPLIT:   DBG("SPLIT    %d, %d", re->c[i].a, re->c[i].b); break;
-		case INSTR_CLASS:   DBG("CLASS   '%s'", re->c[i].class);            break;
-		case INSTR_NOT:     DBG("NOT     '%s'", re->c[i].class);            break;
-		case INSTR_CHAR:    DBG("CHAR    '%c'", re->c[i].c);                break;
-		case INSTR_SAVE:    DBG("SAVE     %d", re->c[i].c);                 break;
-		case INSTR_JMP:     DBG("JMP      %d", re->c[i].c);                 break;
-		case INSTR_OPT_ON:  DBG("OPTON    %d", re->c[i].c);                 break;
-		case INSTR_OPT_OFF: DBG("OPTOFF   %d", re->c[i].c);                 break;
-		case INSTR_BACKREF: DBG("BACKREF  %d", re->c[i].c);                 break;
-		case INSTR_PUSH_TP: DBG("PUSH_TP");                                 break;
-		case INSTR_KILL_TP: DBG("KILL_TP");                                 break;
-		case INSTR_MATCH:   DBG("MATCH");                                   break;
-		case INSTR_ANY:     DBG("ANY");                                     break;
-		case INSTR_BOL:     DBG("BOL");                                     break;
-		case INSTR_EOL:     DBG("EOL");                                     break;
-		case INSTR_DIE:     DBG("DIE");                                     break;
+		case INSTR_SPLIT:     DBG("SPLIT    %d, %d", re->c[i].a, re->c[i].b); break;
+		case INSTR_CLASS:     DBG("CLASS   '%s'", re->c[i].class);            break;
+		case INSTR_NOT:       DBG("NOT     '%s'", re->c[i].class);            break;
+		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].c);                break;
+		case INSTR_SAVE:      DBG("SAVE     %d", re->c[i].c);                 break;
+		case INSTR_JMP:       DBG("JMP      %d", re->c[i].c);                 break;
+		case INSTR_OPT_ON:    DBG("OPTON    %d", re->c[i].c);                 break;
+		case INSTR_OPT_OFF:   DBG("OPTOFF   %d", re->c[i].c);                 break;
+		case INSTR_BACKREF:   DBG("BACKREF  %d", re->c[i].c);                 break;
+		case INSTR_SET_START: DBG("SET_START");                               break;
+		case INSTR_PUSH_TP:   DBG("PUSH_TP");                                 break;
+		case INSTR_KILL_TP:   DBG("KILL_TP");                                 break;
+		case INSTR_MATCH:     DBG("MATCH");                                   break;
+		case INSTR_ANY:       DBG("ANY");                                     break;
+		case INSTR_BOL:       DBG("BOL");                                     break;
+		case INSTR_EOL:       DBG("EOL");                                     break;
+		case INSTR_DIE:       DBG("DIE");                                     break;
 		default: assert(false);
 		}
 	}
@@ -1181,6 +1198,11 @@ run(struct ktre *re, const char *subject, int *vec)
 
 		case INSTR_DIE:
 			return false;
+			break;
+
+		case INSTR_SET_START:
+			vec[0] = sp;
+			t[tp].ip++;
 			break;
 
 		default:
