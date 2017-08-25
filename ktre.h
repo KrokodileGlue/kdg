@@ -211,7 +211,7 @@ struct instr {
 	enum {
 		INSTR_MATCH,
 		INSTR_CHAR,
-		INSTR_JP,
+		INSTR_JMP,
 		INSTR_SPLIT,
 		INSTR_ANY,
 		INSTR_CLASS,
@@ -221,6 +221,9 @@ struct instr {
 		INSTR_EOL,
 		INSTR_OPT_ON,
 		INSTR_OPT_OFF,
+		INSTR_PUSH_TP,
+		INSTR_KILL_TP,
+		INSTR_DIE,
 		INSTR_SAVE
 	} op;
 
@@ -528,6 +531,7 @@ again:
 			}
 			left->type = NODE_NONE;
 		} else if (*re->sp == '?' && re->sp[1] == '>') {
+			NEXT;
 			NEXT;
 			left->type = NODE_ATOM;
 			left->a = parse(re);
@@ -838,28 +842,18 @@ compile(struct ktre *re, struct node *n)
 #define PATCH_A(loc, _a) re->c[loc].a = _a
 #define PATCH_B(loc, _b) re->c[loc].b = _b
 #define PATCH_C(loc, _c) re->c[loc].c = _c
+	int a = -1, b = -1, old = -1;
 
 	switch (n->type) {
-	case NODE_SEQUENCE:
-		compile(re, n->a);
-		compile(re, n->b);
-		break;
-
-	case NODE_CHAR:
-		emit_c(re, INSTR_CHAR, n->c);
-		break;
-
-	case NODE_ASTERISK: {
-		int a = re->ip;
+	case NODE_ASTERISK:
+		a = re->ip;
 		emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
 		compile(re, n->a);
 		emit_ab(re, INSTR_SPLIT, a + 1, re->ip + 1);
 		PATCH_B(a, re->ip);
-	} break;
+		break;
 
 	case NODE_QUESTION: {
-		int a;
-
 		switch (n->a->type) {
 		case NODE_ASTERISK:
 			a = re->ip;
@@ -887,56 +881,46 @@ compile(struct ktre *re, struct node *n)
 		}
 	} break;
 
-	case NODE_GROUP: {
+	case NODE_GROUP:
 		emit_c(re, INSTR_SAVE, re->num_groups * 2);
-		int old = re->num_groups;
+		old = re->num_groups;
 		re->num_groups++;
 		compile(re, n->a);
 		emit_c(re, INSTR_SAVE, old * 2 + 1);
-	} break;
-
-	case NODE_ANY:
-		emit(re, INSTR_ANY);
 		break;
 
-	case NODE_PLUS: {
-		int a = re->ip;
+	case NODE_PLUS:
+		a = re->ip;
 		compile(re, n->a);
 		emit_ab(re, INSTR_SPLIT, a, re->ip + 1);
-	} break;
+		break;
 
-	case NODE_OR: {
-		int a = re->ip;
+	case NODE_OR:
+		a = re->ip;
 		emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
 		compile(re, n->a);
-		int b = re->ip;
-		emit_c(re, INSTR_JP, -1);
+		b = re->ip;
+		emit_c(re, INSTR_JMP, -1);
 		PATCH_B(a, re->ip);
 		compile(re, n->b);
 		PATCH_C(b, re->ip);
-	} break;
+		break;
 
-	case NODE_CLASS:
-		emit_class(re, INSTR_CLASS, n->class);
+	case NODE_SEQUENCE:
+		compile(re, n->a);
+		compile(re, n->b);
 		break;
-	case NODE_NOT:
-		emit_class(re, INSTR_NOT, n->class);
-		break;
-	case NODE_BOL:
-		emit(re, INSTR_BOL);
-		break;
-	case NODE_EOL:
-		emit(re, INSTR_EOL);
-		break;
-	case NODE_NONE:
-		/* these nodes are created by comments, mode modifiers, and some other things. */
-		break;
-	case NODE_OPT_ON:
-		emit_c(re, INSTR_OPT_ON, n->c);
-		break;
-	case NODE_OPT_OFF:
-		emit_c(re, INSTR_OPT_OFF, n->c);
-		break;
+
+	case NODE_CLASS:   emit_class(re, INSTR_CLASS, n->class); break;
+	case NODE_NOT:     emit_class(re, INSTR_NOT, n->class);   break;
+	case NODE_OPT_ON:  emit_c(re, INSTR_OPT_ON,  n->c);       break;
+	case NODE_OPT_OFF: emit_c(re, INSTR_OPT_OFF, n->c);       break;
+	case NODE_CHAR:    emit_c(re, INSTR_CHAR,    n->c);       break;
+	case NODE_BOL:     emit(re, INSTR_BOL);                   break;
+	case NODE_EOL:     emit(re, INSTR_EOL);                   break;
+	case NODE_ANY:     emit(re, INSTR_ANY);                   break;
+	case NODE_NONE:                                           break;
+
 	case NODE_BACKREF:
 		if (n->c <= 0 || n->c - 1 >= re->num_groups) {
 			error(re, KTRE_ERROR_INVALID_BACKREFERENCE, n->loc, "backreference number is invalid or references a group that does not yet exist");
@@ -945,8 +929,9 @@ compile(struct ktre *re, struct node *n)
 		emit_c(re, INSTR_BACKREF,
 		       n->c);
 		break;
-	case NODE_REP: {
-		int a = 0;
+
+	case NODE_REP:
+		a = 0;
 		for (int i = 0; i < n->c; i++) {
 			a = re->ip;
 			compile(re, n->a);
@@ -965,7 +950,14 @@ compile(struct ktre *re, struct node *n)
 				PATCH_B(a, re->ip);
 			}
 		}
-	} break;
+		break;
+
+	case NODE_ATOM:
+		emit(re, INSTR_PUSH_TP);
+		compile(re, n->a);
+		emit(re, INSTR_KILL_TP);
+		emit(re, INSTR_DIE);
+		break;
 
 	default:
 #ifdef KTRE_DEBUG
@@ -1039,19 +1031,22 @@ ktre_compile(const char *pat, int opt)
 		DBG("\n%3d: ", i);
 
 		switch (re->c[i].op) {
-		case INSTR_CHAR:    DBG("CHAR   '%c'", re->c[i].c);                break;
-		case INSTR_SPLIT:   DBG("SPLIT %3d, %3d", re->c[i].a, re->c[i].b); break;
-		case INSTR_ANY:     DBG("ANY");                                    break;
-		case INSTR_MATCH:   DBG("MATCH");                                  break;
-		case INSTR_SAVE:    DBG("SAVE  %3d", re->c[i].c);                  break;
-		case INSTR_JP:      DBG("JP    %3d", re->c[i].c);                  break;
-		case INSTR_CLASS:   DBG("CLASS '%s'", re->c[i].class);             break;
-		case INSTR_NOT:     DBG("NOT   '%s'", re->c[i].class);             break;
-		case INSTR_BOL:     DBG("BOL");                                    break;
-		case INSTR_EOL:     DBG("EOL");                                    break;
-		case INSTR_OPT_ON:  DBG("OPTON   %d", re->c[i].c);                 break;
-		case INSTR_OPT_OFF: DBG("OPTOFF  %d", re->c[i].c);                 break;
-		case INSTR_BACKREF: DBG("BACKREF %d", re->c[i].c);                 break;
+		case INSTR_SPLIT:   DBG("SPLIT    %d, %d", re->c[i].a, re->c[i].b); break;
+		case INSTR_CLASS:   DBG("CLASS   '%s'", re->c[i].class);            break;
+		case INSTR_NOT:     DBG("NOT     '%s'", re->c[i].class);            break;
+		case INSTR_CHAR:    DBG("CHAR    '%c'", re->c[i].c);                break;
+		case INSTR_SAVE:    DBG("SAVE     %d", re->c[i].c);                 break;
+		case INSTR_JMP:     DBG("JMP      %d", re->c[i].c);                 break;
+		case INSTR_OPT_ON:  DBG("OPTON    %d", re->c[i].c);                 break;
+		case INSTR_OPT_OFF: DBG("OPTOFF   %d", re->c[i].c);                 break;
+		case INSTR_BACKREF: DBG("BACKREF  %d", re->c[i].c);                 break;
+		case INSTR_PUSH_TP: DBG("PUSH_TP");                                 break;
+		case INSTR_KILL_TP: DBG("KILL_TP");                                 break;
+		case INSTR_MATCH:   DBG("MATCH");                                   break;
+		case INSTR_ANY:     DBG("ANY");                                     break;
+		case INSTR_BOL:     DBG("BOL");                                     break;
+		case INSTR_EOL:     DBG("EOL");                                     break;
+		case INSTR_DIE:     DBG("DIE");                                     break;
 		default: assert(false);
 		}
 	}
@@ -1068,69 +1063,70 @@ run(struct ktre *re, const char *subject, int *vec)
 	struct thread {
 		int ip, sp;
 		int old, old_idx, opt;
+		int tp;
 	} t[MAX_THREAD];
 	int tp = 0;
 
-#define new_thread(ip, sp, opt) \
-	t[++tp] = (struct thread){ ip, sp, -1, -1, opt }
+#define new_thread(ip, sp, opt, __tp) \
+	t[++tp] = (struct thread){ ip, sp, -1, -1, opt, __tp }
 
 	/* push the initial thread */
-	new_thread(0, 0, re->opt);
+	new_thread(0, 0, re->opt, 0);
 
 	while (tp) {
-		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt;
+		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, _tp = t[tp].tp;
 //		printf("\nip: %d, sp: %d, tp: %d", ip, sp, tp);
 
 		switch (re->c[ip].op) {
 		case INSTR_BACKREF:
 			tp--;
 			if (!strncmp(subject + sp, &subject[vec[re->c[ip].c * 2]], vec[re->c[ip].c * 2 + 1]))
-				new_thread(ip + 1, sp + vec[re->c[ip].c * 2 + 1], opt);
+				new_thread(ip + 1, sp + vec[re->c[ip].c * 2 + 1], opt, _tp);
 			break;
 
 		case INSTR_CLASS:
 			tp--;
 			if (strchr(re->c[ip].class, subject[sp]))
-				new_thread(ip + 1, sp + 1, opt);
+				new_thread(ip + 1, sp + 1, opt, _tp);
 			break;
 
 		case INSTR_NOT:
 			tp--;
 			if (!strchr(re->c[ip].class, subject[sp]))
-				new_thread(ip + 1, sp + 1, opt);
+				new_thread(ip + 1, sp + 1, opt, _tp);
 			break;
 
 		case INSTR_BOL:
 			tp--;
-			if (sp == 0) new_thread(ip + 1, sp, opt);
+			if (sp == 0) new_thread(ip + 1, sp, opt, _tp);
 			break;
 
 		case INSTR_EOL:
 			tp--;
-			if (subject[sp] == 0 || subject[sp] == '\n') new_thread(ip + 1, sp, opt);
+			if (subject[sp] == 0 || subject[sp] == '\n') new_thread(ip + 1, sp, opt, _tp);
 			break;
 
 		case INSTR_CHAR:
 			tp--;
 			if (opt & KTRE_INSENSITIVE) {
 				if (lc(subject[sp]) == lc(re->c[ip].c)) {
-				  new_thread(ip + 1, sp + 1, opt);
+					new_thread(ip + 1, sp + 1, opt, _tp);
 				}
 			} else {
 				if (subject[sp] == re->c[ip].c) {
-				  new_thread(ip + 1, sp + 1, opt);
+					new_thread(ip + 1, sp + 1, opt, _tp);
 				}
 			}
 			break;
 
 		case INSTR_ANY:
 			tp--;
-			if (subject[sp] != 0) new_thread(ip + 1, sp + 1, opt);
+			if (subject[sp] != 0) new_thread(ip + 1, sp + 1, opt, _tp);
 			break;
 
 		case INSTR_SPLIT:
 			t[tp].ip = re->c[ip].b;
-			new_thread(re->c[ip].a, sp, opt);
+			new_thread(re->c[ip].a, sp, opt, _tp);
 			break;
 
 		case INSTR_MATCH:
@@ -1147,14 +1143,14 @@ run(struct ktre *re, const char *subject, int *vec)
 					vec[re->c[ip].c] = sp;
 				else
 					vec[re->c[ip].c] = sp - vec[re->c[ip].c - 1];
-				new_thread(ip + 1, sp, opt);
+				new_thread(ip + 1, sp, opt, _tp);
 			} else {
 				vec[t[tp].old_idx] = t[tp].old;
 				tp--;
 			}
 			break;
 
-		case INSTR_JP:
+		case INSTR_JMP:
 			t[tp].ip = re->c[ip].c;
 			break;
 
@@ -1166,6 +1162,25 @@ run(struct ktre *re, const char *subject, int *vec)
 		case INSTR_OPT_OFF:
 			t[tp].opt &= ~re->c[ip].c;
 			t[tp].ip++;
+			break;
+
+		case INSTR_PUSH_TP:
+			t[tp].tp = tp;
+			t[tp].ip++;
+			break;
+
+		case INSTR_KILL_TP:
+			while (tp && t[tp].tp == tp) {
+				t[tp - 1].sp = t[tp].sp;
+				tp--;
+			}
+
+			t[tp].ip++;
+			new_thread(ip + 2, sp, opt, tp);
+			break;
+
+		case INSTR_DIE:
+			return false;
 			break;
 
 		default:
