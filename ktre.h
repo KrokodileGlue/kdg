@@ -256,6 +256,7 @@ struct instr {
 		INSTR_LA_WIN,
 		INSTR_LA_FAIL,
 		INSTR_LB_YES,
+		INSTR_LB_NO,
 		INSTR_RET
 	} op;
 
@@ -1181,6 +1182,14 @@ compile(struct ktre *re, struct node *n)
 		compile(re, n->a);
 		break;
 
+	case NODE_LB_NO:
+		a = re->ip;
+		emit_c(re, INSTR_LB_NO, -1);
+		compile(re, n->a);
+		emit(re, INSTR_DIE);
+		PATCH_C(a, re->ip);
+		break;
+
 	default:
 #ifdef KTRE_DEBUG
 		DBG("\nunimplemented compiler for node of type %d\n", n->type);
@@ -1286,6 +1295,7 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_LA_WIN:    DBG("LA_WIN");                                  break;
 		case INSTR_LA_FAIL:   DBG("LA_FAIL");                                 break;
 		case INSTR_LB_YES:    DBG("LB_YES");                                  break;
+		case INSTR_LB_NO:     DBG("LB_NO");                                   break;
 		default: assert(false);
 		}
 	}
@@ -1470,6 +1480,12 @@ run(struct ktre *re, const char *subject, int *vec)
 
 		case INSTR_LB_YES:
 			--tp;
+			new_thread(ip + 1, 0, opt, _tp);
+			break;
+
+		case INSTR_LB_NO:
+			--tp;
+			new_thread(re->c[ip].c, 0, opt, _tp);
 			new_thread(ip + 1, 0, opt, _tp);
 			break;
 
