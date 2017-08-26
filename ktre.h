@@ -335,6 +335,7 @@ struct node {
 		NODE_LA_NO,
 		NODE_LB_YES,
 		NODE_LB_NO,
+		NODE_RECURSE,
 		NODE_NONE
 	} type;
 
@@ -589,9 +590,12 @@ again:
 				return left;
 			}
 			left->type = NODE_NONE;
+		} else if (!strncmp(re->sp, "?R)", 3)) {
+			re->sp += 2;
+			left->type = NODE_RECURSE;
 		} else if (*re->sp == '?' && re->sp[1] == '<' && re->sp[2] == '=') { /* positive lookbehind */
 			left->type = NODE_LB_YES;
-			NEXT; NEXT; NEXT;
+			re->sp += 3;
 			left->a = parse(re);
 
 			if (*re->sp != ')') {
@@ -602,7 +606,7 @@ again:
 			}
 		} else if (*re->sp == '?' && re->sp[1] == '<' && re->sp[2] == '!') { /* positive lookbehind */
 			left->type = NODE_LB_NO;
-			NEXT; NEXT; NEXT;
+			re->sp += 3;
 			left->a = parse(re);
 
 			if (*re->sp != ')') {
@@ -612,8 +616,7 @@ again:
 				return left;
 			}
 		} else if (*re->sp == '?' && re->sp[1] == '>') {
-			NEXT;
-			NEXT;
+			re->sp += 2;
 			left->type = NODE_ATOM;
 			left->a = parse(re);
 
@@ -965,6 +968,7 @@ print_node(struct node *n)
 	case NODE_NOT:       DBG("(not '%s')", n->class);                     break;
 	case NODE_BOL:       DBG("(bol)");                                    break;
 	case NODE_EOL:       DBG("(eol)");                                    break;
+	case NODE_RECURSE:   DBG("(recurse)");                                break;
 	case NODE_SET_START: DBG("(set_start)");                              break;
 	case NODE_OPT_ON:    DBG("(opt on %d)", n->c);                        break;
 	case NODE_OPT_OFF:   DBG("(opt off %d)", n->c);                       break;
@@ -1190,6 +1194,10 @@ compile(struct ktre *re, struct node *n)
 		PATCH_C(a, re->ip);
 		break;
 
+	case NODE_RECURSE:
+		emit_c(re, INSTR_CALL, re->group[0].address + 1);
+		break;
+
 	default:
 #ifdef KTRE_DEBUG
 		DBG("\nunimplemented compiler for node of type %d\n", n->type);
@@ -1223,7 +1231,11 @@ ktre_compile(const char *pat, int opt)
 		return re;
 	}
 
-	re->n = parse(re);
+	re->n = _malloc(sizeof *re->n);
+	re->n->type = NODE_GROUP;
+	add_group(re);
+
+	re->n->a = parse(re);
 	if (re->failed) {
 		free_node(re->n);
 		return re;
@@ -1239,12 +1251,6 @@ ktre_compile(const char *pat, int opt)
 		emit(re, INSTR_ANY);
 		emit_ab(re, INSTR_SPLIT, 3, 1);
 	}
-
-	/* the entire match is grouped */
-	emit_c(re, INSTR_SAVE, 0);
-	add_group(re);
-	re->group[0].address = 0;
-	re->num_groups++;
 
 	compile(re, re->n);
 	if (re->failed)
