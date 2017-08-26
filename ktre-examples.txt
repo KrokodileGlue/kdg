@@ -1,0 +1,122 @@
+matching string '-123.45e-67' against regex '[+-]?(\d+(\.\d+)?|\.\d+)([eE][+-]?\d+)?'
+options set:
+(sequence)
+|-- (sequence)
+|   |-- (question)
+|   |   `-- (class '+-')
+|   `-- (group)
+|       `-- (or)
+|           |-- (sequence)
+|           |   |-- (plus)
+|           |   |   `-- (class '0123456789')
+|           |   `-- (question)
+|           |       `-- (group)
+|           |           `-- (sequence)
+|           |               |-- (char '.')
+|           |               `-- (plus)
+|           |                   `-- (class '0123456789')
+|           `-- (sequence)
+|               |-- (char '.')
+|               `-- (plus)
+|                   `-- (class '0123456789')
+`-- (question)
+    `-- (group)
+        `-- (sequence)
+            |-- (sequence)
+            |   |-- (class 'eE')
+            |   `-- (question)
+            |       `-- (class '+-')
+            `-- (plus)
+                `-- (class '0123456789')
+group 0 address: 0
+group 1 address: 5
+group 2 address: 12
+group 3 address: 27
+  0: SAVE     0
+  1: SPLIT    2, 3
+  2: CLASS   '+-'
+  3: CALL     5
+  4: JMP      24
+  5: SAVE     2
+  6: SPLIT    7, 19
+  7: CLASS   '0123456789'
+  8: SPLIT    7, 9
+  9: SPLIT    10, 18
+ 10: CALL     12
+ 11: JMP      18
+ 12: SAVE     4
+ 13: CHAR    '.'
+ 14: CLASS   '0123456789'
+ 15: SPLIT    14, 16
+ 16: SAVE     5
+ 17: RET
+ 18: JMP      22
+ 19: CHAR    '.'
+ 20: CLASS   '0123456789'
+ 21: SPLIT    20, 22
+ 22: SAVE     3
+ 23: RET
+ 24: SPLIT    25, 35
+ 25: CALL     27
+ 26: JMP      35
+ 27: SAVE     6
+ 28: CLASS   'eE'
+ 29: SPLIT    30, 31
+ 30: CLASS   '+-'
+ 31: CLASS   '0123456789'
+ 32: SPLIT    31, 33
+ 33: SAVE     7
+ 34: RET
+ 35: SAVE     1
+ 36: MATCH
+ip:   0 | sp:   0 | tp:   1
+ip:   1 | sp:   0 | tp:   2
+ip:   2 | sp:   0 | tp:   3
+ip:   3 | sp:   1 | tp:   3
+ip:   5 | sp:   1 | tp:   3
+ip:   6 | sp:   1 | tp:   4
+ip:   7 | sp:   1 | tp:   5
+ip:   8 | sp:   2 | tp:   5
+ip:   7 | sp:   2 | tp:   6
+ip:   8 | sp:   3 | tp:   6
+ip:   7 | sp:   3 | tp:   7
+ip:   8 | sp:   4 | tp:   7
+ip:   7 | sp:   4 | tp:   8
+ip:   9 | sp:   4 | tp:   7
+ip:  10 | sp:   4 | tp:   8
+ip:  12 | sp:   4 | tp:   8
+ip:  13 | sp:   4 | tp:   9
+ip:  14 | sp:   5 | tp:   9
+ip:  15 | sp:   6 | tp:   9
+ip:  14 | sp:   6 | tp:  10
+ip:  15 | sp:   7 | tp:  10
+ip:  14 | sp:   7 | tp:  11
+ip:  16 | sp:   7 | tp:  10
+ip:  17 | sp:   7 | tp:  11
+ip:  11 | sp:   7 | tp:  12
+ip:  18 | sp:   7 | tp:  12
+ip:  22 | sp:   7 | tp:  12
+ip:  23 | sp:   7 | tp:  13
+ip:   4 | sp:   7 | tp:  14
+ip:  24 | sp:   7 | tp:  14
+ip:  25 | sp:   7 | tp:  15
+ip:  27 | sp:   7 | tp:  15
+ip:  28 | sp:   7 | tp:  16
+ip:  29 | sp:   8 | tp:  16
+ip:  30 | sp:   8 | tp:  17
+ip:  31 | sp:   9 | tp:  17
+ip:  32 | sp:  10 | tp:  17
+ip:  31 | sp:  10 | tp:  18
+ip:  32 | sp:  11 | tp:  18
+ip:  31 | sp:  11 | tp:  19
+ip:  32 | sp:  12 | tp:  19
+ip:  33 | sp:  11 | tp:  18
+ip:  34 | sp:  11 | tp:  19
+ip:  26 | sp:  11 | tp:  20
+ip:  35 | sp:  11 | tp:  20
+ip:  36 | sp:  11 | tp:  21
+matched!
+group 0: -123.45e-67
+group 1: 123.45
+group 2: .45
+group 3: e-67

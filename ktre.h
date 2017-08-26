@@ -252,7 +252,9 @@ struct instr {
 		INSTR_SAVE,
 		INSTR_CALL,
 		INSTR_LA_YES,
+		INSTR_LA_NO,
 		INSTR_LA_WIN,
+		INSTR_LA_FAIL,
 		INSTR_RET
 	} op;
 
@@ -328,6 +330,7 @@ struct node {
 		NODE_WB, /* word boundary */
 		NODE_CALL,
 		NODE_LA_YES,
+		NODE_LA_NO,
 		NODE_NONE
 	} type;
 
@@ -641,6 +644,17 @@ again:
 				left->type = NODE_NONE;
 				return left;
 			}
+		} else if (*re->sp == '?' && re->sp[1] == '!') {
+			left->type = NODE_LA_NO;
+			NEXT; NEXT;
+			left->a = parse(re);
+
+			if (*re->sp != ')') {
+				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
+				free_node(left->a);
+				left->type = NODE_NONE;
+				return left;
+			}
 		} else if (*re->sp == '?') { /* mode modifiers */
 			NEXT;
 			left->type = NODE_NONE;
@@ -938,6 +952,7 @@ print_node(struct node *n)
 	case NODE_QUESTION:  N1 ("(question)");                               break;
 	case NODE_ATOM:      N1 ("(atom)");                                   break;
 	case NODE_LA_YES:    N1 ("(lookahead)");                              break;
+	case NODE_LA_NO:     N1 ("(negative lookahead)");                     break;
 
 	default:
 		DBG("\nunimplemented printer for node of type %d\n", n->type);
@@ -1126,6 +1141,14 @@ compile(struct ktre *re, struct node *n)
 		emit(re, INSTR_LA_WIN);
 		break;
 
+	case NODE_LA_NO:
+		a = re->ip;
+		emit_c(re, INSTR_LA_NO, -1);
+		compile(re, n->a);
+		emit(re, INSTR_LA_FAIL);
+		PATCH_C(a, re->ip);
+		break;
+
 	default:
 #ifdef KTRE_DEBUG
 		DBG("\nunimplemented compiler for node of type %d\n", n->type);
@@ -1216,6 +1239,7 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_OPT_OFF:   DBG("OPTOFF   %d",  re->c[i].c);                break;
 		case INSTR_BACKREF:   DBG("BACKREF  %d",  re->c[i].c);                break;
 		case INSTR_CALL:      DBG("CALL     %d",  re->c[i].a);                break;
+		case INSTR_LA_NO:     DBG("LA_NO    %d",  re->c[i].a);                break;
 		case INSTR_SET_START: DBG("SET_START");                               break;
 		case INSTR_PUSH_TP:   DBG("PUSH_TP");                                 break;
 		case INSTR_KILL_TP:   DBG("KILL_TP");                                 break;
@@ -1228,6 +1252,7 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_WB:        DBG("WB");                                      break;
 		case INSTR_LA_YES:    DBG("LA_YES");                                  break;
 		case INSTR_LA_WIN:    DBG("LA_WIN");                                  break;
+		case INSTR_LA_FAIL:   DBG("LA_FAIL");                                 break;
 		default: assert(false);
 		}
 	}
@@ -1260,7 +1285,7 @@ run(struct ktre *re, const char *subject, int *vec)
 
 	while (tp) {
 		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, _tp = t[tp].tp, limit = t[tp].limit;
-		DBG("\nip: %3d | sp: %3d | tp: %3d", ip, sp, tp);
+//		DBG("\nip: %3d | sp: %3d | tp: %3d", ip, sp, tp);
 
 		if (sp > limit) {
 			--tp; continue;
@@ -1391,17 +1416,26 @@ run(struct ktre *re, const char *subject, int *vec)
 
 		case INSTR_RET:
 			t[tp].ip++;
-			new_thread(frame[--fp], sp, opt, tp, limit);
+			new_thread(frame[--fp], sp, opt, _tp, limit);
 			break;
 
 		case INSTR_LA_YES:
 			--tp;
-			new_thread(ip + 1, sp, opt, tp, limit);
+			new_thread(ip + 1, sp, opt, _tp, limit);
+			break;
+
+		case INSTR_LA_NO:
+			new_thread(ip + 1, sp, opt, _tp, limit);
+			new_thread(re->c[ip].c, sp, opt, _tp, limit);
 			break;
 
 		case INSTR_LA_WIN:
 			t[tp].sp = t[tp].old_sp;
 			t[tp].ip++;
+			break;
+
+		case INSTR_LA_FAIL:
+			--tp;
 			break;
 
 		default:
