@@ -608,6 +608,16 @@ again:
 				left->type = NODE_NONE;
 				return left;
 			}
+		} else if (*re->sp == '?' && re->sp[1] == ':') { /* uncaptured group */
+			re->sp += 2;
+			left = parse(re);
+
+			if (*re->sp != ')') {
+				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
+				free_node(left->a);
+				left->type = NODE_NONE;
+				return left;
+			}
 		} else if (*re->sp == '?' && re->sp[1] == '<' && re->sp[2] == '!') { /* positive lookbehind */
 			left->type = NODE_LB_NO;
 			re->sp += 3;
@@ -1330,7 +1340,7 @@ run(struct ktre *re, const char *subject, int *vec)
 
 	while (tp) {
 		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, _tp = t[tp].tp;
-		DBG("\nip: %3d | sp: %3d | tp: %3d", ip, sp, tp);
+//		DBG("\nip: %3d | sp: %3d | tp: %3d", ip, sp, tp);
 
 		switch (re->c[ip].op) {
 		case INSTR_BACKREF:
