@@ -251,6 +251,8 @@ struct instr {
 		INSTR_WB,
 		INSTR_SAVE,
 		INSTR_CALL,
+		INSTR_LA_YES,
+		INSTR_LA_WIN,
 		INSTR_RET
 	} op;
 
@@ -325,6 +327,7 @@ struct node {
 		NODE_SET_START,
 		NODE_WB, /* word boundary */
 		NODE_CALL,
+		NODE_LA_YES,
 		NODE_NONE
 	} type;
 
@@ -628,7 +631,7 @@ again:
 
 			re->sp += len + 1;
 		} else if (*re->sp == '?' && re->sp[1] == '=') {
-//			left->type = NODE_LA_YES;
+			left->type = NODE_LA_YES;
 			NEXT; NEXT;
 			left->a = parse(re);
 
@@ -934,6 +937,7 @@ print_node(struct node *n)
 	case NODE_GROUP:     N1 ("(group)");                                  break;
 	case NODE_QUESTION:  N1 ("(question)");                               break;
 	case NODE_ATOM:      N1 ("(atom)");                                   break;
+	case NODE_LA_YES:    N1 ("(lookahead)");                              break;
 
 	default:
 		DBG("\nunimplemented printer for node of type %d\n", n->type);
@@ -1116,6 +1120,12 @@ compile(struct ktre *re, struct node *n)
 		emit(re, INSTR_DIE);
 		break;
 
+	case NODE_LA_YES:
+		emit(re, INSTR_LA_YES);
+		compile(re, n->a);
+		emit(re, INSTR_LA_WIN);
+		break;
+
 	default:
 #ifdef KTRE_DEBUG
 		DBG("\nunimplemented compiler for node of type %d\n", n->type);
@@ -1216,6 +1226,8 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_DIE:       DBG("DIE");                                     break;
 		case INSTR_RET:       DBG("RET");                                     break;
 		case INSTR_WB:        DBG("WB");                                      break;
+		case INSTR_LA_YES:    DBG("LA_YES");                                  break;
+		case INSTR_LA_WIN:    DBG("LA_WIN");                                  break;
 		default: assert(false);
 		}
 	}
@@ -1236,6 +1248,7 @@ run(struct ktre *re, const char *subject, int *vec)
 		int ip, sp;
 		int old, old_idx, opt;
 		int tp, limit, ret;
+		int old_sp;
 	} t[MAX_THREAD];
 	int tp = 0;
 
@@ -1312,8 +1325,7 @@ run(struct ktre *re, const char *subject, int *vec)
 			break;
 
 		case INSTR_MATCH:
-			if (sp == limit)
-				return true;
+			return true;
 			--tp;
 			break;
 
@@ -1380,6 +1392,16 @@ run(struct ktre *re, const char *subject, int *vec)
 		case INSTR_RET:
 			t[tp].ip++;
 			new_thread(frame[--fp], sp, opt, tp, limit);
+			break;
+
+		case INSTR_LA_YES:
+			--tp;
+			new_thread(ip + 1, sp, opt, tp, limit);
+			break;
+
+		case INSTR_LA_WIN:
+			t[tp].sp = t[tp].old_sp;
+			t[tp].ip++;
 			break;
 
 		default:
