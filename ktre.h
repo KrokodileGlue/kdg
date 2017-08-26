@@ -980,7 +980,6 @@ compile(struct ktre *re, struct node *n)
 		emit_c(re, INSTR_CALL, re->ip + 2);
 		a = re->ip;
 		emit_c(re, INSTR_JMP, -1);
-		emit(re, INSTR_PUSH_TP);
 		emit_c(re, INSTR_SAVE, re->num_groups * 2);
 
 		old = re->num_groups;
@@ -1215,10 +1214,13 @@ ktre_compile(const char *pat, int opt)
 }
 
 #define MAX_THREAD (1 << 12) /* no one will ever need more than 4096 threads */
+#define MAX_CALL_DEPTH 256
 
 static bool
 run(struct ktre *re, const char *subject, int *vec)
 {
+	int frame[MAX_CALL_DEPTH], fp = 0;
+
 	struct thread {
 		int ip, sp;
 		int old, old_idx, opt;
@@ -1226,14 +1228,14 @@ run(struct ktre *re, const char *subject, int *vec)
 	} t[MAX_THREAD];
 	int tp = 0;
 
-#define new_thread(ip, sp, opt, __tp, limit, ret)	  \
-	t[++tp] = (struct thread){ ip, sp, -1, -1, opt, __tp, limit, ret }
+#define new_thread(ip, sp, opt, __tp, limit)	  \
+	t[++tp] = (struct thread){ ip, sp, -1, -1, opt, __tp, limit }
 
 	/* push the initial thread */
-	new_thread(0, 0, re->opt, 0, strlen(subject), 0);
+	new_thread(0, 0, re->opt, 0, strlen(subject));
 
 	while (tp) {
-		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, _tp = t[tp].tp, limit = t[tp].limit, ret = t[tp].ret;
+		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, _tp = t[tp].tp, limit = t[tp].limit;
 		DBG("\nip: %3d | sp: %3d | tp: %3d", ip, sp, tp);
 
 		if (sp > limit) {
@@ -1244,58 +1246,58 @@ run(struct ktre *re, const char *subject, int *vec)
 		case INSTR_BACKREF:
 			--tp;
 			if (!strncmp(subject + sp, &subject[vec[re->c[ip].c * 2]], vec[re->c[ip].c * 2 + 1]))
-				new_thread(ip + 1, sp + vec[re->c[ip].c * 2 + 1], opt, _tp, limit, ret);
+				new_thread(ip + 1, sp + vec[re->c[ip].c * 2 + 1], opt, _tp, limit);
 			break;
 
 		case INSTR_CLASS:
 			--tp;
 			if (strchr(re->c[ip].class, subject[sp]))
-				new_thread(ip + 1, sp + 1, opt, _tp, limit, ret);
+				new_thread(ip + 1, sp + 1, opt, _tp, limit);
 			break;
 
 		case INSTR_NOT:
 			--tp;
 			if (!strchr(re->c[ip].class, subject[sp]))
-				new_thread(ip + 1, sp + 1, opt, _tp, limit, ret);
+				new_thread(ip + 1, sp + 1, opt, _tp, limit);
 			break;
 
 		case INSTR_BOL:
 			--tp;
-			if (sp == 0) new_thread(ip + 1, sp, opt, _tp, limit, ret);
+			if (sp == 0) new_thread(ip + 1, sp, opt, _tp, limit);
 			break;
 
 		case INSTR_EOL:
 			--tp;
-			if (subject[sp] == 0 || subject[sp] == '\n') new_thread(ip + 1, sp, opt, _tp, limit, ret);
+			if (subject[sp] == 0 || subject[sp] == '\n') new_thread(ip + 1, sp, opt, _tp, limit);
 			break;
 
 		case INSTR_WB:
 			--tp;
 			if (sp && (strchr(WORD, subject[sp - 1]) && !strchr(WORD, subject[sp])))
-				new_thread(ip + 1, sp, opt, _tp, limit, ret);
+				new_thread(ip + 1, sp, opt, _tp, limit);
 			break;
 
 		case INSTR_CHAR:
 			--tp;
 			if (opt & KTRE_INSENSITIVE) {
 				if (lc(subject[sp]) == lc(re->c[ip].c)) {
-					new_thread(ip + 1, sp + 1, opt, _tp, limit, ret);
+					new_thread(ip + 1, sp + 1, opt, _tp, limit);
 				}
 			} else {
 				if (subject[sp] == re->c[ip].c) {
-					new_thread(ip + 1, sp + 1, opt, _tp, limit, ret);
+					new_thread(ip + 1, sp + 1, opt, _tp, limit);
 				}
 			}
 			break;
 
 		case INSTR_ANY:
 			--tp;
-			if (subject[sp] != 0) new_thread(ip + 1, sp + 1, opt, _tp, limit, ret);
+			if (subject[sp] != 0) new_thread(ip + 1, sp + 1, opt, _tp, limit);
 			break;
 
 		case INSTR_SPLIT:
 			t[tp].ip = re->c[ip].b;
-			new_thread(re->c[ip].a, sp, opt, _tp, limit, ret);
+			new_thread(re->c[ip].a, sp, opt, _tp, limit);
 			break;
 
 		case INSTR_MATCH:
@@ -1313,7 +1315,7 @@ run(struct ktre *re, const char *subject, int *vec)
 					vec[re->c[ip].c] = sp;
 				else
 					vec[re->c[ip].c] = sp - vec[re->c[ip].c - 1];
-				new_thread(ip + 1, sp, opt, _tp, limit, ret);
+				new_thread(ip + 1, sp, opt, _tp, limit);
 			} else {
 				vec[t[tp].old_idx] = t[tp].old;
 				--tp;
@@ -1346,7 +1348,7 @@ run(struct ktre *re, const char *subject, int *vec)
 			}
 
 			t[tp].ip++;
-			new_thread(ip + 2, sp, opt, tp, limit, ret);
+			new_thread(ip + 2, sp, opt, tp, limit);
 			break;
 
 		case INSTR_DIE:
@@ -1359,18 +1361,14 @@ run(struct ktre *re, const char *subject, int *vec)
 			break;
 
 		case INSTR_CALL:
-			--tp;
-			new_thread(re->c[ip].c, sp, opt, _tp, limit, ip + 1);
+			t[tp].ip++;
+			frame[fp++] = ip + 1;
+			new_thread(re->c[ip].c, sp, opt, _tp, limit);
 			break;
 
 		case INSTR_RET:
-			while (tp && t[tp].tp == tp) {
-				t[tp - 1].sp = t[tp].sp;
-				--tp;
-			}
-
 			t[tp].ip++;
-			new_thread(ip + 2, sp, opt, tp, limit, ret);
+			new_thread(frame[--fp], sp, opt, tp, limit);
 			break;
 
 		default:
