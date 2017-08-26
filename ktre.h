@@ -1322,7 +1322,6 @@ static bool
 run(struct ktre *re, const char *subject, int *vec)
 {
 	int frame[MAX_CALL_DEPTH], fp = 0;
-	int sframe[MAX_CALL_DEPTH], sfp = 0;
 
 	struct thread {
 		int ip, sp;
@@ -1340,7 +1339,7 @@ run(struct ktre *re, const char *subject, int *vec)
 
 	while (tp) {
 		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, _tp = t[tp].tp;
-//		DBG("\nip: %3d | sp: %3d | tp: %3d", ip, sp, tp);
+		DBG("\nip: %3d | sp: %3d | tp: %3d | %s", ip, sp, tp, sp <= strlen(subject) ? subject + sp : "");
 
 		switch (re->c[ip].op) {
 		case INSTR_BACKREF:
@@ -1414,6 +1413,7 @@ run(struct ktre *re, const char *subject, int *vec)
 					vec[re->c[ip].c] = sp;
 				else
 					vec[re->c[ip].c] = sp - vec[re->c[ip].c - 1];
+				--tp;
 				new_thread(ip + 1, sp, opt, _tp);
 			} else {
 				vec[t[tp].old_idx] = t[tp].old;
@@ -1463,12 +1463,18 @@ run(struct ktre *re, const char *subject, int *vec)
 //			DBG("\ndoing a call");
 			--tp;
 			frame[fp++] = ip + 1;
-			new_thread(re->c[ip].c, sp, opt, _tp);
+			t[tp].tp = tp;
+			new_thread(re->c[ip].c, sp, opt, tp);
 			break;
 
 		case INSTR_RET:
 			--tp;
-			new_thread(frame[--fp], sp, opt, _tp);
+			while (tp && t[tp].tp == tp) {
+				t[tp - 1].sp = t[tp].sp;
+				--tp;
+			}
+
+			new_thread(frame[--fp], sp, opt, tp);
 			break;
 
 		case INSTR_LA_YES:
