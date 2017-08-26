@@ -23,34 +23,38 @@
  */
 
 /*
- * ktre: a tiny regex engine
- * ktre supports character classes [a-zA-Z_], submatching and backreferencing
- * (cat|dog)\1, negated character classes [^a-zA-Z_], a variety of escaped
- * metacharacters (\w, \W, \d, \D, \s), mode modifiers (?ix), comments
- * (?#this is a comment), free-spaced expressions, and, of course, the full
- * set of metacharacters, operators, and quantifiers you would expect: * + ? .
- * ^ and $, including their non-greedy variants: *? +? and ??.
+ * KTRE: a tiny regex engine
+ * KTRE supports character classes [a-zA-Z_], submatching and
+ * backreferencing (cat|dog)\1, negated character classes [^a-zA-Z_],
+ * a variety of escaped metacharacters (\w, \W, \d, \D, \s, \b), mode
+ * modifiers (?x-i), comments (?#this is a comment), free-spaced
+ * expressions, lookaround assertions (?=re) (?!re) (?<=re) (?<!re),
+ * atomic groups (?>re), subroutine calls (foo)(?1), recursion (?R),
+ * and, of course, the greedy, non-greedy, and possessive quantifiers
+ * you would expect.
  *
- * ktre currently supports the following options: KTRE_INSENSITIVE,
+ * KTRE currently supports the following options: KTRE_INSENSITIVE,
  * KTRE_UNANCHORED, and KTRE_EXTENDED. All of those options except for
- * KTRE_UNANCHORED may be modified by the regular expression. The options are
- * reset every time the regex is run.
+ * KTRE_UNANCHORED may be modified by the regular expression. The
+ * options are reset every time the regex is run.
  *
  * KTRE_INSENSITIVE: (?i)
  *     Makes the runtime match characters of different cases.
  * KTRE_UNANCHORED:
- *     Counts a match anywhere in the subject as a match. The default behavior
- *     is to reject any string that does not match exactly.
+ *     Counts a match anywhere in the subject as a match. The default
+ *     behavior is to reject any string that does not match exactly.
  * KTRE_EXTENDED: (?x)
  *     This option turns on so-called 'free-spaced' mode, which allows
- *     whitespace to occur in most parts of the grammar. Note that this does
- *     not allow whitespace anywhere; '(?#foobar)' is not the same thing as
- *     '( ?#foobar)', but 'foobar' is the same as 'foo bar'. If you want to
- *     match a whitespace character in free-spaced mode, you may escape
- *     it: '\ '.
+ *     whitespace to occur in most parts of the grammar without
+ *     side-effects.  Note that this does not allow whitespace
+ *     anywhere; '(?#foobar)' is not the same thing as '( ?#foobar)',
+ *     but 'foobar' is the same as 'foo bar'.  If you want to match a
+ *     whitespace character in free-spaced mode, you must escape it or
+ *     put it into a character class.
  *
- * The API consists of only three functions: ktre_compile(), ktre_exec(), and
- * ktre_free(). The prototypes for these functions are:
+ * The API consists of only three functions: ktre_compile(),
+ * ktre_exec(), and ktre_free(). The prototypes for these functions
+ * are:
  *
  * struct ktre *ktre_compile(const char *pat, int opt);
  * _Bool ktre_exec(struct ktre *re, const char *subject, int **vec);
@@ -1128,17 +1132,8 @@ compile(struct ktre *re, struct node *n)
 		a = 0;
 		for (int i = 0; i < n->c; i++) {
 			a = re->ip;
-			if (n->a->type == NODE_GROUP && i == 0) {
-				a = re->ip;
-
-				emit_c(re, INSTR_JMP, -1);
-				old = re->num_groups;
-				compile(re, n->a);
-				PATCH_C(a, re->ip);
-
-				emit_c(re, INSTR_CALL, re->group[old].address);
-			} else if (n->a->type == NODE_GROUP) {
-				emit_c(re, INSTR_CALL, re->group[old].address);
+			if (n->a->type == NODE_GROUP) {
+				compile(re, n->a->a);
 			} else {
 				compile(re, n->a);
 			}
@@ -1396,7 +1391,7 @@ run(struct ktre *re, const char *subject, int *vec)
 			break;
 
 		case INSTR_MATCH:
-			return true;
+			if (subject[sp] == 0) return true;
 			--tp;
 			break;
 
@@ -1455,13 +1450,14 @@ run(struct ktre *re, const char *subject, int *vec)
 			break;
 
 		case INSTR_CALL:
+//			DBG("\ndoing a call");
 			--tp;
 			frame[fp++] = ip + 1;
 			new_thread(re->c[ip].c, sp, opt, _tp);
 			break;
 
 		case INSTR_RET:
-			t[tp].ip++;
+			--tp;
 			new_thread(frame[--fp], sp, opt, _tp);
 			break;
 
