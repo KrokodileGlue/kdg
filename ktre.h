@@ -627,6 +627,17 @@ again:
 			left->c = a;
 
 			re->sp += len + 1;
+		} else if (*re->sp == '?' && re->sp[1] == '=') {
+//			left->type = NODE_LA_YES;
+			NEXT; NEXT;
+			left->a = parse(re);
+
+			if (*re->sp != ')') {
+				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
+				free_node(left->a);
+				left->type = NODE_NONE;
+				return left;
+			}
 		} else if (*re->sp == '?') { /* mode modifiers */
 			NEXT;
 			left->type = NODE_NONE;
@@ -1361,7 +1372,7 @@ run(struct ktre *re, const char *subject, int *vec)
 			break;
 
 		case INSTR_CALL:
-			t[tp].ip++;
+			--tp;
 			frame[fp++] = ip + 1;
 			new_thread(re->c[ip].c, sp, opt, _tp, limit);
 			break;
