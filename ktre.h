@@ -1145,7 +1145,7 @@ compile(struct ktre *re, struct node *n)
 		a = re->ip;
 		emit_c(re, INSTR_LA_NO, -1);
 		compile(re, n->a);
-		emit(re, INSTR_LA_FAIL);
+		emit(re, INSTR_DIE);
 		PATCH_C(a, re->ip);
 		break;
 
@@ -1285,7 +1285,7 @@ run(struct ktre *re, const char *subject, int *vec)
 
 	while (tp) {
 		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, _tp = t[tp].tp, limit = t[tp].limit;
-//		DBG("\nip: %3d | sp: %3d | tp: %3d", ip, sp, tp);
+		DBG("\nip: %3d | sp: %3d | tp: %3d", ip, sp, tp);
 
 		if (sp > limit) {
 			--tp; continue;
@@ -1425,8 +1425,8 @@ run(struct ktre *re, const char *subject, int *vec)
 			break;
 
 		case INSTR_LA_NO:
-			new_thread(ip + 1, sp, opt, _tp, limit);
 			new_thread(re->c[ip].c, sp, opt, _tp, limit);
+			new_thread(ip + 1, sp, opt, _tp, limit);
 			break;
 
 		case INSTR_LA_WIN:
