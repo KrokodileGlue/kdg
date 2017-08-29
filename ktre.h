@@ -166,9 +166,6 @@ struct ktre *ktre_compile(const char *pat, int opt);
 _Bool ktre_exec(struct ktre *re, const char *subject, int **vec);
 void ktre_free(struct ktre *re);
 
-#define KTRE_IMPLEMENTATION
-#define KTRE_DEBUG
-
 #ifdef KTRE_IMPLEMENTATION
 #ifdef KTRE_DEBUG
 #include <stdio.h>
@@ -1345,8 +1342,9 @@ run(struct ktre *re, const char *subject, int *vec)
 
 	while (tp) {
 		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, _tp = t[tp].tp;
+#ifdef KTRE_DEBUG
 		DBG("\nip: %3d | sp: %3d | tp: %3d | fp: %d | _tp: %d | %s", ip, sp, tp, fp, _tp, sp <= (int)strlen(subject) ? subject + sp : "");
-//		DBG("\nlooking at %d", subject[sp]);
+#endif
 
 		if (t[tp].backtrack_from_group) {
 			--fp, --tp;
@@ -1417,7 +1415,6 @@ run(struct ktre *re, const char *subject, int *vec)
 			break;
 
 		case INSTR_SAVE:
-//			DBG("\nsaving: %d, sp: %d", re->c[ip].c, sp);
 			if (t[tp].old == -1) {
 				t[tp].old = vec[re->c[ip].c];
 				t[tp].old_idx = re->c[ip].c;
