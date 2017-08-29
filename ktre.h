@@ -1333,19 +1333,25 @@ run(struct ktre *re, const char *subject, int *vec)
 		int old, old_idx, opt;
 		int tp, limit, ret;
 		int old_sp;
+		bool backtrack_from_group;
 	} t[MAX_THREAD];
 	int tp = 0;
 
-#define new_thread(ip, sp, opt, __tp)	  \
-	t[++tp] = (struct thread){ ip, sp, -1, -1, opt, __tp, -1, -1, -1 }
+#define new_thread(ip, sp, opt, __tp)					\
+	t[++tp] = (struct thread){ ip, sp, -1, -1, opt, __tp, -1, -1, -1, false }
 
 	/* push the initial thread */
 	new_thread(0, 0, re->opt, 0);
 
 	while (tp) {
 		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, _tp = t[tp].tp;
-		DBG("\nip: %3d | sp: %3d | tp: %3d | %s", ip, sp, tp, sp <= (int)strlen(subject) ? subject + sp : "");
+		DBG("\nip: %3d | sp: %3d | tp: %3d | fp: %d | _tp: %d | %s", ip, sp, tp, fp, _tp, sp <= (int)strlen(subject) ? subject + sp : "");
 //		DBG("\nlooking at %d", subject[sp]);
+
+		if (t[tp].backtrack_from_group) {
+			--fp, --tp;
+			continue;
+		}
 
 		switch (re->c[ip].op) {
 		case INSTR_BACKREF:
@@ -1466,10 +1472,10 @@ run(struct ktre *re, const char *subject, int *vec)
 			break;
 
 		case INSTR_CALL:
-//			DBG("\ndoing a call");
 			--tp;
 			frame[fp++] = ip + 1;
-			t[tp].tp = tp;
+			new_thread(re->c[ip].c, sp, opt, tp);
+			t[tp].backtrack_from_group = true;
 			new_thread(re->c[ip].c, sp, opt, tp);
 			break;
 
