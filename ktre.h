@@ -166,8 +166,12 @@ struct ktre *ktre_compile(const char *pat, int opt);
 _Bool ktre_exec(struct ktre *re, const char *subject, int **vec);
 void ktre_free(struct ktre *re);
 
+#define KTRE_IMPLEMENTATION
+#define KTRE_DEBUG
+
 #ifdef KTRE_IMPLEMENTATION
 #ifdef KTRE_DEBUG
+#include <stdio.h>
 #include <assert.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #endif
@@ -322,24 +326,24 @@ struct node {
 		NODE_OR,
 		NODE_GROUP,
 		NODE_QUESTION,
-		NODE_ANY,
-		NODE_CLASS,
+		NODE_ANY,	/* . matches anything */
+		NODE_CLASS,	/* a character class */
 		NODE_NOT,
-		NODE_BACKREF,
+		NODE_BACKREF,	/* a backreference to an existing group */
 		NODE_BOL,
 		NODE_EOL,
-		NODE_OPT_ON,
-		NODE_OPT_OFF,
-		NODE_REP,
-		NODE_ATOM,
-		NODE_SET_START,
-		NODE_WB, /* word boundary */
+		NODE_OPT_ON,	/* turns some option off */
+		NODE_OPT_OFF,	/* turns some option on */
+		NODE_REP,	/* counted repetition */
+		NODE_ATOM,	/* atomic group */
+		NODE_SET_START, /* set the start position of the group capturing the entire match */
+		NODE_WB,	/* word boundary */
 		NODE_CALL,
-		NODE_LA_YES,
-		NODE_LA_NO,
-		NODE_LB_YES,
-		NODE_LB_NO,
-		NODE_RECURSE,
+		NODE_LA_YES,	/* positive lookahead */
+		NODE_LB_YES,	/* positive lookbehind */
+		NODE_LA_NO,	/* negative lookahead */
+		NODE_LB_NO,	/* negative lookbehind */
+		NODE_RECURSE,	/* (?R) tries to match the entire regex again at the current point */
 		NODE_NONE
 	} type;
 
@@ -370,6 +374,7 @@ free_node(struct node *n)
 	case NODE_ASTERISK: case NODE_PLUS:
 	case NODE_GROUP: case NODE_QUESTION:
 		free_node(n->a);
+		break;
 	case NODE_CLASS: free(n->class); break;
 	default: break;
 	}
@@ -1332,14 +1337,15 @@ run(struct ktre *re, const char *subject, int *vec)
 	int tp = 0;
 
 #define new_thread(ip, sp, opt, __tp)	  \
-	t[++tp] = (struct thread){ ip, sp, -1, -1, opt, __tp }
+	t[++tp] = (struct thread){ ip, sp, -1, -1, opt, __tp, -1, -1, -1 }
 
 	/* push the initial thread */
 	new_thread(0, 0, re->opt, 0);
 
 	while (tp) {
 		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, _tp = t[tp].tp;
-		DBG("\nip: %3d | sp: %3d | tp: %3d | %s", ip, sp, tp, sp <= strlen(subject) ? subject + sp : "");
+		DBG("\nip: %3d | sp: %3d | tp: %3d | %s", ip, sp, tp, sp <= (int)strlen(subject) ? subject + sp : "");
+//		DBG("\nlooking at %d", subject[sp]);
 
 		switch (re->c[ip].op) {
 		case INSTR_BACKREF:
@@ -1350,7 +1356,7 @@ run(struct ktre *re, const char *subject, int *vec)
 
 		case INSTR_CLASS:
 			--tp;
-			if (strchr(re->c[ip].class, subject[sp]))
+			if (strchr(re->c[ip].class, subject[sp]) && subject[sp])
 				new_thread(ip + 1, sp + 1, opt, _tp);
 			break;
 
