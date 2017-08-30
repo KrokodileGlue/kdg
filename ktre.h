@@ -143,6 +143,7 @@ struct ktre {
 	/* implementation details */
 	struct instr *c; /* code */
 	int ip;          /* instruction pointer */
+	int instr_alloc; /* the number of instructions that have been allocated so far */
 	char const *pat;
 	char const *sp;  /* pointer to the character currently being parsed */
 	struct node *n;
@@ -294,9 +295,28 @@ struct instr {
 };
 
 static void
+grow_code(struct ktre *re, size_t n)
+{
+	if (!re->instr_alloc) {
+		re->instr_alloc = 1;
+		re->c = _malloc(sizeof re->c[0]);
+	}
+
+	if (re->ip + n >= re->instr_alloc) {
+		if (re->ip + n >= re->instr_alloc * 2) {
+			re->instr_alloc = re->ip + n;
+		} else {
+			re->instr_alloc *= 2;
+		}
+
+		re->c = _realloc(re->c, sizeof re->c[0] * re->instr_alloc);
+	}
+}
+
+static void
 emit_ab(struct ktre *re, int instr, int a, int b)
 {
-	re->c = _realloc(re->c, sizeof re->c[0] * (re->ip + 1));
+	grow_code(re, 1);
 	re->c[re->ip].op = instr;
 
 	re->c[re->ip].a = a;
@@ -308,7 +328,7 @@ emit_ab(struct ktre *re, int instr, int a, int b)
 static void
 emit_c(struct ktre *re, int instr, int c)
 {
-	re->c = _realloc(re->c, sizeof re->c[0] * (re->ip + 1));
+	grow_code(re, 1);
 	re->c[re->ip].op = instr;
 	re->c[re->ip].c = c;
 
@@ -318,7 +338,7 @@ emit_c(struct ktre *re, int instr, int c)
 static void
 emit_class(struct ktre *re, int instr, char *class)
 {
-	re->c = _realloc(re->c, sizeof re->c[0] * (re->ip + 1));
+	grow_code(re, 1);
 	re->c[re->ip].op = instr;
 	re->c[re->ip].class = class;
 
@@ -328,7 +348,7 @@ emit_class(struct ktre *re, int instr, char *class)
 static void
 emit(struct ktre *re, int instr)
 {
-	re->c = _realloc(re->c, sizeof re->c[0] * (re->ip + 1));
+	grow_code(re, 1);
 	re->c[re->ip].op = instr;
 	re->ip++;
 }
@@ -387,8 +407,10 @@ free_node(struct node *n)
 		free_node(n->a);
 		free_node(n->b);
 		break;
-	case NODE_ASTERISK: case NODE_PLUS:
-	case NODE_GROUP: case NODE_QUESTION:
+	case NODE_QUESTION: case NODE_REP:   case NODE_ASTERISK:
+	case NODE_PLUS:     case NODE_GROUP: case NODE_ATOM:
+	case NODE_LA_YES:   case NODE_LA_NO: case NODE_LB_YES:
+	case NODE_LB_NO:
 		free_node(n->a);
 		break;
 	case NODE_CLASS: free(n->class); break;
@@ -1570,6 +1592,7 @@ ktre_free(struct ktre *re)
 	free_node(re->n);
 	free(re->c);
 	if (re->err) free(re->err_str);
+	free(re->group);
 	free(re);
 }
 
