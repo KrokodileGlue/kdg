@@ -128,6 +128,9 @@ enum ktre_error {
 	KTRE_ERROR_INVALID_BACKREFERENCE
 };
 
+#define KTRE_MAX_THREAD 4000
+#define KTRE_MAX_CALL_DEPTH 200
+
 struct ktre {
 	/* public fields */
 	int num_groups, opt;
@@ -155,6 +158,16 @@ struct ktre {
 		_Bool compiled;
 	} *group;
 	int gp;
+
+	/* runtime */
+	struct thread {
+		int ip, sp;
+		int old, old_idx, opt;
+		int tp, limit, ret;
+		int old_sp;
+		int frame[KTRE_MAX_CALL_DEPTH];
+		_Bool backtrack_from_group, backtrack_to_group;
+	} t[KTRE_MAX_THREAD];
 };
 
 enum {
@@ -1358,28 +1371,16 @@ ktre_compile(const char *pat, int opt)
 	return re;
 }
 
-#define MAX_THREAD 64
-#define MAX_CALL_DEPTH 128
-
 static bool
 run(struct ktre *re, const char *subject, int *vec)
 {
-	int fp = 0;
-
-	struct thread {
-		int ip, sp;
-		int old, old_idx, opt;
-		int tp, limit, ret;
-		int old_sp;
-		int frame[MAX_CALL_DEPTH];
-		bool backtrack_from_group, backtrack_to_group;
-	} t[MAX_THREAD];
-	int tp = 0;
+	int fp = 0, tp = 0;
+	struct thread *t = re->t;
 
 #define new_thread(ip, sp, opt, __tp)					\
 	do {								\
 		t[++tp] = (struct thread){ ip, sp, -1, -1, opt, __tp, -1, -1, -1, {0}, false, false }; \
-		if (tp - 1 >= 0) memcpy(t[tp].frame, t[tp - 1].frame, MAX_CALL_DEPTH * sizeof t[0].frame[0]); \
+		if (tp - 1 >= 0) memcpy(t[tp].frame, t[tp - 1].frame, fp * sizeof t[0].frame[0]); \
 	} while (0)
 
 	/* push the initial thread */
@@ -1540,6 +1541,7 @@ run(struct ktre *re, const char *subject, int *vec)
 			break;
 
 		case INSTR_LA_NO:
+			--tp;
 			new_thread(re->c[ip].c, sp, opt, _tp);
 			new_thread(ip + 1, sp, opt, _tp);
 			break;
@@ -1572,7 +1574,7 @@ run(struct ktre *re, const char *subject, int *vec)
 			return false;
 		}
 
-		if (tp == MAX_THREAD - 1) {
+		if (tp == KTRE_MAX_THREAD - 1) {
 			error(re, KTRE_ERROR_STACK_OVERFLOW, 0, "regex exceeded the maximum number of executable threads");
 			return false;
 		}
