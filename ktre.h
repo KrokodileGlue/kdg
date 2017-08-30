@@ -1336,37 +1336,47 @@ ktre_compile(const char *pat, int opt)
 	return re;
 }
 
-#define MAX_THREAD (1 << 12) /* no one will ever need more than 4096 threads */
-#define MAX_CALL_DEPTH 256
+#define MAX_THREAD 64
+#define MAX_CALL_DEPTH 128
 
 static bool
 run(struct ktre *re, const char *subject, int *vec)
 {
-	int frame[MAX_CALL_DEPTH], fp = 0;
+	int fp = 0;
 
 	struct thread {
 		int ip, sp;
 		int old, old_idx, opt;
 		int tp, limit, ret;
 		int old_sp;
-		bool backtrack_from_group;
+		int frame[MAX_CALL_DEPTH];
+		bool backtrack_from_group, backtrack_to_group;
 	} t[MAX_THREAD];
 	int tp = 0;
 
 #define new_thread(ip, sp, opt, __tp)					\
-	t[++tp] = (struct thread){ ip, sp, -1, -1, opt, __tp, -1, -1, -1, false }
+	do {								\
+		t[++tp] = (struct thread){ ip, sp, -1, -1, opt, __tp, -1, -1, -1, {0}, false, false }; \
+		if (tp - 1 >= 0) memcpy(t[tp].frame, t[tp - 1].frame, MAX_CALL_DEPTH * sizeof t[0].frame[0]); \
+	} while (0)
 
 	/* push the initial thread */
 	new_thread(0, 0, re->opt, 0);
 
 	while (tp) {
-		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, _tp = t[tp].tp;
+		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, _tp = t[tp].tp, *frame = t[tp].frame;
 #ifdef KTRE_DEBUG
-//		DBG("\nip: %3d | sp: %3d | tp: %3d | fp: %3d | _tp: %3d | %s", ip, sp, tp, fp, _tp, sp <= (int)strlen(subject) ? subject + sp : "");
+		DBG("\nip: %3d | sp: %3d | tp: %3d | fp: %3d | _tp: %3d | %s", ip, sp, tp, fp, _tp, sp <= (int)strlen(subject) ? subject + sp : "");
+//		DBG("\n");
+//		for (int i = 0; i < fp; i++) DBG("%3d ", frame[i]);
 #endif
-
 		if (t[tp].backtrack_from_group) {
 			--fp, --tp;
+			continue;
+		}
+
+		if (t[tp].backtrack_to_group) {
+			++fp, --tp;
 			continue;
 		}
 
@@ -1489,19 +1499,16 @@ run(struct ktre *re, const char *subject, int *vec)
 
 		case INSTR_CALL:
 			--tp;
-			frame[fp++] = ip + 1;
-			new_thread(re->c[ip].c, sp, opt, tp);
+			t[tp].frame[fp++] = ip + 1;
+			new_thread(-1, -1, -1, -1);
 			t[tp].backtrack_from_group = true;
 			new_thread(re->c[ip].c, sp, opt, tp);
 			break;
 
 		case INSTR_RET:
 			--tp;
-			while (tp && t[tp].tp == tp) {
-				t[tp - 1].sp = t[tp].sp;
-				--tp;
-			}
-
+			new_thread(-1, -1, -1, -1);
+			t[tp].backtrack_to_group = true;
 			new_thread(frame[--fp], sp, opt, tp);
 			break;
 
