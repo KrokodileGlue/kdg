@@ -167,10 +167,33 @@ _Bool ktre_exec(struct ktre *re, const char *subject, int **vec);
 void ktre_free(struct ktre *re);
 
 #ifdef KTRE_IMPLEMENTATION
+#define WHITESPACE " \t\r\n\v\f"
+#define WORD "_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+#define DIGIT "0123456789"
+
 #ifdef KTRE_DEBUG
 #include <stdio.h>
 #include <assert.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
+#define DBGF(str)							\
+	do {								\
+		for (int _i = 0; _i < strlen(str); _i++) {		\
+			if (strchr(WHITESPACE, str[_i]) || str[_i] == '\\') { \
+				fputc('\\', stderr);			\
+				switch (str[_i]) {			\
+				case '\t': fputc('t', stderr); break;	\
+				case '\r': fputc('r', stderr); break;	\
+				case '\n': fputc('n', stderr); break;	\
+				case '\v': fputc('v', stderr); break;	\
+				case '\f': fputc('f', stderr); break;	\
+				case '\\': fputc('\\',stderr); break;	\
+				default: fputc(str[_i], stderr);	\
+				}					\
+			} else {					\
+				fputc(str[_i], stderr);			\
+			}						\
+		}							\
+	} while (0);
 #endif
 
 #include <stdbool.h>
@@ -178,10 +201,6 @@ void ktre_free(struct ktre *re);
 #include <string.h>
 #include <ctype.h>
 #include <setjmp.h>
-
-#define WHITESPACE " \t\r\n\v\f"
-#define WORD "_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-#define DIGIT "0123456789"
 
 static void *_malloc(size_t n);
 static void *_calloc(size_t n);
@@ -980,7 +999,7 @@ print_node(struct node *n)
 	case NODE_CHAR:      DBG("(char '%c')", n->c);                        break;
 	case NODE_WB:        DBG("(word boundary)");                          break;
 	case NODE_BACKREF:   DBG("(backreference to %d)", n->c);              break;
-	case NODE_CLASS:     DBG("(class '%s')", n->class);                   break;
+	case NODE_CLASS:     DBG("(class '"); DBGF(n->class); DBG("')");      break;
 	case NODE_NOT:       DBG("(not '%s')", n->class);                     break;
 	case NODE_BOL:       DBG("(bol)");                                    break;
 	case NODE_EOL:       DBG("(eol)");                                    break;
@@ -1283,8 +1302,8 @@ ktre_compile(const char *pat, int opt)
 		DBG("\n%3d: ", i);
 
 		switch (re->c[i].op) {
+		case INSTR_CLASS: DBG("CLASS   '"); DBGF(re->c[i].class); DBG("'");   break;
 		case INSTR_SPLIT:     DBG("SPLIT    %d, %d", re->c[i].a, re->c[i].b); break;
-		case INSTR_CLASS:     DBG("CLASS   '%s'", re->c[i].class);            break;
 		case INSTR_NOT:       DBG("NOT     '%s'", re->c[i].class);            break;
 		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].c);                break;
 		case INSTR_SAVE:      DBG("SAVE     %d",  re->c[i].c);                break;
@@ -1343,7 +1362,7 @@ run(struct ktre *re, const char *subject, int *vec)
 	while (tp) {
 		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, _tp = t[tp].tp;
 #ifdef KTRE_DEBUG
-		DBG("\nip: %3d | sp: %3d | tp: %3d | fp: %d | _tp: %d | %s", ip, sp, tp, fp, _tp, sp <= (int)strlen(subject) ? subject + sp : "");
+//		DBG("\nip: %3d | sp: %3d | tp: %3d | fp: %3d | _tp: %3d | %s", ip, sp, tp, fp, _tp, sp <= (int)strlen(subject) ? subject + sp : "");
 #endif
 
 		if (t[tp].backtrack_from_group) {
@@ -1425,8 +1444,8 @@ run(struct ktre *re, const char *subject, int *vec)
 				--tp;
 				new_thread(ip + 1, sp, opt, _tp);
 			} else {
-				vec[t[tp].old_idx] = t[tp].old;
 				--tp;
+				vec[t[tp].old_idx] = t[tp].old;
 			}
 			break;
 
