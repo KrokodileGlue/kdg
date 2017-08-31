@@ -156,6 +156,8 @@ struct ktre {
 	struct group {
 		int address;
 		_Bool compiled;
+		/* whether this is a group that is ever called as a subroutine */
+		_Bool is_called;
 	} *group;
 	int gp;
 
@@ -220,13 +222,14 @@ static void *_malloc(size_t n);
 static void *_calloc(size_t n);
 static void *_realloc(void *ptr, size_t n);
 
-static void
+static int
 add_group(struct ktre *re)
 {
 	re->group = _realloc(re->group, sizeof re->group[0] * (re->gp + 1));
 	re->group[re->gp].compiled = false;
 	re->group[re->gp].address = -1;
-	re->gp++;
+	re->group[re->gp].is_called = false;
+	return re->gp++;
 }
 
 static void *
@@ -396,9 +399,10 @@ struct node {
 		NODE_NONE
 	} type;
 
-	struct {
+	union {
 		struct {
 			struct node *a, *b;
+			int gi; /* group index */
 		};
 		struct {
 			int c, d;
@@ -731,6 +735,10 @@ again:
 			left->type = NODE_CALL;
 			left->c = a;
 
+			if (a <= re->gp) {
+				re->group[a].is_called = true;
+			}
+
 			re->sp += len + 1;
 		} else if (*re->sp == '?' && re->sp[1] == '=') {
 			left->type = NODE_LA_YES;
@@ -796,9 +804,10 @@ again:
 				return left;
 			}
 		} else {
-			add_group(re);
+			left->gi = add_group(re);
 			left->type = NODE_GROUP;
 			left->a = parse(re);
+			re->group[left->gi].is_called = false;
 
 			if (*re->sp != ')') {
 				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat - 1, "unmatched '('");
@@ -1109,22 +1118,36 @@ compile(struct ktre *re, struct node *n)
 	} break;
 
 	case NODE_GROUP:
-		emit_c(re, INSTR_CALL, re->ip + 2);
-		a = re->ip;
-		emit_c(re, INSTR_JMP, -1);
-		emit_c(re, INSTR_SAVE, re->num_groups * 2);
+		if (re->group[n->gi].is_called) {
+			emit_c(re, INSTR_CALL, re->ip + 2);
+			a = re->ip;
+			emit_c(re, INSTR_JMP, -1);
+			emit_c(re, INSTR_SAVE, re->num_groups * 2);
 
-		old = re->num_groups;
-		re->num_groups++;
-		re->group[old].address = re->ip - 1;
+			old = re->num_groups;
+			re->num_groups++;
+			re->group[old].address = re->ip - 1;
 
-		compile(re, n->a);
+			compile(re, n->a);
 
-		emit_c(re, INSTR_SAVE, old * 2 + 1);
-		emit(re, INSTR_RET);
-		PATCH_C(a, re->ip);
+			emit_c(re, INSTR_SAVE, old * 2 + 1);
+			emit(re, INSTR_RET);
+			PATCH_C(a, re->ip);
 
-		re->group[old].compiled = true;
+			re->group[old].compiled = true;
+		} else {
+			emit_c(re, INSTR_SAVE, re->num_groups * 2);
+
+			old = re->num_groups;
+			re->num_groups++;
+			re->group[old].address = re->ip - 1;
+
+			compile(re, n->a);
+
+			emit_c(re, INSTR_SAVE, old * 2 + 1);
+
+			re->group[old].compiled = true;
+		}
 		break;
 
 	case NODE_CALL:
@@ -1294,7 +1317,7 @@ ktre_compile(const char *pat, int opt)
 
 	re->n = _malloc(sizeof *re->n);
 	re->n->type = NODE_GROUP;
-	add_group(re);
+	re->n->gi = add_group(re);
 
 	re->n->a = parse(re);
 	if (re->failed) {
