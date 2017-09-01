@@ -130,6 +130,10 @@ enum ktre_error {
 
 #define KTRE_MAX_THREAD 4000
 #define KTRE_MAX_CALL_DEPTH 200
+#define KTRE_MALLOC malloc
+#define KTRE_FREE free
+#define KTRE_REALLOC realloc
+#define KTRE_CALLOC calloc
 
 struct ktre {
 	/* public fields */
@@ -218,57 +222,14 @@ void ktre_free(struct ktre *re);
 #include <ctype.h>
 #include <setjmp.h>
 
-static void *_malloc(size_t n);
-static void *_calloc(size_t n);
-static void *_realloc(void *ptr, size_t n);
-
 static int
 add_group(struct ktre *re)
 {
-	re->group = _realloc(re->group, sizeof re->group[0] * (re->gp + 1));
+	re->group = KTRE_REALLOC(re->group, sizeof re->group[0] * (re->gp + 1));
 	re->group[re->gp].compiled = false;
 	re->group[re->gp].address = -1;
 	re->group[re->gp].is_called = false;
 	return re->gp++;
-}
-
-static void *
-_malloc(size_t n)
-{
-	void *a = malloc(n);
-
-	if (!a) {
-		fprintf(stderr, "ktre: out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-
-	return a;
-}
-
-static void *
-_calloc(size_t n)
-{
-	void *a = calloc(n, 1);
-
-	if (!a) {
-		fprintf(stderr, "ktre: out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-
-	return a;
-}
-
-static void *
-_realloc(void *ptr, size_t n)
-{
-	void *a = realloc(ptr, n);
-
-	if (!a) {
-		fprintf(stderr, "ktre: out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-
-	return a;
 }
 
 struct instr {
@@ -315,7 +276,7 @@ grow_code(struct ktre *re, size_t n)
 {
 	if (!re->instr_alloc) {
 		re->instr_alloc = 1;
-		re->c = _malloc(sizeof re->c[0]);
+		re->c = KTRE_MALLOC(sizeof re->c[0]);
 	}
 
 	if (re->ip + n >= re->instr_alloc) {
@@ -325,7 +286,7 @@ grow_code(struct ktre *re, size_t n)
 			re->instr_alloc *= 2;
 		}
 
-		re->c = _realloc(re->c, sizeof re->c[0] * re->instr_alloc);
+		re->c = KTRE_REALLOC(re->c, sizeof re->c[0] * re->instr_alloc);
 	}
 }
 
@@ -399,7 +360,7 @@ struct node {
 		NODE_NONE
 	} type;
 
-	union {
+	struct {
 		struct {
 			struct node *a, *b;
 			int gi; /* group index */
@@ -430,11 +391,11 @@ free_node(struct node *n)
 	case NODE_LB_NO:
 		free_node(n->a);
 		break;
-	case NODE_CLASS: free(n->class); break;
+	case NODE_CLASS: KTRE_FREE(n->class); break;
 	default: break;
 	}
 
-	free(n);
+	KTRE_FREE(n);
 }
 
 #define NEXT                           \
@@ -450,7 +411,7 @@ error(struct ktre *re, enum ktre_error err, int loc, char *fmt, ...)
 {
 	re->failed = true;
 	re->err = err;
-	re->err_str = _malloc(MAX_ERROR_LEN);
+	re->err_str = KTRE_MALLOC(MAX_ERROR_LEN);
 	re->loc = loc;
 
 	va_list args;
@@ -475,7 +436,7 @@ static char *
 class_add_char(char *class, char c)
 {
 	size_t len = class ? strlen(class) : 0;
-	class = _realloc(class, len + 2);
+	class = KTRE_REALLOC(class, len + 2);
 	class[len] = c;
 	class[len + 1] = 0;
 	return class;
@@ -485,7 +446,7 @@ static char *
 class_add_str(char *class, const char *c)
 {
 	size_t len = class ? strlen(class) : 0;
-	class = _realloc(class, len + strlen(c) + 1);
+	class = KTRE_REALLOC(class, len + strlen(c) + 1);
 	strcpy(class + len, c);
 	return class;
 }
@@ -493,7 +454,7 @@ class_add_str(char *class, const char *c)
 static char *
 strclone(const char *str)
 {
-	char *ret = _malloc(strlen(str) + 1);
+	char *ret = KTRE_MALLOC(strlen(str) + 1);
 	strcpy(ret, str);
 	return ret;
 }
@@ -501,7 +462,7 @@ strclone(const char *str)
 static struct node *
 factor(struct ktre *re)
 {
-	struct node *left = _malloc(sizeof *left);
+	struct node *left = KTRE_MALLOC(sizeof *left);
 	left->loc = 0;
 
 again:
@@ -597,8 +558,11 @@ again:
 			if (re->sp[1] == '-' && re->sp[2] != ']') {
 				for (int i = re->sp[0]; i <= re->sp[2]; i++) {
 					class = class_add_char(class, i);
-					if (i >= 'a' && i <= 'z') class_add_char(class, i - 'a' + 'A');
-					else class_add_char(class, lc(i));
+
+					if (re->popt & KTRE_INSENSITIVE) {
+						if (i >= 'a' && i <= 'z') class = class_add_char(class, i - 'a' + 'A');
+						else class = class_add_char(class, lc(i));
+					}
 				}
 				re->sp += 3;
 			} else if (*re->sp == '\\') {
@@ -606,26 +570,26 @@ again:
 
 				switch (*re->sp) {
 				case 's':
-					class_add_str(class, WHITESPACE);
+					class = class_add_str(class, WHITESPACE);
 					re->sp++;
 					break;
 				case 'd':
-					class_add_str(class, DIGIT);
+					class = class_add_str(class, DIGIT);
 					re->sp++;
 					break;
 				case 'w':
-					class_add_str(class, WORD);
+					class = class_add_str(class, WORD);
 					re->sp++;
 					break;
 				case 'n':
-					class_add_char(class, '\n');
+					class = class_add_char(class, '\n');
 					re->sp++;
 				}
 			} else {
 				if (re->popt & KTRE_INSENSITIVE) {
 					class = class_add_char(class, *re->sp);
-					if (*re->sp >= 'a' && *re->sp <= 'z') class_add_char(class, *re->sp - 'a' + 'A');
-					else class_add_char(class, lc(*re->sp));
+					if (*re->sp >= 'a' && *re->sp <= 'z') class = class_add_char(class, *re->sp - 'a' + 'A');
+					else class = class_add_char(class, lc(*re->sp));
 				}
 				else class = class_add_char(class, *re->sp);
 				re->sp++;
@@ -785,10 +749,10 @@ again:
 				if (off || neg) re->popt &= ~opt;
 				else re->popt |= opt;
 
-				struct node *tmp = _malloc(sizeof *tmp);
+				struct node *tmp = KTRE_MALLOC(sizeof *tmp);
 				tmp->type = NODE_SEQUENCE;
 				tmp->a = left;
-				tmp->b = _malloc(sizeof *tmp->b);
+				tmp->b = KTRE_MALLOC(sizeof *tmp->b);
 				tmp->b->type = off || neg ? NODE_OPT_OFF : NODE_OPT_ON;
 				tmp->b->c = opt;
 				left = tmp;
@@ -858,7 +822,7 @@ again:
 
 	while (*re->sp && (*re->sp == '*' || *re->sp == '+' || *re->sp == '?' || *re->sp == '{')) {
 		NEXT;
-		struct node *n = _malloc(sizeof *n);
+		struct node *n = KTRE_MALLOC(sizeof *n);
 
 		switch (re->sp[-1]) {
 		case '*': n->type = NODE_ASTERISK; break;
@@ -943,6 +907,11 @@ again:
 		}
 
 		n->a = left;
+
+		if (n->type == NODE_REP)
+			if (n->a->type == NODE_GROUP)
+				re->group[n->a->gi].is_called = true;
+
 		left = n;
 	}
 
@@ -954,7 +923,7 @@ again:
 static struct node *
 term(struct ktre *re)
 {
-	struct node *left = _malloc(sizeof *left);
+	struct node *left = KTRE_MALLOC(sizeof *left);
 	left->type = NODE_NONE;
 
 	while (*re->sp && *re->sp != '|' && *re->sp != ')') {
@@ -965,10 +934,10 @@ term(struct ktre *re)
 		}
 
 		if (left->type == NODE_NONE) {
-			free(left);
+			KTRE_FREE(left);
 			left = right;
 		} else {
-			struct node *tmp = _malloc(sizeof *tmp);
+			struct node *tmp = KTRE_MALLOC(sizeof *tmp);
 			tmp->a = left;
 			tmp->b = right;
 			tmp->type = NODE_SEQUENCE;
@@ -987,7 +956,7 @@ parse(struct ktre *re)
 	if (*re->sp && *re->sp == '|') {
 		NEXT;
 
-		struct node *m = _malloc(sizeof *m);
+		struct node *m = KTRE_MALLOC(sizeof *m);
 		m->type = NODE_OR;
 		m->a = n;
 		m->b = parse(re);
@@ -1221,8 +1190,10 @@ compile(struct ktre *re, struct node *n)
 		a = 0;
 		for (int i = 0; i < n->c; i++) {
 			a = re->ip;
-			if (n->a->type == NODE_GROUP) {
-				compile(re, n->a->a);
+			if (n->a->type == NODE_GROUP && !re->group[n->a->gi].compiled) {
+				compile(re, n->a);
+			} else if (n->a->type == NODE_GROUP) {
+				emit_c(re, INSTR_CALL, re->group[n->a->gi].address);
 			} else {
 				compile(re, n->a);
 			}
@@ -1294,7 +1265,7 @@ compile(struct ktre *re, struct node *n)
 struct ktre *
 ktre_compile(const char *pat, int opt)
 {
-	struct ktre *re = _calloc(sizeof *re);
+	struct ktre *re = KTRE_CALLOC(sizeof *re, 1);
 	re->pat = pat, re->opt = opt, re->sp = pat, re->popt = opt;
 	re->err_str = "no error";
 
@@ -1315,9 +1286,11 @@ ktre_compile(const char *pat, int opt)
 		return re;
 	}
 
-	re->n = _malloc(sizeof *re->n);
+	re->n = KTRE_MALLOC(sizeof *re->n);
 	re->n->type = NODE_GROUP;
 	re->n->gi = add_group(re);
+	re->group[0].compiled = false;
+	re->group[0].is_called = false;
 
 	re->n->a = parse(re);
 	if (re->failed) {
@@ -1339,8 +1312,6 @@ ktre_compile(const char *pat, int opt)
 	compile(re, re->n);
 	if (re->failed)
 		return re;
-
-	emit_c(re, INSTR_SAVE, 1);
 
 	/* just emit the bytecode for .* */
 	if (re->opt & KTRE_UNANCHORED) {
@@ -1615,26 +1586,26 @@ void
 ktre_free(struct ktre *re)
 {
 	free_node(re->n);
-	free(re->c);
-	if (re->err) free(re->err_str);
-	free(re->group);
-	free(re);
+	KTRE_FREE(re->c);
+	if (re->err) KTRE_FREE(re->err_str);
+	KTRE_FREE(re->group);
+	KTRE_FREE(re);
 }
 
 _Bool
 ktre_exec(struct ktre *re, const char *subject, int **vec)
 {
 	if (re->err) {
-		free(re->err_str);
+		KTRE_FREE(re->err_str);
 		re->err = 0;
 	}
 
-	*vec = _calloc(sizeof *vec[0] * re->num_groups * 2);
+	*vec = KTRE_CALLOC(sizeof *vec[0] * re->num_groups * 2, 1);
 
 	if (run(re, subject, *vec)) {
 		return true;
 	} else {
-		free(*vec);
+		KTRE_FREE(*vec);
 		return false;
 	}
 }
