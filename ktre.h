@@ -560,8 +560,8 @@ again:
 					class = class_add_char(class, i);
 
 					if (re->popt & KTRE_INSENSITIVE) {
-						if (i >= 'a' && i <= 'z') class = class_add_char(class, i - 'a' + 'A');
-						else class = class_add_char(class, lc(i));
+						if (i >= 'a' && i <= 'z')
+							class = class_add_char(class, lc(i));
 					}
 				}
 				re->sp += 3;
@@ -588,8 +588,8 @@ again:
 			} else {
 				if (re->popt & KTRE_INSENSITIVE) {
 					class = class_add_char(class, *re->sp);
-					if (*re->sp >= 'a' && *re->sp <= 'z') class = class_add_char(class, *re->sp - 'a' + 'A');
-					else class = class_add_char(class, lc(*re->sp));
+					if (*re->sp >= 'a' && *re->sp <= 'z')
+						class = class_add_char(class, lc(*re->sp));
 				}
 				else class = class_add_char(class, *re->sp);
 				re->sp++;
