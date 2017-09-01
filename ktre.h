@@ -1209,7 +1209,13 @@ compile(struct ktre *re, struct node *n)
 			for (int i = 0; i < n->d - n->c; i++) {
 				a = re->ip;
 				emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
-				compile(re, n->a);
+
+				if (n->a->type == NODE_GROUP) {
+					emit_c(re, INSTR_CALL, re->group[n->a->gi].address);
+				} else {
+					compile(re, n->a);
+				}
+
 				PATCH_B(a, re->ip);
 			}
 		}
