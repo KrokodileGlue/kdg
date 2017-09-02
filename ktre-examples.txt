@@ -1,6 +1,7 @@
-  regex: ^(?>dave0!.*?(PRIVMSG|ACTION)\s)(?i)(.*?\s)?re[.!]*(\s+.*)?$
+  regex: ^(?>dave0!.*?(PRIVMSG|ACTION)\s)(?i)(.*?\s)?re[\.!]*(\s+.*)?$
 subject: dave0!thing PRIVMSG candide: re.
 options set:
+	INSENSITIVE
 	UNANCHORED
 (group)
 `-- (sequence)
@@ -16,46 +17,14 @@ options set:
     |   |   |   |   |   |   |       `-- (sequence)
     |   |   |   |   |   |   |           |-- (sequence)
     |   |   |   |   |   |   |           |   |-- (sequence)
-    |   |   |   |   |   |   |           |   |   |-- (sequence)
-    |   |   |   |   |   |   |           |   |   |   |-- (sequence)
-    |   |   |   |   |   |   |           |   |   |   |   |-- (sequence)
-    |   |   |   |   |   |   |           |   |   |   |   |   |-- (sequence)
-    |   |   |   |   |   |   |           |   |   |   |   |   |   |-- (sequence)
-    |   |   |   |   |   |   |           |   |   |   |   |   |   |   |-- (char 'd')
-    |   |   |   |   |   |   |           |   |   |   |   |   |   |   `-- (char 'a')
-    |   |   |   |   |   |   |           |   |   |   |   |   |   `-- (char 'v')
-    |   |   |   |   |   |   |           |   |   |   |   |   `-- (char 'e')
-    |   |   |   |   |   |   |           |   |   |   |   `-- (char '0')
-    |   |   |   |   |   |   |           |   |   |   `-- (char '!')
+    |   |   |   |   |   |   |           |   |   |-- (string 'dave0!')
     |   |   |   |   |   |   |           |   |   `-- (question)
     |   |   |   |   |   |   |           |   |       `-- (asterisk)
     |   |   |   |   |   |   |           |   |           `-- (any)
     |   |   |   |   |   |   |           |   `-- (group)
     |   |   |   |   |   |   |           |       `-- (or)
-    |   |   |   |   |   |   |           |           |-- (sequence)
-    |   |   |   |   |   |   |           |           |   |-- (sequence)
-    |   |   |   |   |   |   |           |           |   |   |-- (sequence)
-    |   |   |   |   |   |   |           |           |   |   |   |-- (sequence)
-    |   |   |   |   |   |   |           |           |   |   |   |   |-- (sequence)
-    |   |   |   |   |   |   |           |           |   |   |   |   |   |-- (sequence)
-    |   |   |   |   |   |   |           |           |   |   |   |   |   |   |-- (char 'P')
-    |   |   |   |   |   |   |           |           |   |   |   |   |   |   `-- (char 'R')
-    |   |   |   |   |   |   |           |           |   |   |   |   |   `-- (char 'I')
-    |   |   |   |   |   |   |           |           |   |   |   |   `-- (char 'V')
-    |   |   |   |   |   |   |           |           |   |   |   `-- (char 'M')
-    |   |   |   |   |   |   |           |           |   |   `-- (char 'S')
-    |   |   |   |   |   |   |           |           |   `-- (char 'G')
-    |   |   |   |   |   |   |           |           `-- (sequence)
-    |   |   |   |   |   |   |           |               |-- (sequence)
-    |   |   |   |   |   |   |           |               |   |-- (sequence)
-    |   |   |   |   |   |   |           |               |   |   |-- (sequence)
-    |   |   |   |   |   |   |           |               |   |   |   |-- (sequence)
-    |   |   |   |   |   |   |           |               |   |   |   |   |-- (char 'A')
-    |   |   |   |   |   |   |           |               |   |   |   |   `-- (char 'C')
-    |   |   |   |   |   |   |           |               |   |   |   `-- (char 'T')
-    |   |   |   |   |   |   |           |               |   |   `-- (char 'I')
-    |   |   |   |   |   |   |           |               |   `-- (char 'O')
-    |   |   |   |   |   |   |           |               `-- (char 'N')
+    |   |   |   |   |   |   |           |           |-- (string 'PRIVMSG')
+    |   |   |   |   |   |   |           |           `-- (string 'ACTION')
     |   |   |   |   |   |   |           `-- (class '\ \t\r\n\v\f')
     |   |   |   |   |   |   `-- (sequence)
     |   |   |   |   |   |       |-- (none)
@@ -80,175 +49,148 @@ options set:
     |                   `-- (any)
     `-- (eol)
 group 0 address: 3
-group 1 address: 15
-group 2 address: 37
-group 3 address: 49
+group 1 address: 10
+group 2 address: 21
+group 3 address: 33
   0: SPLIT    3, 1
   1: ANY
   2: SPLIT    3, 1
   3: SAVE     0
   4: BOL
   5: PUSH_TP
-  6: CHAR    'd'
-  7: CHAR    'a'
-  8: CHAR    'v'
-  9: CHAR    'e'
- 10: CHAR    '0'
- 11: CHAR    '!'
- 12: SPLIT    15, 13
- 13: ANY
- 14: SPLIT    15, 13
- 15: SAVE     2
- 16: SPLIT    17, 25
- 17: CHAR    'P'
- 18: CHAR    'R'
- 19: CHAR    'I'
- 20: CHAR    'V'
- 21: CHAR    'M'
- 22: CHAR    'S'
- 23: CHAR    'G'
- 24: JMP      31
- 25: CHAR    'A'
- 26: CHAR    'C'
- 27: CHAR    'T'
- 28: CHAR    'I'
- 29: CHAR    'O'
- 30: CHAR    'N'
- 31: SAVE     3
- 32: CLASS   '\ \t\r\n\v\f'
- 33: KILL_TP
- 34: DIE
- 35: OPTON    1
- 36: SPLIT    37, 43
- 37: SAVE     4
- 38: SPLIT    41, 39
- 39: ANY
- 40: SPLIT    41, 39
- 41: CLASS   '\ \t\r\n\v\f'
- 42: SAVE     5
- 43: CHAR    'r'
- 44: CHAR    'e'
- 45: SPLIT    46, 48
- 46: CLASS   '.!'
- 47: SPLIT    46, 48
- 48: SPLIT    49, 56
- 49: SAVE     6
- 50: CLASS   '\ \t\r\n\v\f'
- 51: SPLIT    50, 52
- 52: SPLIT    53, 55
- 53: ANY
- 54: SPLIT    53, 55
- 55: SAVE     7
- 56: EOL
- 57: SAVE     1
- 58: SPLIT    59, 61
- 59: ANY
- 60: SPLIT    59, 61
- 61: MATCH
+  6: STR     'dave0!'
+  7: SPLIT    10, 8
+  8: ANY
+  9: SPLIT    10, 8
+ 10: SAVE     2
+ 11: SPLIT    12, 14
+ 12: STR     'PRIVMSG'
+ 13: JMP      15
+ 14: STR     'ACTION'
+ 15: SAVE     3
+ 16: CLASS   '\ \t\r\n\v\f'
+ 17: KILL_TP
+ 18: DIE
+ 19: OPTON    1
+ 20: SPLIT    21, 27
+ 21: SAVE     4
+ 22: SPLIT    25, 23
+ 23: ANY
+ 24: SPLIT    25, 23
+ 25: CLASS   '\ \t\r\n\v\f'
+ 26: SAVE     5
+ 27: CHAR    'r'
+ 28: CHAR    'e'
+ 29: SPLIT    30, 32
+ 30: CLASS   '.!'
+ 31: SPLIT    30, 32
+ 32: SPLIT    33, 40
+ 33: SAVE     6
+ 34: CLASS   '\ \t\r\n\v\f'
+ 35: SPLIT    34, 36
+ 36: SPLIT    37, 39
+ 37: ANY
+ 38: SPLIT    37, 39
+ 39: SAVE     7
+ 40: EOL
+ 41: SAVE     1
+ 42: SPLIT    43, 45
+ 43: ANY
+ 44: SPLIT    43, 45
+ 45: MATCH
 ip:   0 | sp:   0 | tp:   1 | fp:   0 | _tp:   0 | dave0!thing PRIVMSG candide: re.
 ip:   3 | sp:   0 | tp:   2 | fp:   0 | _tp:   0 | dave0!thing PRIVMSG candide: re.
 ip:   4 | sp:   0 | tp:   2 | fp:   0 | _tp:   0 | dave0!thing PRIVMSG candide: re.
 ip:   5 | sp:   0 | tp:   2 | fp:   0 | _tp:   0 | dave0!thing PRIVMSG candide: re.
 ip:   6 | sp:   0 | tp:   2 | fp:   0 | _tp:   2 | dave0!thing PRIVMSG candide: re.
-ip:   7 | sp:   1 | tp:   2 | fp:   0 | _tp:   2 | ave0!thing PRIVMSG candide: re.
-ip:   8 | sp:   2 | tp:   2 | fp:   0 | _tp:   2 | ve0!thing PRIVMSG candide: re.
-ip:   9 | sp:   3 | tp:   2 | fp:   0 | _tp:   2 | e0!thing PRIVMSG candide: re.
-ip:  10 | sp:   4 | tp:   2 | fp:   0 | _tp:   2 | 0!thing PRIVMSG candide: re.
-ip:  11 | sp:   5 | tp:   2 | fp:   0 | _tp:   2 | !thing PRIVMSG candide: re.
-ip:  12 | sp:   6 | tp:   2 | fp:   0 | _tp:   2 | thing PRIVMSG candide: re.
-ip:  15 | sp:   6 | tp:   3 | fp:   0 | _tp:   2 | thing PRIVMSG candide: re.
-ip:  16 | sp:   6 | tp:   3 | fp:   0 | _tp:   2 | thing PRIVMSG candide: re.
-ip:  17 | sp:   6 | tp:   4 | fp:   0 | _tp:   2 | thing PRIVMSG candide: re.
-ip:  25 | sp:   6 | tp:   3 | fp:   0 | _tp:   2 | thing PRIVMSG candide: re.
-ip:  13 | sp:   6 | tp:   2 | fp:   0 | _tp:   2 | thing PRIVMSG candide: re.
-ip:  14 | sp:   7 | tp:   2 | fp:   0 | _tp:   2 | hing PRIVMSG candide: re.
-ip:  15 | sp:   7 | tp:   3 | fp:   0 | _tp:   2 | hing PRIVMSG candide: re.
-ip:  16 | sp:   7 | tp:   3 | fp:   0 | _tp:   2 | hing PRIVMSG candide: re.
-ip:  17 | sp:   7 | tp:   4 | fp:   0 | _tp:   2 | hing PRIVMSG candide: re.
-ip:  25 | sp:   7 | tp:   3 | fp:   0 | _tp:   2 | hing PRIVMSG candide: re.
-ip:  13 | sp:   7 | tp:   2 | fp:   0 | _tp:   2 | hing PRIVMSG candide: re.
-ip:  14 | sp:   8 | tp:   2 | fp:   0 | _tp:   2 | ing PRIVMSG candide: re.
-ip:  15 | sp:   8 | tp:   3 | fp:   0 | _tp:   2 | ing PRIVMSG candide: re.
-ip:  16 | sp:   8 | tp:   3 | fp:   0 | _tp:   2 | ing PRIVMSG candide: re.
-ip:  17 | sp:   8 | tp:   4 | fp:   0 | _tp:   2 | ing PRIVMSG candide: re.
-ip:  25 | sp:   8 | tp:   3 | fp:   0 | _tp:   2 | ing PRIVMSG candide: re.
-ip:  13 | sp:   8 | tp:   2 | fp:   0 | _tp:   2 | ing PRIVMSG candide: re.
-ip:  14 | sp:   9 | tp:   2 | fp:   0 | _tp:   2 | ng PRIVMSG candide: re.
-ip:  15 | sp:   9 | tp:   3 | fp:   0 | _tp:   2 | ng PRIVMSG candide: re.
-ip:  16 | sp:   9 | tp:   3 | fp:   0 | _tp:   2 | ng PRIVMSG candide: re.
-ip:  17 | sp:   9 | tp:   4 | fp:   0 | _tp:   2 | ng PRIVMSG candide: re.
-ip:  25 | sp:   9 | tp:   3 | fp:   0 | _tp:   2 | ng PRIVMSG candide: re.
-ip:  13 | sp:   9 | tp:   2 | fp:   0 | _tp:   2 | ng PRIVMSG candide: re.
-ip:  14 | sp:  10 | tp:   2 | fp:   0 | _tp:   2 | g PRIVMSG candide: re.
-ip:  15 | sp:  10 | tp:   3 | fp:   0 | _tp:   2 | g PRIVMSG candide: re.
-ip:  16 | sp:  10 | tp:   3 | fp:   0 | _tp:   2 | g PRIVMSG candide: re.
-ip:  17 | sp:  10 | tp:   4 | fp:   0 | _tp:   2 | g PRIVMSG candide: re.
-ip:  25 | sp:  10 | tp:   3 | fp:   0 | _tp:   2 | g PRIVMSG candide: re.
-ip:  13 | sp:  10 | tp:   2 | fp:   0 | _tp:   2 | g PRIVMSG candide: re.
-ip:  14 | sp:  11 | tp:   2 | fp:   0 | _tp:   2 |  PRIVMSG candide: re.
-ip:  15 | sp:  11 | tp:   3 | fp:   0 | _tp:   2 |  PRIVMSG candide: re.
-ip:  16 | sp:  11 | tp:   3 | fp:   0 | _tp:   2 |  PRIVMSG candide: re.
-ip:  17 | sp:  11 | tp:   4 | fp:   0 | _tp:   2 |  PRIVMSG candide: re.
-ip:  25 | sp:  11 | tp:   3 | fp:   0 | _tp:   2 |  PRIVMSG candide: re.
-ip:  13 | sp:  11 | tp:   2 | fp:   0 | _tp:   2 |  PRIVMSG candide: re.
-ip:  14 | sp:  12 | tp:   2 | fp:   0 | _tp:   2 | PRIVMSG candide: re.
-ip:  15 | sp:  12 | tp:   3 | fp:   0 | _tp:   2 | PRIVMSG candide: re.
-ip:  16 | sp:  12 | tp:   3 | fp:   0 | _tp:   2 | PRIVMSG candide: re.
-ip:  17 | sp:  12 | tp:   4 | fp:   0 | _tp:   2 | PRIVMSG candide: re.
-ip:  18 | sp:  13 | tp:   4 | fp:   0 | _tp:   2 | RIVMSG candide: re.
-ip:  19 | sp:  14 | tp:   4 | fp:   0 | _tp:   2 | IVMSG candide: re.
-ip:  20 | sp:  15 | tp:   4 | fp:   0 | _tp:   2 | VMSG candide: re.
-ip:  21 | sp:  16 | tp:   4 | fp:   0 | _tp:   2 | MSG candide: re.
-ip:  22 | sp:  17 | tp:   4 | fp:   0 | _tp:   2 | SG candide: re.
-ip:  23 | sp:  18 | tp:   4 | fp:   0 | _tp:   2 | G candide: re.
-ip:  24 | sp:  19 | tp:   4 | fp:   0 | _tp:   2 |  candide: re.
-ip:  31 | sp:  19 | tp:   4 | fp:   0 | _tp:   2 |  candide: re.
-ip:  32 | sp:  19 | tp:   4 | fp:   0 | _tp:   2 |  candide: re.
-ip:  33 | sp:  20 | tp:   4 | fp:   0 | _tp:   2 | candide: re.
-ip:  35 | sp:  20 | tp:   5 | fp:   0 | _tp:   4 | candide: re.
-ip:  36 | sp:  20 | tp:   5 | fp:   0 | _tp:   4 | candide: re.
-ip:  37 | sp:  20 | tp:   6 | fp:   0 | _tp:   4 | candide: re.
-ip:  38 | sp:  20 | tp:   6 | fp:   0 | _tp:   4 | candide: re.
-ip:  41 | sp:  20 | tp:   7 | fp:   0 | _tp:   4 | candide: re.
-ip:  39 | sp:  20 | tp:   6 | fp:   0 | _tp:   4 | candide: re.
-ip:  40 | sp:  21 | tp:   6 | fp:   0 | _tp:   4 | andide: re.
-ip:  41 | sp:  21 | tp:   7 | fp:   0 | _tp:   4 | andide: re.
-ip:  39 | sp:  21 | tp:   6 | fp:   0 | _tp:   4 | andide: re.
-ip:  40 | sp:  22 | tp:   6 | fp:   0 | _tp:   4 | ndide: re.
-ip:  41 | sp:  22 | tp:   7 | fp:   0 | _tp:   4 | ndide: re.
-ip:  39 | sp:  22 | tp:   6 | fp:   0 | _tp:   4 | ndide: re.
-ip:  40 | sp:  23 | tp:   6 | fp:   0 | _tp:   4 | dide: re.
-ip:  41 | sp:  23 | tp:   7 | fp:   0 | _tp:   4 | dide: re.
-ip:  39 | sp:  23 | tp:   6 | fp:   0 | _tp:   4 | dide: re.
-ip:  40 | sp:  24 | tp:   6 | fp:   0 | _tp:   4 | ide: re.
-ip:  41 | sp:  24 | tp:   7 | fp:   0 | _tp:   4 | ide: re.
-ip:  39 | sp:  24 | tp:   6 | fp:   0 | _tp:   4 | ide: re.
-ip:  40 | sp:  25 | tp:   6 | fp:   0 | _tp:   4 | de: re.
-ip:  41 | sp:  25 | tp:   7 | fp:   0 | _tp:   4 | de: re.
-ip:  39 | sp:  25 | tp:   6 | fp:   0 | _tp:   4 | de: re.
-ip:  40 | sp:  26 | tp:   6 | fp:   0 | _tp:   4 | e: re.
-ip:  41 | sp:  26 | tp:   7 | fp:   0 | _tp:   4 | e: re.
-ip:  39 | sp:  26 | tp:   6 | fp:   0 | _tp:   4 | e: re.
-ip:  40 | sp:  27 | tp:   6 | fp:   0 | _tp:   4 | : re.
-ip:  41 | sp:  27 | tp:   7 | fp:   0 | _tp:   4 | : re.
-ip:  39 | sp:  27 | tp:   6 | fp:   0 | _tp:   4 | : re.
-ip:  40 | sp:  28 | tp:   6 | fp:   0 | _tp:   4 |  re.
-ip:  41 | sp:  28 | tp:   7 | fp:   0 | _tp:   4 |  re.
-ip:  42 | sp:  29 | tp:   7 | fp:   0 | _tp:   4 | re.
-ip:  43 | sp:  29 | tp:   7 | fp:   0 | _tp:   4 | re.
-ip:  44 | sp:  30 | tp:   7 | fp:   0 | _tp:   4 | e.
-ip:  45 | sp:  31 | tp:   7 | fp:   0 | _tp:   4 | .
-ip:  46 | sp:  31 | tp:   8 | fp:   0 | _tp:   4 | .
-ip:  47 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
-ip:  46 | sp:  32 | tp:   9 | fp:   0 | _tp:   4 | 
-ip:  48 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
-ip:  49 | sp:  32 | tp:   9 | fp:   0 | _tp:   4 | 
-ip:  50 | sp:  32 | tp:   9 | fp:   0 | _tp:   4 | 
-ip:  56 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
-ip:  57 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
-ip:  58 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
-ip:  59 | sp:  32 | tp:   9 | fp:   0 | _tp:   4 | 
-ip:  61 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
+ip:   7 | sp:   6 | tp:   2 | fp:   0 | _tp:   2 | thing PRIVMSG candide: re.
+ip:  10 | sp:   6 | tp:   3 | fp:   0 | _tp:   2 | thing PRIVMSG candide: re.
+ip:  11 | sp:   6 | tp:   3 | fp:   0 | _tp:   2 | thing PRIVMSG candide: re.
+ip:  12 | sp:   6 | tp:   4 | fp:   0 | _tp:   2 | thing PRIVMSG candide: re.
+ip:  14 | sp:   6 | tp:   3 | fp:   0 | _tp:   2 | thing PRIVMSG candide: re.
+ip:   8 | sp:   6 | tp:   2 | fp:   0 | _tp:   2 | thing PRIVMSG candide: re.
+ip:   9 | sp:   7 | tp:   2 | fp:   0 | _tp:   2 | hing PRIVMSG candide: re.
+ip:  10 | sp:   7 | tp:   3 | fp:   0 | _tp:   2 | hing PRIVMSG candide: re.
+ip:  11 | sp:   7 | tp:   3 | fp:   0 | _tp:   2 | hing PRIVMSG candide: re.
+ip:  12 | sp:   7 | tp:   4 | fp:   0 | _tp:   2 | hing PRIVMSG candide: re.
+ip:  14 | sp:   7 | tp:   3 | fp:   0 | _tp:   2 | hing PRIVMSG candide: re.
+ip:   8 | sp:   7 | tp:   2 | fp:   0 | _tp:   2 | hing PRIVMSG candide: re.
+ip:   9 | sp:   8 | tp:   2 | fp:   0 | _tp:   2 | ing PRIVMSG candide: re.
+ip:  10 | sp:   8 | tp:   3 | fp:   0 | _tp:   2 | ing PRIVMSG candide: re.
+ip:  11 | sp:   8 | tp:   3 | fp:   0 | _tp:   2 | ing PRIVMSG candide: re.
+ip:  12 | sp:   8 | tp:   4 | fp:   0 | _tp:   2 | ing PRIVMSG candide: re.
+ip:  14 | sp:   8 | tp:   3 | fp:   0 | _tp:   2 | ing PRIVMSG candide: re.
+ip:   8 | sp:   8 | tp:   2 | fp:   0 | _tp:   2 | ing PRIVMSG candide: re.
+ip:   9 | sp:   9 | tp:   2 | fp:   0 | _tp:   2 | ng PRIVMSG candide: re.
+ip:  10 | sp:   9 | tp:   3 | fp:   0 | _tp:   2 | ng PRIVMSG candide: re.
+ip:  11 | sp:   9 | tp:   3 | fp:   0 | _tp:   2 | ng PRIVMSG candide: re.
+ip:  12 | sp:   9 | tp:   4 | fp:   0 | _tp:   2 | ng PRIVMSG candide: re.
+ip:  14 | sp:   9 | tp:   3 | fp:   0 | _tp:   2 | ng PRIVMSG candide: re.
+ip:   8 | sp:   9 | tp:   2 | fp:   0 | _tp:   2 | ng PRIVMSG candide: re.
+ip:   9 | sp:  10 | tp:   2 | fp:   0 | _tp:   2 | g PRIVMSG candide: re.
+ip:  10 | sp:  10 | tp:   3 | fp:   0 | _tp:   2 | g PRIVMSG candide: re.
+ip:  11 | sp:  10 | tp:   3 | fp:   0 | _tp:   2 | g PRIVMSG candide: re.
+ip:  12 | sp:  10 | tp:   4 | fp:   0 | _tp:   2 | g PRIVMSG candide: re.
+ip:  14 | sp:  10 | tp:   3 | fp:   0 | _tp:   2 | g PRIVMSG candide: re.
+ip:   8 | sp:  10 | tp:   2 | fp:   0 | _tp:   2 | g PRIVMSG candide: re.
+ip:   9 | sp:  11 | tp:   2 | fp:   0 | _tp:   2 |  PRIVMSG candide: re.
+ip:  10 | sp:  11 | tp:   3 | fp:   0 | _tp:   2 |  PRIVMSG candide: re.
+ip:  11 | sp:  11 | tp:   3 | fp:   0 | _tp:   2 |  PRIVMSG candide: re.
+ip:  12 | sp:  11 | tp:   4 | fp:   0 | _tp:   2 |  PRIVMSG candide: re.
+ip:  14 | sp:  11 | tp:   3 | fp:   0 | _tp:   2 |  PRIVMSG candide: re.
+ip:   8 | sp:  11 | tp:   2 | fp:   0 | _tp:   2 |  PRIVMSG candide: re.
+ip:   9 | sp:  12 | tp:   2 | fp:   0 | _tp:   2 | PRIVMSG candide: re.
+ip:  10 | sp:  12 | tp:   3 | fp:   0 | _tp:   2 | PRIVMSG candide: re.
+ip:  11 | sp:  12 | tp:   3 | fp:   0 | _tp:   2 | PRIVMSG candide: re.
+ip:  12 | sp:  12 | tp:   4 | fp:   0 | _tp:   2 | PRIVMSG candide: re.
+ip:  13 | sp:  19 | tp:   4 | fp:   0 | _tp:   2 |  candide: re.
+ip:  15 | sp:  19 | tp:   4 | fp:   0 | _tp:   2 |  candide: re.
+ip:  16 | sp:  19 | tp:   4 | fp:   0 | _tp:   2 |  candide: re.
+ip:  17 | sp:  20 | tp:   4 | fp:   0 | _tp:   2 | candide: re.
+ip:  19 | sp:  20 | tp:   5 | fp:   0 | _tp:   4 | candide: re.
+ip:  20 | sp:  20 | tp:   5 | fp:   0 | _tp:   4 | candide: re.
+ip:  21 | sp:  20 | tp:   6 | fp:   0 | _tp:   4 | candide: re.
+ip:  22 | sp:  20 | tp:   6 | fp:   0 | _tp:   4 | candide: re.
+ip:  25 | sp:  20 | tp:   7 | fp:   0 | _tp:   4 | candide: re.
+ip:  23 | sp:  20 | tp:   6 | fp:   0 | _tp:   4 | candide: re.
+ip:  24 | sp:  21 | tp:   6 | fp:   0 | _tp:   4 | andide: re.
+ip:  25 | sp:  21 | tp:   7 | fp:   0 | _tp:   4 | andide: re.
+ip:  23 | sp:  21 | tp:   6 | fp:   0 | _tp:   4 | andide: re.
+ip:  24 | sp:  22 | tp:   6 | fp:   0 | _tp:   4 | ndide: re.
+ip:  25 | sp:  22 | tp:   7 | fp:   0 | _tp:   4 | ndide: re.
+ip:  23 | sp:  22 | tp:   6 | fp:   0 | _tp:   4 | ndide: re.
+ip:  24 | sp:  23 | tp:   6 | fp:   0 | _tp:   4 | dide: re.
+ip:  25 | sp:  23 | tp:   7 | fp:   0 | _tp:   4 | dide: re.
+ip:  23 | sp:  23 | tp:   6 | fp:   0 | _tp:   4 | dide: re.
+ip:  24 | sp:  24 | tp:   6 | fp:   0 | _tp:   4 | ide: re.
+ip:  25 | sp:  24 | tp:   7 | fp:   0 | _tp:   4 | ide: re.
+ip:  23 | sp:  24 | tp:   6 | fp:   0 | _tp:   4 | ide: re.
+ip:  24 | sp:  25 | tp:   6 | fp:   0 | _tp:   4 | de: re.
+ip:  25 | sp:  25 | tp:   7 | fp:   0 | _tp:   4 | de: re.
+ip:  23 | sp:  25 | tp:   6 | fp:   0 | _tp:   4 | de: re.
+ip:  24 | sp:  26 | tp:   6 | fp:   0 | _tp:   4 | e: re.
+ip:  25 | sp:  26 | tp:   7 | fp:   0 | _tp:   4 | e: re.
+ip:  23 | sp:  26 | tp:   6 | fp:   0 | _tp:   4 | e: re.
+ip:  24 | sp:  27 | tp:   6 | fp:   0 | _tp:   4 | : re.
+ip:  25 | sp:  27 | tp:   7 | fp:   0 | _tp:   4 | : re.
+ip:  23 | sp:  27 | tp:   6 | fp:   0 | _tp:   4 | : re.
+ip:  24 | sp:  28 | tp:   6 | fp:   0 | _tp:   4 |  re.
+ip:  25 | sp:  28 | tp:   7 | fp:   0 | _tp:   4 |  re.
+ip:  26 | sp:  29 | tp:   7 | fp:   0 | _tp:   4 | re.
+ip:  27 | sp:  29 | tp:   7 | fp:   0 | _tp:   4 | re.
+ip:  28 | sp:  30 | tp:   7 | fp:   0 | _tp:   4 | e.
+ip:  29 | sp:  31 | tp:   7 | fp:   0 | _tp:   4 | .
+ip:  30 | sp:  31 | tp:   8 | fp:   0 | _tp:   4 | .
+ip:  31 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
+ip:  30 | sp:  32 | tp:   9 | fp:   0 | _tp:   4 | 
+ip:  32 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
+ip:  33 | sp:  32 | tp:   9 | fp:   0 | _tp:   4 | 
+ip:  34 | sp:  32 | tp:   9 | fp:   0 | _tp:   4 | 
+ip:  40 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
+ip:  41 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
+ip:  42 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
+ip:  43 | sp:  32 | tp:   9 | fp:   0 | _tp:   4 | 
+ip:  45 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
 matched!
 group 0: 'dave0!thing PRIVMSG candide: re.'
 group 1: 'PRIVMSG'

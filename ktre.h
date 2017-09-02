@@ -240,6 +240,7 @@ struct instr {
 		INSTR_SPLIT,
 		INSTR_ANY,
 		INSTR_CLASS,
+		INSTR_STR,
 		INSTR_NOT,
 		INSTR_BACKREF,
 		INSTR_BOL,
@@ -341,6 +342,7 @@ struct node {
 		NODE_QUESTION,
 		NODE_ANY,	/* . matches anything */
 		NODE_CLASS,	/* a character class */
+		NODE_STR,
 		NODE_NOT,
 		NODE_BACKREF,	/* a backreference to an existing group */
 		NODE_BOL,
@@ -360,16 +362,10 @@ struct node {
 		NODE_NONE
 	} type;
 
-	struct {
-		struct {
-			struct node *a, *b;
-			int gi; /* group index */
-		};
-		struct {
-			int c, d;
-		};
-		char *class;
-	};
+	struct node *a, *b;
+	int gi; /* group index */
+	int c, d;
+	char *class;
 
 	int loc;
 };
@@ -937,11 +933,25 @@ term(struct ktre *re)
 			KTRE_FREE(left);
 			left = right;
 		} else {
-			struct node *tmp = KTRE_MALLOC(sizeof *tmp);
-			tmp->a = left;
-			tmp->b = right;
-			tmp->type = NODE_SEQUENCE;
-			left = tmp;
+			if ((left->type == NODE_CHAR || left->type == NODE_STR) && right->type == NODE_CHAR) {
+				if (left->type == NODE_CHAR) {
+					char a = left->c;
+					left->type = NODE_STR;
+					left->class = KTRE_MALLOC(3);
+					left->class[0] = a;
+					left->class[1] = right->c;
+					left->class[2] = 0;
+				} else {
+					left->class = class_add_char(left->class, right->c);
+					free_node(right);
+				}
+			} else {
+				struct node *tmp = KTRE_MALLOC(sizeof *tmp);
+				tmp->a = left;
+				tmp->b = right;
+				tmp->type = NODE_SEQUENCE;
+				left = tmp;
+			}
 		}
 	}
 
@@ -1013,6 +1023,7 @@ print_node(struct node *n)
 	case NODE_WB:        DBG("(word boundary)");                          break;
 	case NODE_BACKREF:   DBG("(backreference to %d)", n->c);              break;
 	case NODE_CLASS:     DBG("(class '"); DBGF(n->class); DBG("')");      break;
+	case NODE_STR:       DBG("(string '"); DBGF(n->class); DBG("')");     break;
 	case NODE_NOT:       DBG("(not '%s')", n->class);                     break;
 	case NODE_BOL:       DBG("(bol)");                                    break;
 	case NODE_EOL:       DBG("(eol)");                                    break;
@@ -1161,6 +1172,7 @@ compile(struct ktre *re, struct node *n)
 		break;
 
 	case NODE_CLASS:     emit_class(re, INSTR_CLASS, n->class); break;
+	case NODE_STR:       emit_class(re, INSTR_STR,   n->class); break;
 	case NODE_NOT:       emit_class(re, INSTR_NOT, n->class);   break;
 	case NODE_OPT_ON:    emit_c(re, INSTR_OPT_ON,  n->c);       break;
 	case NODE_OPT_OFF:   emit_c(re, INSTR_OPT_OFF, n->c);       break;
@@ -1338,6 +1350,7 @@ ktre_compile(const char *pat, int opt)
 
 		switch (re->c[i].op) {
 		case INSTR_CLASS: DBG("CLASS   '"); DBGF(re->c[i].class); DBG("'");   break;
+		case INSTR_STR:   DBG("STR     '"); DBGF(re->c[i].class); DBG("'");   break;
 		case INSTR_SPLIT:     DBG("SPLIT    %d, %d", re->c[i].a, re->c[i].b); break;
 		case INSTR_NOT:       DBG("NOT     '%s'", re->c[i].class);            break;
 		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].c);                break;
@@ -1414,6 +1427,12 @@ run(struct ktre *re, const char *subject, int *vec)
 			--tp;
 			if (strchr(re->c[ip].class, subject[sp]) && subject[sp])
 				new_thread(ip + 1, sp + 1, opt, _tp);
+			break;
+
+		case INSTR_STR:
+			--tp;
+			if (!strncmp(&subject[sp], re->c[ip].class, strlen(re->c[ip].class)))
+				new_thread(ip + 1, sp + strlen(re->c[ip].class), opt, _tp);
 			break;
 
 		case INSTR_NOT:
