@@ -560,7 +560,7 @@ again:
 					class = class_add_char(class, i);
 
 					if (re->popt & KTRE_INSENSITIVE) {
-						if (i >= 'a' && i <= 'z')
+						if (i >= 'A' && i <= 'Z')
 							class = class_add_char(class, lc(i));
 					}
 				}
@@ -588,7 +588,7 @@ again:
 			} else {
 				if (re->popt & KTRE_INSENSITIVE) {
 					class = class_add_char(class, *re->sp);
-					if (*re->sp >= 'a' && *re->sp <= 'z')
+					if (*re->sp >= 'A' && *re->sp <= 'Z')
 						class = class_add_char(class, lc(*re->sp));
 				}
 				else class = class_add_char(class, *re->sp);
@@ -1434,7 +1434,11 @@ run(struct ktre *re, const char *subject, int *vec)
 
 		case INSTR_WB:
 			--tp;
-			if (sp && (strchr(WORD, subject[sp - 1]) && !strchr(WORD, subject[sp])))
+			if (sp &&
+			    ((strchr(WORD, subject[sp - 1]) && !strchr(WORD, subject[sp])))
+				|| (!strchr(WORD, subject[sp - 1]) && strchr(WORD, subject[sp])))
+				new_thread(ip + 1, sp, opt, _tp);
+			else if (sp == 0 || sp == strlen(subject))
 				new_thread(ip + 1, sp, opt, _tp);
 			break;
 
