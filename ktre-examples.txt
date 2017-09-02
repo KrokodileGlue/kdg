@@ -1,6 +1,5 @@
-  regex: ^(?>dave0!.*?(PRIVMSG|ACTION)\s)(?i)(.*?\s)?re[\.!]*(\s+.*)?$
-subject: dave0!thing PRIVMSG candide: re.
-options set:
+regexpr: ^(?>dave0!.*?(PRIVMSG|ACTION)\s)(?i)(.*?\s)?re[.!]*(\s+.*)?$
+options:
 	INSENSITIVE
 	UNANCHORED
 (group)
@@ -11,33 +10,31 @@ options set:
     |   |   |   |-- (sequence)
     |   |   |   |   |-- (sequence)
     |   |   |   |   |   |-- (sequence)
-    |   |   |   |   |   |   |-- (sequence)
-    |   |   |   |   |   |   |   |-- (bol)
-    |   |   |   |   |   |   |   `-- (atom)
-    |   |   |   |   |   |   |       `-- (sequence)
-    |   |   |   |   |   |   |           |-- (sequence)
-    |   |   |   |   |   |   |           |   |-- (sequence)
-    |   |   |   |   |   |   |           |   |   |-- (string 'dave0!')
-    |   |   |   |   |   |   |           |   |   `-- (question)
-    |   |   |   |   |   |   |           |   |       `-- (asterisk)
-    |   |   |   |   |   |   |           |   |           `-- (any)
-    |   |   |   |   |   |   |           |   `-- (group)
-    |   |   |   |   |   |   |           |       `-- (or)
-    |   |   |   |   |   |   |           |           |-- (string 'PRIVMSG')
-    |   |   |   |   |   |   |           |           `-- (string 'ACTION')
-    |   |   |   |   |   |   |           `-- (class '\ \t\r\n\v\f')
-    |   |   |   |   |   |   `-- (sequence)
-    |   |   |   |   |   |       |-- (none)
-    |   |   |   |   |   |       `-- (opt on 1)
-    |   |   |   |   |   `-- (question)
-    |   |   |   |   |       `-- (group)
-    |   |   |   |   |           `-- (sequence)
-    |   |   |   |   |               |-- (question)
-    |   |   |   |   |               |   `-- (asterisk)
-    |   |   |   |   |               |       `-- (any)
-    |   |   |   |   |               `-- (class '\ \t\r\n\v\f')
-    |   |   |   |   `-- (char 'r')
-    |   |   |   `-- (char 'e')
+    |   |   |   |   |   |   |-- (bol)
+    |   |   |   |   |   |   `-- (atom)
+    |   |   |   |   |   |       `-- (sequence)
+    |   |   |   |   |   |           |-- (sequence)
+    |   |   |   |   |   |           |   |-- (sequence)
+    |   |   |   |   |   |           |   |   |-- (string 'dave0!')
+    |   |   |   |   |   |           |   |   `-- (question)
+    |   |   |   |   |   |           |   |       `-- (asterisk)
+    |   |   |   |   |   |           |   |           `-- (any)
+    |   |   |   |   |   |           |   `-- (group)
+    |   |   |   |   |   |           |       `-- (or)
+    |   |   |   |   |   |           |           |-- (string 'PRIVMSG')
+    |   |   |   |   |   |           |           `-- (string 'ACTION')
+    |   |   |   |   |   |           `-- (class '\ \t\r\n\v\f')
+    |   |   |   |   |   `-- (sequence)
+    |   |   |   |   |       |-- (none)
+    |   |   |   |   |       `-- (opt on 1)
+    |   |   |   |   `-- (question)
+    |   |   |   |       `-- (group)
+    |   |   |   |           `-- (sequence)
+    |   |   |   |               |-- (question)
+    |   |   |   |               |   `-- (asterisk)
+    |   |   |   |               |       `-- (any)
+    |   |   |   |               `-- (class '\ \t\r\n\v\f')
+    |   |   |   `-- (string 're')
     |   |   `-- (asterisk)
     |   |       `-- (class '.!')
     |   `-- (question)
@@ -51,7 +48,7 @@ options set:
 group 0 address: 3
 group 1 address: 10
 group 2 address: 21
-group 3 address: 33
+group 3 address: 32
   0: SPLIT    3, 1
   1: ANY
   2: SPLIT    3, 1
@@ -79,25 +76,25 @@ group 3 address: 33
  24: SPLIT    25, 23
  25: CLASS   '\ \t\r\n\v\f'
  26: SAVE     5
- 27: CHAR    'r'
- 28: CHAR    'e'
- 29: SPLIT    30, 32
- 30: CLASS   '.!'
- 31: SPLIT    30, 32
- 32: SPLIT    33, 40
- 33: SAVE     6
- 34: CLASS   '\ \t\r\n\v\f'
- 35: SPLIT    34, 36
- 36: SPLIT    37, 39
- 37: ANY
- 38: SPLIT    37, 39
- 39: SAVE     7
- 40: EOL
- 41: SAVE     1
- 42: SPLIT    43, 45
- 43: ANY
- 44: SPLIT    43, 45
- 45: MATCH
+ 27: STR     're'
+ 28: SPLIT    29, 31
+ 29: CLASS   '.!'
+ 30: SPLIT    29, 31
+ 31: SPLIT    32, 39
+ 32: SAVE     6
+ 33: CLASS   '\ \t\r\n\v\f'
+ 34: SPLIT    33, 35
+ 35: SPLIT    36, 38
+ 36: ANY
+ 37: SPLIT    36, 38
+ 38: SAVE     7
+ 39: EOL
+ 40: SAVE     1
+ 41: SPLIT    42, 44
+ 42: ANY
+ 43: SPLIT    42, 44
+ 44: MATCH
+subject: dave0!thing PRIVMSG candide: re.
 ip:   0 | sp:   0 | tp:   1 | fp:   0 | _tp:   0 | dave0!thing PRIVMSG candide: re.
 ip:   3 | sp:   0 | tp:   2 | fp:   0 | _tp:   0 | dave0!thing PRIVMSG candide: re.
 ip:   4 | sp:   0 | tp:   2 | fp:   0 | _tp:   0 | dave0!thing PRIVMSG candide: re.
@@ -178,19 +175,18 @@ ip:  24 | sp:  28 | tp:   6 | fp:   0 | _tp:   4 |  re.
 ip:  25 | sp:  28 | tp:   7 | fp:   0 | _tp:   4 |  re.
 ip:  26 | sp:  29 | tp:   7 | fp:   0 | _tp:   4 | re.
 ip:  27 | sp:  29 | tp:   7 | fp:   0 | _tp:   4 | re.
-ip:  28 | sp:  30 | tp:   7 | fp:   0 | _tp:   4 | e.
-ip:  29 | sp:  31 | tp:   7 | fp:   0 | _tp:   4 | .
-ip:  30 | sp:  31 | tp:   8 | fp:   0 | _tp:   4 | .
+ip:  28 | sp:  31 | tp:   7 | fp:   0 | _tp:   4 | .
+ip:  29 | sp:  31 | tp:   8 | fp:   0 | _tp:   4 | .
+ip:  30 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
+ip:  29 | sp:  32 | tp:   9 | fp:   0 | _tp:   4 | 
 ip:  31 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
-ip:  30 | sp:  32 | tp:   9 | fp:   0 | _tp:   4 | 
-ip:  32 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
+ip:  32 | sp:  32 | tp:   9 | fp:   0 | _tp:   4 | 
 ip:  33 | sp:  32 | tp:   9 | fp:   0 | _tp:   4 | 
-ip:  34 | sp:  32 | tp:   9 | fp:   0 | _tp:   4 | 
+ip:  39 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
 ip:  40 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
 ip:  41 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
-ip:  42 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
-ip:  43 | sp:  32 | tp:   9 | fp:   0 | _tp:   4 | 
-ip:  45 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
+ip:  42 | sp:  32 | tp:   9 | fp:   0 | _tp:   4 | 
+ip:  44 | sp:  32 | tp:   8 | fp:   0 | _tp:   4 | 
 matched!
 group 0: 'dave0!thing PRIVMSG candide: re.'
 group 1: 'PRIVMSG'

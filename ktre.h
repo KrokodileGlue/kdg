@@ -60,7 +60,8 @@
  * _Bool ktre_exec(struct ktre *re, const char *subject, int **vec);
  * void ktre_free(struct ktre *re);
  *
- * Here's a usage example:
+ * Here's a simple demo that runs a regex on a subject from the
+ * commandline options:
  *
  * #include <stdlib.h>
  * #include <stdio.h>
@@ -69,19 +70,10 @@
  * #define KTRE_IMPLEMENTATION
  * #include "ktre.h"
  *
- * int
- * main(int argc, char *argv[])
+ * static inline void
+ * do_regex(struct ktre *re, const char *regex, const char *subject)
  * {
- * 	if (argc != 3) {
- * 		fprintf(stderr, "Usage: ktre [subject] [pattern]\n");
- * 		exit(EXIT_FAILURE);
- * 	}
- *
- * 	char *subject = argv[1], *regex = argv[2];
- * 	fprintf(stderr, "matching string '%s' against regex '%s'", subject, regex);
- *
  * 	int *vec = NULL;
- * 	struct ktre *re = ktre_compile(regex, KTRE_INSENSITIVE | KTRE_UNANCHORED);
  *
  * 	if (re->err) { // failed to compile
  * 		fprintf(stderr, "\nregex failed to compile with error code %d: %s\n", re->err, re->err_str);
@@ -91,8 +83,11 @@
  * 	} else if (ktre_exec(re, subject, &vec)) { // ran and succeeded
  * 		fprintf(stderr, "\nmatched!");
  *
- * 		for (int i = 0; i < re->num_groups; i++)
- * 			fprintf(stderr, "\ngroup %d: '%.*s'", i, vec[i * 2 + 1], &subject[vec[i * 2]]);
+ * 		for (int i = 0; i < re->num_groups; i++) {
+ * 			if (vec[i * 2 + 1] && (int)strlen(subject) != vec[i * 2]) {
+ * 				fprintf(stderr, "\ngroup %d: '%.*s'", i, vec[i * 2 + 1], &subject[vec[i * 2]]);
+ * 			}
+ * 		}
  *
  * 		fputc('\n', stderr);
  * 		free(vec);
@@ -105,7 +100,19 @@
  * 	} else { // ran, but failed
  * 		fprintf(stderr, "\ndid not match!\n");
  * 	}
+ * }
  *
+ * int
+ * main(int argc, char *argv[])
+ * {
+ * 	if (argc != 3) {
+ * 		fprintf(stderr, "Usage: ktre [subject] [pattern]\n");
+ * 		exit(EXIT_FAILURE);
+ * 	}
+ *
+ * 	char *subject = argv[1], *regex = argv[2];
+ * 	struct ktre *re = ktre_compile(regex, KTRE_UNANCHORED | KTRE_INSENSITIVE);
+ * 	do_regex(re, regex, subject);
  * 	ktre_free(re);
  *
  * 	return EXIT_SUCCESS;
@@ -945,6 +952,19 @@ term(struct ktre *re)
 					left->class = class_add_char(left->class, right->c);
 					free_node(right);
 				}
+			} else if (right->type == NODE_CHAR && left->type == NODE_SEQUENCE
+				   && (left->b->type == NODE_CHAR || left->b->type == NODE_STR)) {
+				if (left->b->type == NODE_CHAR) {
+					char a = left->b->c;
+					left->b->type = NODE_STR;
+					left->b->class = KTRE_MALLOC(3);
+					left->b->class[0] = a;
+					left->b->class[1] = right->c;
+					left->b->class[2] = 0;
+				} else {
+					left->b->class = class_add_char(left->b->class, right->c);
+					free_node(right);
+				}
 			} else {
 				struct node *tmp = KTRE_MALLOC(sizeof *tmp);
 				tmp->a = left;
@@ -1286,9 +1306,10 @@ ktre_compile(const char *pat, int opt)
 	struct ktre *re = KTRE_CALLOC(sizeof *re, 1);
 	re->pat = pat, re->opt = opt, re->sp = pat, re->popt = opt;
 	re->err_str = "no error";
+	fprintf(stderr, "regexpr: %s", pat);
 
 #ifdef KTRE_DEBUG
-	DBG("\noptions set:");
+	if (opt) DBG("\noptions:");
 	for (size_t i = 0; i < sizeof opt; i++) {
 		switch (opt & 1 << i) {
 		case KTRE_INSENSITIVE: DBG("\n\tINSENSITIVE"); break;
@@ -1387,6 +1408,8 @@ ktre_compile(const char *pat, int opt)
 static bool
 run(struct ktre *re, const char *subject, int *vec)
 {
+	fprintf(stderr, "\nsubject: %s", subject);
+
 	int fp = 0, tp = 0;
 	struct thread *t = re->t;
 
