@@ -205,7 +205,7 @@ void ktre_free(struct ktre *re);
 #define DBGF(str)							\
 	do {								\
 		for (int _i = 0; _i < strlen(str); _i++) {		\
-			if (strchr(WHITESPACE, str[_i]) || str[_i] == '\\') { \
+			if ((strchr(WHITESPACE, str[_i]) || str[_i] == '\\') && str[_i] != ' ') { \
 				fputc('\\', stderr);			\
 				switch (str[_i]) {			\
 				case '\t': fputc('t', stderr); break;	\

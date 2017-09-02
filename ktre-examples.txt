@@ -23,7 +23,7 @@ options:
     |   |   |   |   |   |           |       `-- (or)
     |   |   |   |   |   |           |           |-- (string 'PRIVMSG')
     |   |   |   |   |   |           |           `-- (string 'ACTION')
-    |   |   |   |   |   |           `-- (class '\ \t\r\n\v\f')
+    |   |   |   |   |   |           `-- (class ' \t\r\n\v\f')
     |   |   |   |   |   `-- (sequence)
     |   |   |   |   |       |-- (none)
     |   |   |   |   |       `-- (opt on 1)
@@ -33,7 +33,7 @@ options:
     |   |   |   |               |-- (question)
     |   |   |   |               |   `-- (asterisk)
     |   |   |   |               |       `-- (any)
-    |   |   |   |               `-- (class '\ \t\r\n\v\f')
+    |   |   |   |               `-- (class ' \t\r\n\v\f')
     |   |   |   `-- (string 're')
     |   |   `-- (asterisk)
     |   |       `-- (class '.!')
@@ -41,7 +41,7 @@ options:
     |       `-- (group)
     |           `-- (sequence)
     |               |-- (plus)
-    |               |   `-- (class '\ \t\r\n\v\f')
+    |               |   `-- (class ' \t\r\n\v\f')
     |               `-- (asterisk)
     |                   `-- (any)
     `-- (eol)
@@ -65,7 +65,7 @@ group 3 address: 32
  13: JMP      15
  14: STR     'ACTION'
  15: SAVE     3
- 16: CLASS   '\ \t\r\n\v\f'
+ 16: CLASS   ' \t\r\n\v\f'
  17: KILL_TP
  18: DIE
  19: OPTON    1
@@ -74,7 +74,7 @@ group 3 address: 32
  22: SPLIT    25, 23
  23: ANY
  24: SPLIT    25, 23
- 25: CLASS   '\ \t\r\n\v\f'
+ 25: CLASS   ' \t\r\n\v\f'
  26: SAVE     5
  27: STR     're'
  28: SPLIT    29, 31
@@ -82,7 +82,7 @@ group 3 address: 32
  30: SPLIT    29, 31
  31: SPLIT    32, 39
  32: SAVE     6
- 33: CLASS   '\ \t\r\n\v\f'
+ 33: CLASS   ' \t\r\n\v\f'
  34: SPLIT    33, 35
  35: SPLIT    36, 38
  36: ANY
