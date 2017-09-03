@@ -132,7 +132,8 @@ enum ktre_error {
 	KTRE_ERROR_STACK_UNDERFLOW,
 	KTRE_ERROR_INVALID_MODE_MODIFIER,
 	KTRE_ERROR_INVALID_RANGE,
-	KTRE_ERROR_INVALID_BACKREFERENCE
+	KTRE_ERROR_INVALID_BACKREFERENCE,
+	KTRE_ERROR_INFINITE_LOOP
 };
 
 #define KTRE_MAX_THREAD 4000
@@ -267,6 +268,7 @@ struct instr {
 		INSTR_LA_FAIL,
 		INSTR_LB_YES,
 		INSTR_LB_NO,
+		INSTR_PROG,
 		INSTR_RET
 	} op;
 
@@ -1123,6 +1125,7 @@ compile(struct ktre *re, struct node *n)
 			a = re->ip;
 			emit_c(re, INSTR_JMP, -1);
 			emit_c(re, INSTR_SAVE, re->num_groups * 2);
+			emit_c(re, INSTR_PROG, -1);
 
 			old = re->num_groups;
 			re->num_groups++;
@@ -1137,6 +1140,7 @@ compile(struct ktre *re, struct node *n)
 			re->group[old].compiled = true;
 		} else {
 			emit_c(re, INSTR_SAVE, re->num_groups * 2);
+			emit_c(re, INSTR_PROG, -1);
 
 			old = re->num_groups;
 			re->num_groups++;
@@ -1331,7 +1335,9 @@ ktre_compile(const char *pat, int opt)
 	re->group[0].compiled = false;
 	re->group[0].is_called = false;
 
-	re->n->a = parse(re);
+	re->n->a = NULL;
+	struct node *n = parse(re);
+	re->n->a = n;
 	if (re->failed) {
 		free_node(re->n);
 		return re;
@@ -1385,19 +1391,22 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_SET_START: DBG("SET_START");                               break;
 		case INSTR_PUSH_TP:   DBG("PUSH_TP");                                 break;
 		case INSTR_KILL_TP:   DBG("KILL_TP");                                 break;
-		case INSTR_MATCH:     DBG("MATCH");                                   break;
 		case INSTR_ANY:       DBG("ANY");                                     break;
 		case INSTR_BOL:       DBG("BOL");                                     break;
 		case INSTR_EOL:       DBG("EOL");                                     break;
 		case INSTR_DIE:       DBG("DIE");                                     break;
 		case INSTR_RET:       DBG("RET");                                     break;
 		case INSTR_WB:        DBG("WB");                                      break;
+		case INSTR_PROG:      DBG("PROG");                                    break;
+		case INSTR_MATCH:     DBG("MATCH");                                   break;
 		case INSTR_LA_YES:    DBG("LA_YES");                                  break;
 		case INSTR_LA_WIN:    DBG("LA_WIN");                                  break;
 		case INSTR_LA_FAIL:   DBG("LA_FAIL");                                 break;
 		case INSTR_LB_YES:    DBG("LB_YES");                                  break;
 		case INSTR_LB_NO:     DBG("LB_NO");                                   break;
-		default: assert(false);
+		default:
+ 			DBG("\nunimplemented instruction printer %d\n", re->c[i].op);
+			assert(false);
 		}
 	}
 #endif
@@ -1610,6 +1619,16 @@ run(struct ktre *re, const char *subject, int *vec)
 			--tp;
 			new_thread(re->c[ip].c, 0, opt, _tp);
 			new_thread(ip + 1, 0, opt, _tp);
+			break;
+
+		case INSTR_PROG:
+			if (sp == re->c[ip].c) {
+				error(re, KTRE_ERROR_INFINITE_LOOP, 0, "regex entered a loop that will not terminate");
+				return false;
+			}
+
+			re->c[ip].c = sp;
+			t[tp].ip++;
 			break;
 
 		default:
