@@ -1085,6 +1085,7 @@ compile(struct ktre *re, struct node *n)
 	case NODE_ASTERISK:
 		a = re->ip;
 		emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
+		emit_c(re, INSTR_PROG, -1);
 		compile(re, n->a);
 		emit_ab(re, INSTR_SPLIT, a + 1, re->ip + 1);
 		PATCH_B(a, re->ip);
@@ -1095,24 +1096,28 @@ compile(struct ktre *re, struct node *n)
 		case NODE_ASTERISK:
 			a = re->ip;
 			emit_ab(re, INSTR_SPLIT, -1, re->ip + 1);
+			emit_c(re, INSTR_PROG, -1);
 			compile(re, n->a->a);
 			emit_ab(re, INSTR_SPLIT, re->ip + 1, a + 1);
 			PATCH_A(a, re->ip);
 			break;
 		case NODE_PLUS:
 			a = re->ip;
+			emit_c(re, INSTR_PROG, -1);
 			compile(re, n->a->a);
 			emit_ab(re, INSTR_SPLIT, re->ip + 1, a);
 			break;
 		case NODE_QUESTION:
 			a = re->ip;
 			emit_ab(re, INSTR_SPLIT, -1, re->ip + 1);
+			emit_c(re, INSTR_PROG, -1);
 			compile(re, n->a->a);
 			PATCH_A(a, re->ip);
 			break;
 		default:
 			a = re->ip;
 			emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
+			emit_c(re, INSTR_PROG, -1);
 			compile(re, n->a);
 			PATCH_B(a, re->ip);
 		}
@@ -1166,12 +1171,14 @@ compile(struct ktre *re, struct node *n)
 		switch (n->a->type) {
 		case NODE_ASTERISK: case NODE_PLUS: case NODE_QUESTION:
 		case NODE_REP:
+			emit_c(re, INSTR_PROG, -1);
 			compile(re, n->a);
 			emit(re, INSTR_KILL_TP);
 			emit(re, INSTR_DIE);
 			break;
 		default:
 			a = re->ip;
+			emit_c(re, INSTR_PROG, -1);
 			compile(re, n->a);
 			emit_ab(re, INSTR_SPLIT, a, re->ip + 1);
 		}
