@@ -361,6 +361,5 @@ ip:   4 | sp:   8 | tp:   6 | fp:   0 |
 ip: 148 | sp:   8 | tp:   6 | fp:   0 | 
 ip: 149 | sp:   8 | tp:   7 | fp:   0 | 
 ip: 151 | sp:   8 | tp:   6 | fp:   0 | 
-matched!
-group 0: '12.31.12'
+matched: '12.31.12'
 group 1: '.'
