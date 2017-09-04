@@ -159,220 +159,208 @@ options:
             |       `-- (counted repetition 2 - -1)
             |           `-- (class '0123456789')
             `-- (eol)
-group 0 address: 4
-group 1 address: 17
-group 2 address: 38
-group 3 address: 71
-group 4 address: 124
+group 0 address: 5
+group 1 address: 16
+group 2 address: 35
+group 3 address: 65
+group 4 address: 115
   0: SPLIT    3, 1
   1: ANY
   2: SPLIT    3, 1
-  3: SAVE     0
-  4: PROG
-  5: SPLIT    6, 64
-  6: BOL
-  7: SPLIT    8, 29
-  8: SPLIT    9, 14
-  9: SPLIT    10, 12
- 10: PROG
+  3: CALL     5
+  4: JMP      148
+  5: SAVE     0
+  6: SPLIT    7, 60
+  7: BOL
+  8: SPLIT    9, 28
+  9: SPLIT    10, 14
+ 10: SPLIT    11, 12
  11: CHAR    '0'
  12: CLASS   '13578'
  13: JMP      16
  14: CHAR    '1'
  15: CLASS   '02'
  16: SAVE     2
- 17: PROG
- 18: SPLIT    19, 21
- 19: CHAR    '/'
- 20: JMP      25
- 21: SPLIT    22, 24
- 22: CHAR    '-'
- 23: JMP      25
- 24: CHAR    '.'
- 25: SAVE     3
- 26: STR     '31'
- 27: BACKREF  1
- 28: JMP      52
- 29: SPLIT    30, 35
- 30: SPLIT    31, 33
- 31: PROG
- 32: CHAR    '0'
- 33: CLASS   '13456789'
- 34: JMP      37
- 35: CHAR    '1'
- 36: CLASS   '012'
- 37: SAVE     4
- 38: PROG
+ 17: SPLIT    18, 20
+ 18: CHAR    '/'
+ 19: JMP      24
+ 20: SPLIT    21, 23
+ 21: CHAR    '-'
+ 22: JMP      24
+ 23: CHAR    '.'
+ 24: SAVE     3
+ 25: STR     '31'
+ 26: BACKREF  1
+ 27: JMP      49
+ 28: SPLIT    29, 33
+ 29: SPLIT    30, 31
+ 30: CHAR    '0'
+ 31: CLASS   '13456789'
+ 32: JMP      35
+ 33: CHAR    '1'
+ 34: CLASS   '012'
+ 35: SAVE     4
+ 36: SPLIT    37, 39
+ 37: CHAR    '/'
+ 38: JMP      43
  39: SPLIT    40, 42
- 40: CHAR    '/'
- 41: JMP      46
- 42: SPLIT    43, 45
- 43: CHAR    '-'
- 44: JMP      46
- 45: CHAR    '.'
- 46: SAVE     5
- 47: SPLIT    48, 50
- 48: STR     '29'
- 49: JMP      51
- 50: STR     '30'
- 51: BACKREF  2
- 52: SPLIT    53, 60
- 53: PROG
- 54: SPLIT    55, 58
- 55: CHAR    '1'
- 56: CLASS   '6789'
- 57: JMP      60
- 58: CLASS   '23456789'
- 59: CLASS   '0123456789'
- 60: CLASS   '0123456789'
- 61: CLASS   '0123456789'
- 62: EOL
- 63: JMP      157
- 64: SPLIT    65, 114
- 65: BOL
+ 40: CHAR    '-'
+ 41: JMP      43
+ 42: CHAR    '.'
+ 43: SAVE     5
+ 44: SPLIT    45, 47
+ 45: STR     '29'
+ 46: JMP      48
+ 47: STR     '30'
+ 48: BACKREF  2
+ 49: SPLIT    50, 56
+ 50: SPLIT    51, 54
+ 51: CHAR    '1'
+ 52: CLASS   '6789'
+ 53: JMP      56
+ 54: CLASS   '23456789'
+ 55: CLASS   '0123456789'
+ 56: CLASS   '0123456789'
+ 57: CLASS   '0123456789'
+ 58: EOL
+ 59: JMP      146
+ 60: SPLIT    61, 107
+ 61: BOL
+ 62: SPLIT    63, 64
+ 63: CHAR    '0'
+ 64: CHAR    '2'
+ 65: SAVE     6
  66: SPLIT    67, 69
- 67: PROG
- 68: CHAR    '0'
- 69: CHAR    '2'
- 70: SAVE     6
- 71: PROG
- 72: SPLIT    73, 75
- 73: CHAR    '/'
- 74: JMP      79
- 75: SPLIT    76, 78
- 76: CHAR    '-'
- 77: JMP      79
- 78: CHAR    '.'
- 79: SAVE     7
- 80: STR     '29'
- 81: BACKREF  3
- 82: SPLIT    83, 102
- 83: SPLIT    84, 91
- 84: PROG
- 85: SPLIT    86, 89
- 86: CHAR    '1'
- 87: CLASS   '6789'
- 88: JMP      91
- 89: CLASS   '23456789'
- 90: CLASS   '0123456789'
- 91: SPLIT    92, 95
- 92: CHAR    '0'
- 93: CLASS   '48'
- 94: JMP      101
- 95: SPLIT    96, 99
- 96: CLASS   '2468'
- 97: CLASS   '048'
- 98: JMP      101
- 99: CLASS   '13579'
-100: CLASS   '26'
-101: JMP      112
-102: SPLIT    103, 105
-103: STR     '16'
-104: JMP      111
-105: SPLIT    106, 109
-106: CLASS   '2468'
-107: CLASS   '048'
-108: JMP      111
-109: CLASS   '3579'
-110: CLASS   '26'
-111: STR     '00'
-112: EOL
-113: JMP      157
-114: BOL
-115: SPLIT    116, 121
+ 67: CHAR    '/'
+ 68: JMP      73
+ 69: SPLIT    70, 72
+ 70: CHAR    '-'
+ 71: JMP      73
+ 72: CHAR    '.'
+ 73: SAVE     7
+ 74: STR     '29'
+ 75: BACKREF  3
+ 76: SPLIT    77, 95
+ 77: SPLIT    78, 84
+ 78: SPLIT    79, 82
+ 79: CHAR    '1'
+ 80: CLASS   '6789'
+ 81: JMP      84
+ 82: CLASS   '23456789'
+ 83: CLASS   '0123456789'
+ 84: SPLIT    85, 88
+ 85: CHAR    '0'
+ 86: CLASS   '48'
+ 87: JMP      94
+ 88: SPLIT    89, 92
+ 89: CLASS   '2468'
+ 90: CLASS   '048'
+ 91: JMP      94
+ 92: CLASS   '13579'
+ 93: CLASS   '26'
+ 94: JMP      105
+ 95: SPLIT    96, 98
+ 96: STR     '16'
+ 97: JMP      104
+ 98: SPLIT    99, 102
+ 99: CLASS   '2468'
+100: CLASS   '048'
+101: JMP      104
+102: CLASS   '3579'
+103: CLASS   '26'
+104: STR     '00'
+105: EOL
+106: JMP      146
+107: BOL
+108: SPLIT    109, 113
+109: SPLIT    110, 111
+110: CHAR    '0'
+111: CLASS   '123456789'
+112: JMP      115
+113: CHAR    '1'
+114: CLASS   '012'
+115: SAVE     8
 116: SPLIT    117, 119
-117: PROG
-118: CHAR    '0'
-119: CLASS   '123456789'
-120: JMP      123
-121: CHAR    '1'
-122: CLASS   '012'
-123: SAVE     8
-124: PROG
-125: SPLIT    126, 128
-126: CHAR    '/'
-127: JMP      132
-128: SPLIT    129, 131
-129: CHAR    '-'
-130: JMP      132
-131: CHAR    '.'
-132: SAVE     9
-133: SPLIT    134, 139
-134: SPLIT    135, 137
-135: PROG
-136: CHAR    '0'
-137: CLASS   '123456789'
-138: JMP      145
-139: SPLIT    140, 143
-140: CHAR    '1'
-141: CLASS   '0123456789'
-142: JMP      145
-143: CHAR    '2'
-144: CLASS   '012345678'
-145: BACKREF  4
-146: SPLIT    147, 154
-147: PROG
-148: SPLIT    149, 152
-149: CHAR    '1'
-150: CLASS   '6789'
-151: JMP      154
-152: CLASS   '23456789'
-153: CLASS   '0123456789'
-154: CLASS   '0123456789'
-155: CLASS   '0123456789'
-156: EOL
-157: SAVE     1
-158: SPLIT    159, 161
-159: ANY
-160: SPLIT    159, 161
-161: MATCH
+117: CHAR    '/'
+118: JMP      123
+119: SPLIT    120, 122
+120: CHAR    '-'
+121: JMP      123
+122: CHAR    '.'
+123: SAVE     9
+124: SPLIT    125, 129
+125: SPLIT    126, 127
+126: CHAR    '0'
+127: CLASS   '123456789'
+128: JMP      135
+129: SPLIT    130, 133
+130: CHAR    '1'
+131: CLASS   '0123456789'
+132: JMP      135
+133: CHAR    '2'
+134: CLASS   '012345678'
+135: BACKREF  4
+136: SPLIT    137, 143
+137: SPLIT    138, 141
+138: CHAR    '1'
+139: CLASS   '6789'
+140: JMP      143
+141: CLASS   '23456789'
+142: CLASS   '0123456789'
+143: CLASS   '0123456789'
+144: CLASS   '0123456789'
+145: EOL
+146: SAVE     1
+147: RET
+148: SPLIT    149, 151
+149: ANY
+150: SPLIT    149, 151
+151: MATCH
 subject: 12.31.12
 ip:   0 | sp:   0 | tp:   1 | fp:   0 | 12.31.12
 ip:   3 | sp:   0 | tp:   2 | fp:   0 | 12.31.12
-ip:   4 | sp:   0 | tp:   2 | fp:   0 | 12.31.12
-ip:   5 | sp:   0 | tp:   2 | fp:   0 | 12.31.12
-ip:   6 | sp:   0 | tp:   3 | fp:   0 | 12.31.12
-ip:   7 | sp:   0 | tp:   3 | fp:   0 | 12.31.12
-ip:   8 | sp:   0 | tp:   4 | fp:   0 | 12.31.12
-ip:   9 | sp:   0 | tp:   5 | fp:   0 | 12.31.12
-ip:  10 | sp:   0 | tp:   6 | fp:   0 | 12.31.12
-ip:  11 | sp:   0 | tp:   6 | fp:   0 | 12.31.12
-ip:  12 | sp:   0 | tp:   5 | fp:   0 | 12.31.12
-ip:  13 | sp:   1 | tp:   5 | fp:   0 | 2.31.12
-ip:  16 | sp:   1 | tp:   5 | fp:   0 | 2.31.12
-ip:  17 | sp:   1 | tp:   5 | fp:   0 | 2.31.12
-ip:  18 | sp:   1 | tp:   5 | fp:   0 | 2.31.12
-ip:  19 | sp:   1 | tp:   6 | fp:   0 | 2.31.12
-ip:  21 | sp:   1 | tp:   5 | fp:   0 | 2.31.12
-ip:  22 | sp:   1 | tp:   6 | fp:   0 | 2.31.12
-ip:  24 | sp:   1 | tp:   5 | fp:   0 | 2.31.12
-ip:  14 | sp:   0 | tp:   4 | fp:   0 | 12.31.12
-ip:  15 | sp:   1 | tp:   4 | fp:   0 | 2.31.12
-ip:  16 | sp:   2 | tp:   4 | fp:   0 | .31.12
-ip:  17 | sp:   2 | tp:   4 | fp:   0 | .31.12
-ip:  18 | sp:   2 | tp:   4 | fp:   0 | .31.12
-ip:  19 | sp:   2 | tp:   5 | fp:   0 | .31.12
-ip:  21 | sp:   2 | tp:   4 | fp:   0 | .31.12
-ip:  22 | sp:   2 | tp:   5 | fp:   0 | .31.12
-ip:  24 | sp:   2 | tp:   4 | fp:   0 | .31.12
-ip:  25 | sp:   3 | tp:   4 | fp:   0 | 31.12
-ip:  26 | sp:   3 | tp:   4 | fp:   0 | 31.12
-ip:  27 | sp:   5 | tp:   4 | fp:   0 | .12
-ip:  28 | sp:   6 | tp:   4 | fp:   0 | 12
-ip:  52 | sp:   6 | tp:   4 | fp:   0 | 12
-ip:  53 | sp:   6 | tp:   5 | fp:   0 | 12
-ip:  54 | sp:   6 | tp:   5 | fp:   0 | 12
-ip:  55 | sp:   6 | tp:   6 | fp:   0 | 12
-ip:  56 | sp:   7 | tp:   6 | fp:   0 | 2
-ip:  58 | sp:   6 | tp:   5 | fp:   0 | 12
-ip:  60 | sp:   6 | tp:   4 | fp:   0 | 12
-ip:  61 | sp:   7 | tp:   4 | fp:   0 | 2
-ip:  62 | sp:   8 | tp:   4 | fp:   0 | 
-ip:  63 | sp:   8 | tp:   4 | fp:   0 | 
-ip: 157 | sp:   8 | tp:   4 | fp:   0 | 
-ip: 158 | sp:   8 | tp:   4 | fp:   0 | 
-ip: 159 | sp:   8 | tp:   5 | fp:   0 | 
-ip: 161 | sp:   8 | tp:   4 | fp:   0 | 
+ip:   5 | sp:   0 | tp:   3 | fp:   1 | 12.31.12
+ip:   6 | sp:   0 | tp:   3 | fp:   1 | 12.31.12
+ip:   7 | sp:   0 | tp:   4 | fp:   1 | 12.31.12
+ip:   8 | sp:   0 | tp:   4 | fp:   1 | 12.31.12
+ip:   9 | sp:   0 | tp:   5 | fp:   1 | 12.31.12
+ip:  10 | sp:   0 | tp:   6 | fp:   1 | 12.31.12
+ip:  11 | sp:   0 | tp:   7 | fp:   1 | 12.31.12
+ip:  12 | sp:   0 | tp:   6 | fp:   1 | 12.31.12
+ip:  13 | sp:   1 | tp:   6 | fp:   1 | 2.31.12
+ip:  16 | sp:   1 | tp:   6 | fp:   1 | 2.31.12
+ip:  17 | sp:   1 | tp:   6 | fp:   1 | 2.31.12
+ip:  18 | sp:   1 | tp:   7 | fp:   1 | 2.31.12
+ip:  20 | sp:   1 | tp:   6 | fp:   1 | 2.31.12
+ip:  21 | sp:   1 | tp:   7 | fp:   1 | 2.31.12
+ip:  23 | sp:   1 | tp:   6 | fp:   1 | 2.31.12
+ip:  14 | sp:   0 | tp:   5 | fp:   1 | 12.31.12
+ip:  15 | sp:   1 | tp:   5 | fp:   1 | 2.31.12
+ip:  16 | sp:   2 | tp:   5 | fp:   1 | .31.12
+ip:  17 | sp:   2 | tp:   5 | fp:   1 | .31.12
+ip:  18 | sp:   2 | tp:   6 | fp:   1 | .31.12
+ip:  20 | sp:   2 | tp:   5 | fp:   1 | .31.12
+ip:  21 | sp:   2 | tp:   6 | fp:   1 | .31.12
+ip:  23 | sp:   2 | tp:   5 | fp:   1 | .31.12
+ip:  24 | sp:   3 | tp:   5 | fp:   1 | 31.12
+ip:  25 | sp:   3 | tp:   5 | fp:   1 | 31.12
+ip:  26 | sp:   5 | tp:   5 | fp:   1 | .12
+ip:  27 | sp:   6 | tp:   5 | fp:   1 | 12
+ip:  49 | sp:   6 | tp:   5 | fp:   1 | 12
+ip:  50 | sp:   6 | tp:   6 | fp:   1 | 12
+ip:  51 | sp:   6 | tp:   7 | fp:   1 | 12
+ip:  52 | sp:   7 | tp:   7 | fp:   1 | 2
+ip:  54 | sp:   6 | tp:   6 | fp:   1 | 12
+ip:  56 | sp:   6 | tp:   5 | fp:   1 | 12
+ip:  57 | sp:   7 | tp:   5 | fp:   1 | 2
+ip:  58 | sp:   8 | tp:   5 | fp:   1 | 
+ip:  59 | sp:   8 | tp:   5 | fp:   1 | 
+ip: 146 | sp:   8 | tp:   5 | fp:   1 | 
+ip: 147 | sp:   8 | tp:   5 | fp:   1 | 
+ip:   4 | sp:   8 | tp:   6 | fp:   0 | 
+ip: 148 | sp:   8 | tp:   6 | fp:   0 | 
+ip: 149 | sp:   8 | tp:   7 | fp:   0 | 
+ip: 151 | sp:   8 | tp:   6 | fp:   0 | 
 matched!
 group 0: '12.31.12'
 group 1: '.'
