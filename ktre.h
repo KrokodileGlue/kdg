@@ -827,7 +827,8 @@ again:
 	default:
 		/* ignore whitespace if we're in extended mode */
 		if (re->popt & KTRE_EXTENDED && strchr(WHITESPACE, *re->sp)) {
-			NEXT;
+			while (*re->sp && strchr(WHITESPACE, *re->sp))
+				NEXT;
 			goto again;
 		}
 
@@ -961,6 +962,7 @@ term(struct ktre *re)
 					left->class[0] = a;
 					left->class[1] = right->c;
 					left->class[2] = 0;
+					free_node(right);
 				} else {
 					left->class = class_add_char(left->class, right->c);
 					free_node(right);
@@ -974,6 +976,7 @@ term(struct ktre *re)
 					left->b->class[0] = a;
 					left->b->class[1] = right->c;
 					left->b->class[2] = 0;
+					free_node(right);
 				} else {
 					left->b->class = class_add_char(left->b->class, right->c);
 					free_node(right);
