@@ -1123,7 +1123,6 @@ compile(struct ktre *re, struct node *n)
 		default:
 			a = re->ip;
 			emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
-			emit_c(re, INSTR_PROG, -1);
 			compile(re, n->a);
 			PATCH_B(a, re->ip);
 		}
@@ -1135,7 +1134,6 @@ compile(struct ktre *re, struct node *n)
 			a = re->ip;
 			emit_c(re, INSTR_JMP, -1);
 			emit_c(re, INSTR_SAVE, re->num_groups * 2);
-			emit_c(re, INSTR_PROG, -1);
 
 			old = re->num_groups;
 			re->num_groups++;
@@ -1150,7 +1148,6 @@ compile(struct ktre *re, struct node *n)
 			re->group[old].is_compiled = true;
 		} else {
 			emit_c(re, INSTR_SAVE, re->num_groups * 2);
-			emit_c(re, INSTR_PROG, -1);
 
 			old = re->num_groups;
 			re->num_groups++;
