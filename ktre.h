@@ -636,6 +636,7 @@ again:
 		} else if (!strncmp(re->sp, "?R)", 3)) {
 			re->sp += 2;
 			left->type = NODE_RECURSE;
+			re->group[0].is_called = true;
 		} else if (*re->sp == '?' && re->sp[1] == '<' && re->sp[2] == '=') { /* positive lookbehind */
 			left->type = NODE_LB_YES;
 			re->sp += 3;
@@ -1360,7 +1361,7 @@ ktre_compile(const char *pat, int opt)
 	re->n->type = NODE_GROUP;
 	re->n->gi = add_group(re);
 	re->group[0].is_compiled = false;
-	re->group[0].is_called = true;
+	re->group[0].is_called = false;
 
 	re->n->a = NULL;
 	struct node *n = parse(re);
