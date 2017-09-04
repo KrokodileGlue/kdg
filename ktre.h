@@ -1459,7 +1459,7 @@ run(struct ktre *re, const char *subject)
 #ifdef KTRE_DEBUG
 //		DBG("\n");
 //		for (int i = 0; i < re->num_groups * 2; i++) DBG("%3d ", vec[i]);
-		DBG("\nip: %3d | sp: %3d | tp: %3d | fp: %3d | %s", ip, sp, tp, fp, sp <= (int)strlen(subject) ? subject + sp : "");
+		DBG("\nip: %3d | sp: %3d | tp: %3d | fp: %3d | %s", ip, sp, tp, fp, sp <= (int)strlen(subject) && sp >= 0 ? subject + sp : "");
 #endif
 		if (t[tp].backtrack_from_group) {
 			--fp, --tp;
