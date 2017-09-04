@@ -90,7 +90,6 @@
  * 		}
  *
  * 		fputc('\n', stderr);
- * 		free(vec);
  * 	} else if (re->err) { // ran, but failed with an error
  * 		fprintf(stderr, "\nregex failed at runtime with error code %d: %s\n", re->err, re->err_str);
  *
@@ -111,7 +110,7 @@
  * 	}
  *
  * 	char *subject = argv[1], *regex = argv[2];
- * 	struct ktre *re = ktre_compile(regex, KTRE_UNANCHORED | KTRE_INSENSITIVE);
+ * 	struct ktre *re = ktre_compile(regex, KTRE_UNANCHORED);
  * 	do_regex(re, regex, subject);
  * 	ktre_free(re);
  *
@@ -179,7 +178,7 @@ struct ktre {
 
 	struct group {
 		int address;
-		_Bool compiled;
+		_Bool is_compiled;
 		/* whether this is a group that is ever called as a subroutine */
 		_Bool is_called;
 	} *group;
@@ -188,9 +187,7 @@ struct ktre {
 	/* runtime */
 	struct thread {
 		int ip, sp;
-		int old, old_idx, opt;
-		int limit, ret;
-		int old_sp;
+		int opt, old_sp;
 		int frame[KTRE_MAX_CALL_DEPTH];
 		int vec[KTRE_MAX_GROUPS];
 		_Bool backtrack_from_group, backtrack_to_group;
@@ -243,7 +240,7 @@ static int
 add_group(struct ktre *re)
 {
 	re->group = KTRE_REALLOC(re->group, sizeof re->group[0] * (re->gp + 1));
-	re->group[re->gp].compiled = false;
+	re->group[re->gp].is_compiled = false;
 	re->group[re->gp].address = -1;
 	re->group[re->gp].is_called = false;
 	return re->gp++;
@@ -1150,7 +1147,7 @@ compile(struct ktre *re, struct node *n)
 			emit(re, INSTR_RET);
 			PATCH_C(a, re->ip);
 
-			re->group[old].compiled = true;
+			re->group[old].is_compiled = true;
 		} else {
 			emit_c(re, INSTR_SAVE, re->num_groups * 2);
 			emit_c(re, INSTR_PROG, -1);
@@ -1163,7 +1160,7 @@ compile(struct ktre *re, struct node *n)
 
 			emit_c(re, INSTR_SAVE, old * 2 + 1);
 
-			re->group[old].compiled = true;
+			re->group[old].is_compiled = true;
 		}
 		break;
 
@@ -1228,7 +1225,7 @@ compile(struct ktre *re, struct node *n)
 			return;
 		}
 
-		if (!re->group[n->c].compiled) {
+		if (!re->group[n->c].is_compiled) {
 			error(re, KTRE_ERROR_INVALID_BACKREFERENCE, n->loc, "backreferences may not reference the group they occur in");
 			return;
 		}
@@ -1240,7 +1237,7 @@ compile(struct ktre *re, struct node *n)
 		a = 0;
 		for (int i = 0; i < n->c; i++) {
 			a = re->ip;
-			if (n->a->type == NODE_GROUP && !re->group[n->a->gi].compiled) {
+			if (n->a->type == NODE_GROUP && !re->group[n->a->gi].is_compiled) {
 				compile(re, n->a);
 			} else if (n->a->type == NODE_GROUP) {
 				emit_c(re, INSTR_CALL, re->group[n->a->gi].address);
@@ -1345,8 +1342,8 @@ ktre_compile(const char *pat, int opt)
 	re->n = KTRE_MALLOC(sizeof *re->n);
 	re->n->type = NODE_GROUP;
 	re->n->gi = add_group(re);
-	re->group[0].compiled = false;
-	re->group[0].is_called = false;
+	re->group[0].is_compiled = false;
+	re->group[0].is_called = true;
 
 	re->n->a = NULL;
 	struct node *n = parse(re);
