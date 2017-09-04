@@ -56,9 +56,9 @@ options:
     |   |       |       |   `-- (class '6789')
     |   |       |       `-- (sequence)
     |   |       |           |-- (class '23456789')
-    |   |       |           `-- (class '0123456789')
+    |   |       |           `-- (digit)
     |   |       `-- (counted repetition 2 - -1)
-    |   |           `-- (class '0123456789')
+    |   |           `-- (digit)
     |   `-- (eol)
     `-- (or)
         |-- (sequence)
@@ -89,7 +89,7 @@ options:
         |   |           |   |       |   `-- (class '6789')
         |   |           |   |       `-- (sequence)
         |   |           |   |           |-- (class '23456789')
-        |   |           |   |           `-- (class '0123456789')
+        |   |           |   |           `-- (digit)
         |   |           |   `-- (or)
         |   |           |       |-- (sequence)
         |   |           |       |   |-- (char '0')
@@ -142,7 +142,7 @@ options:
             |   |   |       `-- (or)
             |   |   |           |-- (sequence)
             |   |   |           |   |-- (char '1')
-            |   |   |           |   `-- (class '0123456789')
+            |   |   |           |   `-- (digit)
             |   |   |           `-- (sequence)
             |   |   |               |-- (char '2')
             |   |   |               `-- (class '012345678')
@@ -155,9 +155,9 @@ options:
             |       |       |   `-- (class '6789')
             |       |       `-- (sequence)
             |       |           |-- (class '23456789')
-            |       |           `-- (class '0123456789')
+            |       |           `-- (digit)
             |       `-- (counted repetition 2 - -1)
-            |           `-- (class '0123456789')
+            |           `-- (digit)
             `-- (eol)
 group 0 address: 5
 group 1 address: 16
@@ -219,9 +219,9 @@ group 4 address: 115
  52: CLASS   '6789'
  53: JMP      56
  54: CLASS   '23456789'
- 55: CLASS   '0123456789'
- 56: CLASS   '0123456789'
- 57: CLASS   '0123456789'
+ 55: DIGIT
+ 56: DIGIT
+ 57: DIGIT
  58: EOL
  59: JMP      146
  60: SPLIT    61, 107
@@ -247,7 +247,7 @@ group 4 address: 115
  80: CLASS   '6789'
  81: JMP      84
  82: CLASS   '23456789'
- 83: CLASS   '0123456789'
+ 83: DIGIT
  84: SPLIT    85, 88
  85: CHAR    '0'
  86: CLASS   '48'
@@ -295,7 +295,7 @@ group 4 address: 115
 128: JMP      135
 129: SPLIT    130, 133
 130: CHAR    '1'
-131: CLASS   '0123456789'
+131: DIGIT
 132: JMP      135
 133: CHAR    '2'
 134: CLASS   '012345678'
@@ -306,9 +306,9 @@ group 4 address: 115
 139: CLASS   '6789'
 140: JMP      143
 141: CLASS   '23456789'
-142: CLASS   '0123456789'
-143: CLASS   '0123456789'
-144: CLASS   '0123456789'
+142: DIGIT
+143: DIGIT
+144: DIGIT
 145: EOL
 146: SAVE     1
 147: RET

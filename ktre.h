@@ -144,7 +144,7 @@ enum {
 };
 
 /* settings and limits */
-#define KTRE_MAX_THREAD 2000
+#define KTRE_MAX_THREAD 50
 #define KTRE_MAX_CALL_DEPTH 10
 #define KTRE_MAX_GROUPS 100
 
@@ -274,6 +274,9 @@ struct instr {
 		INSTR_LB_YES,
 		INSTR_LB_NO,
 		INSTR_PROG,
+		INSTR_DIGIT,
+		INSTR_SPACE,
+		INSTR_WORD,
 		INSTR_RET
 	} op;
 
@@ -373,6 +376,9 @@ struct node {
 		NODE_LA_NO,	/* negative lookahead */
 		NODE_LB_NO,	/* negative lookbehind */
 		NODE_RECURSE,	/* (?R) tries to match the entire regex again at the current point */
+		NODE_DIGIT,
+		NODE_SPACE,
+		NODE_WORD,
 		NODE_NONE
 	} type;
 
@@ -482,8 +488,7 @@ again:
 		NEXT;
 		switch (*re->sp) {
 		case 's':
-			left->type = NODE_CLASS;
-			left->class = strclone(WHITESPACE);
+			left->type = NODE_SPACE;
 			NEXT;
 			break;
 
@@ -494,8 +499,7 @@ again:
 			break;
 
 		case 'd':
-			left->type = NODE_CLASS;
-			left->class = strclone(DIGIT);
+			left->type = NODE_DIGIT;
 			NEXT;
 			break;
 
@@ -506,8 +510,7 @@ again:
 			break;
 
 		case 'w':
-			left->type = NODE_CLASS;
-			left->class = strclone(WORD);
+			left->type = NODE_WORD;
 			NEXT;
 			break;
 
@@ -1045,6 +1048,9 @@ print_node(struct node *n)
 
 	switch (n->type) {
 	case NODE_ANY:       DBG("(any)");                                    break;
+	case NODE_DIGIT:     DBG("(digit)");                                  break;
+	case NODE_WORD:      DBG("(word)");                                   break;
+	case NODE_SPACE:     DBG("(space)");                                  break;
 	case NODE_NONE:      DBG("(none)");                                   break;
 	case NODE_CHAR:      DBG("(char '%c')", n->c);                        break;
 	case NODE_WB:        DBG("(word boundary)");                          break;
@@ -1302,6 +1308,18 @@ compile(struct ktre *re, struct node *n)
 		emit_c(re, INSTR_CALL, re->group[0].address + 1);
 		break;
 
+	case NODE_DIGIT:
+		emit(re, INSTR_DIGIT);
+		break;
+
+	case NODE_WORD:
+		emit(re, INSTR_WORD);
+		break;
+
+	case NODE_SPACE:
+		emit(re, INSTR_SPACE);
+		break;
+
 	default:
 #ifdef KTRE_DEBUG
 		DBG("\nunimplemented compiler for node of type %d\n", n->type);
@@ -1398,6 +1416,9 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_SET_START: DBG("SET_START");                               break;
 		case INSTR_KILL_TP:   DBG("KILL_TP");                                 break;
 		case INSTR_ANY:       DBG("ANY");                                     break;
+		case INSTR_DIGIT:     DBG("DIGIT");                                   break;
+		case INSTR_WORD:      DBG("WORD");                                    break;
+		case INSTR_SPACE:     DBG("SPACE");                                   break;
 		case INSTR_BOL:       DBG("BOL");                                     break;
 		case INSTR_EOL:       DBG("EOL");                                     break;
 		case INSTR_DIE:       DBG("DIE");                                     break;
@@ -1423,14 +1444,16 @@ ktre_compile(const char *pat, int opt)
 static bool
 run(struct ktre *re, const char *subject)
 {
-	fprintf(stderr, "\nsubject: %s", subject);
+#ifdef KTRE_DEBUG
+	DBG("\nsubject: %s", subject);
+#endif
 
 	int fp = 0, tp = 0;
 	struct thread *t = re->t;
 
 #define new_thread(ip, sp, opt)					\
 	do {								\
-		t[++tp] = (struct thread){ ip, sp, -1, -1, opt, -1, -1, -1, {0}, {0}, false, false }; \
+		t[++tp] = (struct thread){ ip, sp, opt, -1, {0}, {0}, false, false }; \
 		if (tp - 1 >= 0) memcpy(t[tp].frame, t[tp - 1].frame, fp * sizeof t[0].frame[0]); \
 		if (tp - 1 >= 0) memcpy(t[tp].vec, t[tp - 1].vec, re->num_groups * 2 * sizeof t[0].vec[0]); \
 	} while (0)
@@ -1620,6 +1643,24 @@ run(struct ktre *re, const char *subject)
 
 			re->c[ip].c = sp;
 			t[tp].ip++;
+			break;
+
+		case INSTR_DIGIT:
+			--tp;
+			if (strchr(DIGIT, subject[sp]) && subject[sp])
+				new_thread(ip + 1, sp + 1, opt);
+			break;
+
+		case INSTR_WORD:
+			--tp;
+			if (strchr(WORD, subject[sp]) && subject[sp])
+				new_thread(ip + 1, sp + 1, opt);
+			break;
+
+		case INSTR_SPACE:
+			--tp;
+			if (strchr(WHITESPACE, subject[sp]) && subject[sp])
+				new_thread(ip + 1, sp + 1, opt);
 			break;
 
 		default:
