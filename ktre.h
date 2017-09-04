@@ -74,6 +74,7 @@
  * do_regex(struct ktre *re, const char *regex, const char *subject)
  * {
  * 	int *vec = NULL;
+ * 	fprintf(stderr, "\nsubject: %s", subject);
  *
  * 	if (re->err) { // failed to compile
  * 		fprintf(stderr, "\nregex failed to compile with error code %d: %s\n", re->err, re->err_str);
@@ -81,11 +82,11 @@
  * 		for (int i = 0; i < re->loc; i++) fputc(' ', stderr);
  * 		fprintf(stderr, "^\n");
  * 	} else if (ktre_exec(re, subject, &vec)) { // ran and succeeded
- * 		fprintf(stderr, "\nmatched!");
+ * 		fprintf(stderr, "\nmatched: '%.*s'", vec[1], subject + vec[0]);
  *
- * 		for (int i = 0; i < re->num_groups; i++) {
+ * 		for (int i = 1; i < re->num_groups; i++) {
  * 			if (vec[i * 2 + 1] && (int)strlen(subject) != vec[i * 2]) {
- * 				fprintf(stderr, "\ngroup %d: '%.*s'", i, vec[i * 2 + 1], &subject[vec[i * 2]]);
+ * 				fprintf(stderr, "\ngroup %d: '%.*s'", i, vec[i * 2 + 1], subject + vec[i * 2]);
  * 			}
  * 		}
  *
@@ -107,6 +108,7 @@
  * 	if (argc != 3) {
  * 		fprintf(stderr, "Usage: ktre [subject] [pattern]\n");
  * 		exit(EXIT_FAILURE);
+ *
  * 	}
  *
  * 	char *subject = argv[1], *regex = argv[2];
@@ -144,9 +146,9 @@ enum {
 };
 
 /* settings and limits */
-#define KTRE_MAX_THREAD 50
-#define KTRE_MAX_CALL_DEPTH 10
 #define KTRE_MAX_GROUPS 100
+#define KTRE_MAX_THREAD 200
+#define KTRE_MAX_CALL_DEPTH 5
 
 /* memory functions */
 #define KTRE_MALLOC malloc
@@ -1383,13 +1385,6 @@ ktre_compile(const char *pat, int opt)
 	if (re->failed)
 		return re;
 
-	/* just emit the bytecode for .* */
-	if (re->opt & KTRE_UNANCHORED) {
-		emit_ab(re, INSTR_SPLIT, re->ip + 1, re->ip + 3);
-		emit(re, INSTR_ANY);
-		emit_ab(re, INSTR_SPLIT, re->ip - 1, re->ip + 1);
-	}
-
 	emit(re, INSTR_MATCH);
 
 #ifdef KTRE_DEBUG
@@ -1444,10 +1439,6 @@ ktre_compile(const char *pat, int opt)
 static bool
 run(struct ktre *re, const char *subject)
 {
-#ifdef KTRE_DEBUG
-	DBG("\nsubject: %s", subject);
-#endif
-
 	int fp = 0, tp = 0;
 	struct thread *t = re->t;
 
@@ -1548,7 +1539,12 @@ run(struct ktre *re, const char *subject)
 			break;
 
 		case INSTR_MATCH:
-			if (subject[sp] == 0) return true;
+			if ((opt & KTRE_UNANCHORED) == 0) {
+				if (!subject[sp])
+					return true;
+			} else {
+				return true;
+			}
 			--tp;
 			break;
 
