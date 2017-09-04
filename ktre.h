@@ -124,6 +124,7 @@
 
 #include <setjmp.h>
 
+/* error codes */
 enum ktre_error {
 	KTRE_ERROR_NO_ERROR,
 	KTRE_ERROR_UNMATCHED_PAREN,
@@ -136,8 +137,19 @@ enum ktre_error {
 	KTRE_ERROR_INFINITE_LOOP
 };
 
-#define KTRE_MAX_THREAD 4000
-#define KTRE_MAX_CALL_DEPTH 200
+/* options */
+enum {
+	KTRE_INSENSITIVE = 1 << 0,
+	KTRE_UNANCHORED  = 1 << 1,
+	KTRE_EXTENDED    = 1 << 2,
+};
+
+/* settings and limits */
+#define KTRE_MAX_THREAD 2000
+#define KTRE_MAX_CALL_DEPTH 10
+#define KTRE_MAX_GROUPS 100
+
+/* memory functions */
 #define KTRE_MALLOC malloc
 #define KTRE_FREE free
 #define KTRE_REALLOC realloc
@@ -180,14 +192,11 @@ struct ktre {
 		int limit, ret;
 		int old_sp;
 		int frame[KTRE_MAX_CALL_DEPTH];
+		int vec[KTRE_MAX_GROUPS];
 		_Bool backtrack_from_group, backtrack_to_group;
 	} t[KTRE_MAX_THREAD];
-};
 
-enum {
-	KTRE_INSENSITIVE = 1 << 0,
-	KTRE_UNANCHORED  = 1 << 1,
-	KTRE_EXTENDED    = 1 << 2,
+	int tp;
 };
 
 struct ktre *ktre_compile(const char *pat, int opt);
@@ -395,7 +404,7 @@ free_node(struct node *n)
 	case NODE_LB_NO:
 		free_node(n->a);
 		break;
-	case NODE_CLASS: KTRE_FREE(n->class); break;
+	case NODE_CLASS: case NODE_STR: KTRE_FREE(n->class); break;
 	default: break;
 	}
 
@@ -1418,7 +1427,7 @@ ktre_compile(const char *pat, int opt)
 }
 
 static bool
-run(struct ktre *re, const char *subject, int *vec)
+run(struct ktre *re, const char *subject)
 {
 	fprintf(stderr, "\nsubject: %s", subject);
 
@@ -1427,19 +1436,21 @@ run(struct ktre *re, const char *subject, int *vec)
 
 #define new_thread(ip, sp, opt)					\
 	do {								\
-		t[++tp] = (struct thread){ ip, sp, -1, -1, opt, -1, -1, -1, {0}, false, false }; \
+		t[++tp] = (struct thread){ ip, sp, -1, -1, opt, -1, -1, -1, {0}, {0}, false, false }; \
 		if (tp - 1 >= 0) memcpy(t[tp].frame, t[tp - 1].frame, fp * sizeof t[0].frame[0]); \
+		if (tp - 1 >= 0) memcpy(t[tp].vec, t[tp - 1].vec, re->num_groups * 2 * sizeof t[0].vec[0]); \
 	} while (0)
 
 	/* push the initial thread */
 	new_thread(0, 0, re->opt);
 
 	while (tp) {
-		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, *frame = t[tp].frame;
+		re->tp = tp;
+		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, *frame = t[tp].frame, *vec = t[tp].vec;
 #ifdef KTRE_DEBUG
-		DBG("\nip: %3d | sp: %3d | tp: %3d | fp: %3d | %s", ip, sp, tp, fp, sp <= (int)strlen(subject) ? subject + sp : "");
 //		DBG("\n");
-//		for (int i = 0; i < fp; i++) DBG("%3d ", frame[i]);
+//		for (int i = 0; i < re->num_groups * 2; i++) DBG("%3d ", vec[i]);
+		DBG("\nip: %3d | sp: %3d | tp: %3d | fp: %3d | %s", ip, sp, tp, fp, sp <= (int)strlen(subject) ? subject + sp : "");
 #endif
 		if (t[tp].backtrack_from_group) {
 			--fp, --tp;
@@ -1525,19 +1536,12 @@ run(struct ktre *re, const char *subject, int *vec)
 			break;
 
 		case INSTR_SAVE:
-			if (t[tp].old == -1) {
-				t[tp].old = vec[re->c[ip].c];
-				t[tp].old_idx = re->c[ip].c;
-				if (re->c[ip].c % 2 == 0)
-					vec[re->c[ip].c] = sp;
-				else
-					vec[re->c[ip].c] = sp - vec[re->c[ip].c - 1];
-				--tp;
-				new_thread(ip + 1, sp, opt);
-			} else {
-				--tp;
-				vec[t[tp].old_idx] = t[tp].old;
-			}
+			--tp;
+			if (re->c[ip].c % 2 == 0)
+				t[tp].vec[re->c[ip].c] = sp;
+			else
+				t[tp].vec[re->c[ip].c] = sp - t[tp].vec[re->c[ip].c - 1];
+			new_thread(ip + 1, sp, opt);
 			break;
 
 		case INSTR_JMP:
@@ -1664,12 +1668,10 @@ ktre_exec(struct ktre *re, const char *subject, int **vec)
 		re->err = 0;
 	}
 
-	*vec = KTRE_CALLOC(sizeof *vec[0] * re->num_groups * 2, 1);
-
-	if (run(re, subject, *vec)) {
+	if (run(re, subject)) {
+		*vec = re->t[re->tp].vec;
 		return true;
 	} else {
-		KTRE_FREE(*vec);
 		return false;
 	}
 }
