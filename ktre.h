@@ -987,20 +987,20 @@ term(struct ktre *re)
 					left->b->class = KTRE_MALLOC(3);
 
 					if (re->popt & KTRE_INSENSITIVE) {
-						left->class[0] = lc(a);
-						left->class[1] = lc(right->c);
+						left->b->class[0] = lc(a);
+						left->b->class[1] = lc(right->c);
 					} else {
-						left->class[0] = a;
-						left->class[1] = right->c;
+						left->b->class[0] = a;
+						left->b->class[1] = right->c;
 					}
 
 					left->b->class[2] = 0;
 					free_node(right);
 				} else {
 					if (re->popt & KTRE_INSENSITIVE) {
-						left->class = class_add_char(left->class, lc(right->c));
+						left->b->class = class_add_char(left->b->class, lc(right->c));
 					} else {
-						left->class = class_add_char(left->class, right->c);
+						left->b->class = class_add_char(left->b->class, right->c);
 					}
 
 					free_node(right);
@@ -1517,8 +1517,13 @@ run(struct ktre *re, const char *subject)
 
 		case INSTR_STR:
 			--tp;
-			if (!strncmp(subject_lc + sp, re->c[ip].class, strlen(re->c[ip].class)))
-				new_thread(ip + 1, sp + strlen(re->c[ip].class), opt);
+			if (opt & KTRE_INSENSITIVE) {
+				if (!strncmp(subject_lc + sp, re->c[ip].class, strlen(re->c[ip].class)))
+					new_thread(ip + 1, sp + strlen(re->c[ip].class), opt);
+			} else {
+				if (!strncmp(subject + sp, re->c[ip].class, strlen(re->c[ip].class)))
+					new_thread(ip + 1, sp + strlen(re->c[ip].class), opt);
+			}
 			break;
 
 		case INSTR_NOT:
