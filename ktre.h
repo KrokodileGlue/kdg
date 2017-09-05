@@ -959,12 +959,24 @@ term(struct ktre *re)
 					char a = left->c;
 					left->type = NODE_STR;
 					left->class = KTRE_MALLOC(3);
-					left->class[0] = a;
-					left->class[1] = right->c;
+
+					if (re->popt & KTRE_INSENSITIVE) {
+						left->class[0] = lc(a);
+						left->class[1] = lc(right->c);
+					} else {
+						left->class[0] = a;
+						left->class[1] = right->c;
+					}
+
 					left->class[2] = 0;
 					free_node(right);
 				} else {
-					left->class = class_add_char(left->class, right->c);
+					if (re->popt & KTRE_INSENSITIVE) {
+						left->class = class_add_char(left->class, lc(right->c));
+					} else {
+						left->class = class_add_char(left->class, right->c);
+					}
+
 					free_node(right);
 				}
 			} else if (right->type == NODE_CHAR && left->type == NODE_SEQUENCE
@@ -973,12 +985,24 @@ term(struct ktre *re)
 					char a = left->b->c;
 					left->b->type = NODE_STR;
 					left->b->class = KTRE_MALLOC(3);
-					left->b->class[0] = a;
-					left->b->class[1] = right->c;
+
+					if (re->popt & KTRE_INSENSITIVE) {
+						left->class[0] = lc(a);
+						left->class[1] = lc(right->c);
+					} else {
+						left->class[0] = a;
+						left->class[1] = right->c;
+					}
+
 					left->b->class[2] = 0;
 					free_node(right);
 				} else {
-					left->b->class = class_add_char(left->b->class, right->c);
+					if (re->popt & KTRE_INSENSITIVE) {
+						left->class = class_add_char(left->class, lc(right->c));
+					} else {
+						left->class = class_add_char(left->class, right->c);
+					}
+
 					free_node(right);
 				}
 			} else {
@@ -1446,6 +1470,10 @@ run(struct ktre *re, const char *subject)
 	int fp = 0, tp = 0;
 	struct thread *t = re->t;
 
+	char *subject_lc = KTRE_MALLOC(strlen(subject) + 1);
+	for (int i = 0; i <= strlen(subject); i++)
+		subject_lc[i] = lc(subject[i]);
+
 #define new_thread(ip, sp, opt)					\
 	do {								\
 		t[++tp] = (struct thread){ ip, sp, opt, -1, {0}, {0}, false, false }; \
@@ -1489,7 +1517,7 @@ run(struct ktre *re, const char *subject)
 
 		case INSTR_STR:
 			--tp;
-			if (!strncmp(&subject[sp], re->c[ip].class, strlen(re->c[ip].class)))
+			if (!strncmp(subject_lc + sp, re->c[ip].class, strlen(re->c[ip].class)))
 				new_thread(ip + 1, sp + strlen(re->c[ip].class), opt);
 			break;
 
