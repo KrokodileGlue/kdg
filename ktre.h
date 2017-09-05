@@ -1165,18 +1165,17 @@ compile(struct ktre *re, struct node *n)
 
 	case NODE_GROUP:
 		if (re->group[n->gi].is_called) {
-			emit_c(re, INSTR_CALL, re->ip + 2);
+			emit_c(re, INSTR_CALL, re->ip + 3);
+			emit_c(re, INSTR_SAVE, re->num_groups * 2 + 1);
 			a = re->ip;
 			emit_c(re, INSTR_JMP, -1);
 			emit_c(re, INSTR_SAVE, re->num_groups * 2);
 
 			old = re->num_groups;
-			re->num_groups++;
-			re->group[old].address = re->ip - 1;
+			re->group[re->num_groups++].address = re->ip - 1;
 
 			compile(re, n->a);
 
-			emit_c(re, INSTR_SAVE, old * 2 + 1);
 			emit(re, INSTR_RET);
 			PATCH_C(a, re->ip);
 
@@ -1202,7 +1201,7 @@ compile(struct ktre *re, struct node *n)
 			return;
 		}
 
-		emit_c(re, INSTR_CALL, re->group[n->c].address);
+		emit_c(re, INSTR_CALL, re->group[n->c].address + 1);
 		break;
 
 	case NODE_PLUS:
