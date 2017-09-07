@@ -212,7 +212,7 @@ void ktre_free(struct ktre *re);
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #define DBGF(str)							\
 	do {								\
-		for (int _i = 0; _i < strlen(str); _i++) {		\
+		for (int _i = 0; _i < (int)strlen(str); _i++) { \
 			if ((strchr(WHITESPACE, str[_i]) || str[_i] == '\\') && str[_i] != ' ') { \
 				fputc('\\', stderr);			\
 				switch (str[_i]) {			\
@@ -288,10 +288,12 @@ struct instr {
 		int c;
 		char *class;
 	};
+
+	int loc;
 };
 
 static void
-grow_code(struct ktre *re, size_t n)
+grow_code(struct ktre *re, int n)
 {
 	if (!re->instr_alloc) {
 		re->instr_alloc = 1;
@@ -317,6 +319,7 @@ emit_ab(struct ktre *re, int instr, int a, int b)
 
 	re->c[re->ip].a = a;
 	re->c[re->ip].b = b;
+	re->c[re->ip].loc = re->loc;
 
 	re->ip++;
 }
@@ -327,6 +330,7 @@ emit_c(struct ktre *re, int instr, int c)
 	grow_code(re, 1);
 	re->c[re->ip].op = instr;
 	re->c[re->ip].c = c;
+	re->c[re->ip].loc = re->loc;
 
 	re->ip++;
 }
@@ -337,6 +341,7 @@ emit_class(struct ktre *re, int instr, char *class)
 	grow_code(re, 1);
 	re->c[re->ip].op = instr;
 	re->c[re->ip].class = class;
+	re->c[re->ip].loc = re->loc;
 
 	re->ip++;
 }
@@ -346,6 +351,7 @@ emit(struct ktre *re, int instr)
 {
 	grow_code(re, 1);
 	re->c[re->ip].op = instr;
+	re->c[re->ip].loc = re->loc;
 	re->ip++;
 }
 
@@ -1121,6 +1127,7 @@ compile(struct ktre *re, struct node *n)
 #define PATCH_B(loc, _b) re->c[loc].b = _b
 #define PATCH_C(loc, _c) re->c[loc].c = _c
 	int a = -1, b = -1, old = -1;
+	re->loc = n->loc;
 
 	switch (n->type) {
 	case NODE_ASTERISK:
@@ -1469,7 +1476,7 @@ run(struct ktre *re, const char *subject)
 	struct thread *t = re->t;
 
 	char *subject_lc = KTRE_MALLOC(strlen(subject) + 1);
-	for (int i = 0; i <= strlen(subject); i++)
+	for (int i = 0; i <= (int)strlen(subject); i++)
 		subject_lc[i] = lc(subject[i]);
 
 #define new_thread(ip, sp, opt, fp)		\
@@ -1484,7 +1491,7 @@ run(struct ktre *re, const char *subject)
 
 	while (tp) {
 		re->tp = tp;
-		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, *frame = t[tp].frame, *vec = t[tp].vec, fp = t[tp].fp;
+		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, *frame = t[tp].frame, *vec = t[tp].vec, fp = t[tp].fp, loc = re->c[ip].loc;
 #ifdef KTRE_DEBUG
 //		DBG("\n");
 //		for (int i = 0; i < re->num_groups * 2; i++) DBG("%3d ", vec[i]);
@@ -1534,10 +1541,10 @@ run(struct ktre *re, const char *subject)
 		case INSTR_WB:
 			--tp;
 			if (sp &&
-			    ((strchr(WORD, subject[sp - 1]) && !strchr(WORD, subject[sp])))
-				|| (!strchr(WORD, subject[sp - 1]) && strchr(WORD, subject[sp])))
+			    ((strchr(WORD, subject[sp - 1]) && !strchr(WORD, subject[sp]))
+			     || (!strchr(WORD, subject[sp - 1]) && strchr(WORD, subject[sp]))))
 				new_thread(ip + 1, sp, opt, fp);
-			else if (sp == 0 || sp == strlen(subject))
+			else if (sp == 0 || sp == (int)strlen(subject))
 				new_thread(ip + 1, sp, opt, fp);
 			break;
 
@@ -1657,10 +1664,12 @@ run(struct ktre *re, const char *subject)
 			break;
 
 		case INSTR_PROG:
-			/* re->c[ip].c = sp; */
-			/* if (sp == re->c[ip].c) { */
-			/* 	--tp; */
-			/* } else t[tp].ip++; */
+			re->c[ip].c = sp;
+
+			if (sp == re->c[ip].c) {
+				--tp;
+			} else t[tp].ip++;
+
 			t[tp].ip++;
 			break;
 
@@ -1692,12 +1701,12 @@ run(struct ktre *re, const char *subject)
 		}
 
 		if (tp == KTRE_MAX_THREAD - 1) {
-			error(re, KTRE_ERROR_STACK_OVERFLOW, 0, "regex exceeded the maximum number of executable threads");
+			error(re, KTRE_ERROR_STACK_OVERFLOW, loc, "regex exceeded the maximum number of executable threads");
 			return false;
 		}
 
 		if (tp <= -1) {
-			error(re, KTRE_ERROR_STACK_UNDERFLOW, 0, "regex killed more threads than it started");
+			error(re, KTRE_ERROR_STACK_UNDERFLOW, loc, "regex killed more threads than it started");
 			return false;
 		}
 	}
@@ -1725,6 +1734,12 @@ ktre_exec(struct ktre *re, const char *subject, int **vec)
 
 	if (run(re, subject)) {
 		*vec = re->t[re->tp].vec;
+
+		for (int i = 0; i < re->ip; i++) {
+			if (re->c[i].op == INSTR_PROG)
+				re->c[i].c = -1;
+		}
+
 		return true;
 	} else {
 		return false;
