@@ -85,9 +85,8 @@
  * 		fprintf(stderr, "\nmatched: '%.*s'", vec[1], subject + vec[0]);
  *
  * 		for (int i = 1; i < re->num_groups; i++) {
- * 			if (vec[i * 2 + 1] && (int)strlen(subject) != vec[i * 2]) {
+ * 			if (vec[i * 2 + 1] && (int)strlen(subject) != vec[i * 2])
  * 				fprintf(stderr, "\ngroup %d: '%.*s'", i, vec[i * 2 + 1], subject + vec[i * 2]);
- * 			}
  * 		}
  *
  * 		fputc('\n', stderr);
@@ -131,7 +130,6 @@ enum ktre_error {
 	KTRE_ERROR_UNMATCHED_PAREN,
 	KTRE_ERROR_UNTERMINATED_CLASS,
 	KTRE_ERROR_STACK_OVERFLOW,
-	KTRE_ERROR_STACK_UNDERFLOW,
 	KTRE_ERROR_INVALID_MODE_MODIFIER,
 	KTRE_ERROR_INVALID_RANGE,
 	KTRE_ERROR_INVALID_BACKREFERENCE
@@ -171,6 +169,7 @@ struct ktre {
 	struct instr *c; /* code */
 	int ip;          /* instruction pointer */
 	int instr_alloc; /* the number of instructions that have been allocated so far */
+	int num_prog;    /* the number of progress instructions */
 	char const *pat;
 	char const *sp;  /* pointer to the character currently being parsed */
 	struct node *n;
@@ -190,11 +189,13 @@ struct ktre {
 		int ip, sp;
 		int opt, old_sp;
 		int frame[KTRE_MAX_CALL_DEPTH];
-		int vec[KTRE_MAX_GROUPS];
+		int *vec;
 		int fp;
-	} t[KTRE_MAX_THREAD];
+		int *prog;
+	} *t;
 
-	int tp;
+	int thread_alloc;
+	int tp, max_tp;
 };
 
 struct ktre *ktre_compile(const char *pat, int opt);
@@ -1133,7 +1134,7 @@ compile(struct ktre *re, struct node *n)
 	case NODE_ASTERISK:
 		a = re->ip;
 		emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
-		emit_c(re, INSTR_PROG, -1);
+		emit_c(re, INSTR_PROG, re->num_prog++);
 		compile(re, n->a);
 		emit_ab(re, INSTR_SPLIT, a + 1, re->ip + 1);
 		PATCH_B(a, re->ip);
@@ -1144,21 +1145,21 @@ compile(struct ktre *re, struct node *n)
 		case NODE_ASTERISK:
 			a = re->ip;
 			emit_ab(re, INSTR_SPLIT, -1, re->ip + 1);
-			emit_c(re, INSTR_PROG, -1);
+			emit_c(re, INSTR_PROG, re->num_prog++);
 			compile(re, n->a->a);
 			emit_ab(re, INSTR_SPLIT, re->ip + 1, a + 1);
 			PATCH_A(a, re->ip);
 			break;
 		case NODE_PLUS:
 			a = re->ip;
-			emit_c(re, INSTR_PROG, -1);
+			emit_c(re, INSTR_PROG, re->num_prog++);
 			compile(re, n->a->a);
 			emit_ab(re, INSTR_SPLIT, re->ip + 1, a);
 			break;
 		case NODE_QUESTION:
 			a = re->ip;
 			emit_ab(re, INSTR_SPLIT, -1, re->ip + 1);
-			emit_c(re, INSTR_PROG, -1);
+			emit_c(re, INSTR_PROG, re->num_prog++);
 			compile(re, n->a->a);
 			PATCH_A(a, re->ip);
 			break;
@@ -1215,14 +1216,14 @@ compile(struct ktre *re, struct node *n)
 		switch (n->a->type) {
 		case NODE_ASTERISK: case NODE_PLUS: case NODE_QUESTION:
 		case NODE_REP:
-			emit_c(re, INSTR_PROG, -1);
+			emit_c(re, INSTR_PROG, re->num_prog++);
 			compile(re, n->a);
 			emit(re, INSTR_KILL_TP);
 			emit(re, INSTR_DIE);
 			break;
 		default:
 			a = re->ip;
-			emit_c(re, INSTR_PROG, -1);
+			emit_c(re, INSTR_PROG, re->num_prog++);
 			compile(re, n->a);
 			emit_ab(re, INSTR_SPLIT, a, re->ip + 1);
 		}
@@ -1472,29 +1473,63 @@ ktre_compile(const char *pat, int opt)
 static bool
 run(struct ktre *re, const char *subject)
 {
-	int tp = 0;
+	int tp = -1;
+
+	if (!re->thread_alloc) {
+		re->thread_alloc = 25;
+		re->t = KTRE_REALLOC(re->t, re->thread_alloc * sizeof re->t[0]);
+		memset(re->t, 0, re->thread_alloc * sizeof re->t[0]);
+	}
+
 	struct thread *t = re->t;
 
 	char *subject_lc = KTRE_MALLOC(strlen(subject) + 1);
 	for (int i = 0; i <= (int)strlen(subject); i++)
 		subject_lc[i] = lc(subject[i]);
 
-#define new_thread(ip, sp, opt, fp)		\
-	do {								\
-		t[++tp] = (struct thread){ ip, sp, opt, -1, {0}, {0}, fp }; \
+#define new_thread(_ip, _sp, _opt, _fp)                                                                       \
+	do {                                                                                                  \
+		++tp;                                                                                         \
+                                                                                                              \
+		if (tp == re->thread_alloc) {                                                                 \
+			if (re->thread_alloc * 2 >= KTRE_MAX_THREAD)                                          \
+				re->thread_alloc = KTRE_MAX_THREAD;                                           \
+			else                                                                                  \
+				re->thread_alloc *= 2;                                                        \
+			re->t = KTRE_REALLOC(re->t, re->thread_alloc * sizeof re->t[0]);                      \
+			memset(&re->t[re->tp + 1], 0, (re->thread_alloc - re->tp - 2) * sizeof re->t[0]);     \
+			t = re->t;                                                                            \
+		}                                                                                             \
+                                                                                                              \
+		t[tp].ip = _ip;                                                                               \
+		t[tp].sp = _sp;                                                                               \
+		t[tp].opt = _opt;                                                                             \
+                                                                                                              \
+		if (!t[tp].vec) {                                                                             \
+			t[tp].vec = KTRE_MALLOC(re->num_groups * 2 * sizeof t[tp].vec[0]);                    \
+			memset(t[tp].vec, 0, re->num_groups * 2 * sizeof t[tp].vec[0]);                       \
+		}                                                                                             \
+                                                                                                              \
+		if (!t[tp].prog) {                                                                            \
+			t[tp].prog = KTRE_MALLOC(re->num_prog * sizeof t[tp].prog[0]);                        \
+			memset(t[tp].prog, -1, re->num_prog * sizeof t[tp].prog[0]);                          \
+		}                                                                                             \
+                                                                                                              \
 		if (tp > 0) memcpy(t[tp].frame, t[tp - 1].frame, KTRE_MAX_CALL_DEPTH * sizeof t[0].frame[0]); \
-		if (tp > 0) memcpy(t[tp].vec, t[tp - 1].vec, KTRE_MAX_GROUPS * sizeof t[0].vec[0]); \
+		if (tp > 0) memcpy(t[tp].vec, t[tp - 1].vec, re->num_groups * 2 * sizeof t[0].vec[0]);        \
+		if (tp > 0) memcpy(t[tp].prog, t[tp - 1].prog, re->num_prog * sizeof t[0].prog[0]);           \
+                                                                                                              \
+		t[tp].fp = _fp;                                                                               \
+		re->tp = tp;                                                                                  \
+		re->max_tp = tp > re->max_tp ? tp : re->max_tp;                                               \
 	} while (0)
 
 	/* push the initial thread */
 	new_thread(0, 0, re->opt, 0);
 
-	while (tp) {
-		re->tp = tp;
+	while (tp >= 0) {
 		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, *frame = t[tp].frame, *vec = t[tp].vec, fp = t[tp].fp, loc = re->c[ip].loc;
 #ifdef KTRE_DEBUG
-//		DBG("\n");
-//		for (int i = 0; i < re->num_groups * 2; i++) DBG("%3d ", vec[i]);
 		DBG("\nip: %3d | sp: %3d | tp: %3d | fp: %3d | %s", ip, sp, tp, fp, sp <= (int)strlen(subject) && sp >= 0 ? subject + sp : "");
 #endif
 
@@ -1578,6 +1613,7 @@ run(struct ktre *re, const char *subject)
 					return true;
 				}
 			} else {
+				free(subject_lc);
 				return true;
 			}
 			--tp;
@@ -1664,13 +1700,12 @@ run(struct ktre *re, const char *subject)
 			break;
 
 		case INSTR_PROG:
-			re->c[ip].c = sp;
-
-			if (sp == re->c[ip].c) {
+			if (t[tp].prog[re->c[ip].c] == sp) {
 				--tp;
-			} else t[tp].ip++;
-
-			t[tp].ip++;
+			} else {
+				t[tp].prog[re->c[ip].c] = sp;
+				t[tp].ip++;
+			}
 			break;
 
 		case INSTR_DIGIT:
@@ -1702,15 +1737,12 @@ run(struct ktre *re, const char *subject)
 
 		if (tp == KTRE_MAX_THREAD - 1) {
 			error(re, KTRE_ERROR_STACK_OVERFLOW, loc, "regex exceeded the maximum number of executable threads");
-			return false;
-		}
-
-		if (tp <= -1) {
-			error(re, KTRE_ERROR_STACK_UNDERFLOW, loc, "regex killed more threads than it started");
+			free(subject_lc);
 			return false;
 		}
 	}
 
+	free(subject_lc);
 	return false;
 }
 
@@ -1721,6 +1753,13 @@ ktre_free(struct ktre *re)
 	KTRE_FREE(re->c);
 	if (re->err) KTRE_FREE(re->err_str);
 	KTRE_FREE(re->group);
+
+	for (int i = 0; i <= re->max_tp; i++) {
+		KTRE_FREE(re->t[i].vec);
+		KTRE_FREE(re->t[i].prog);
+	}
+
+	KTRE_FREE(re->t);
 	KTRE_FREE(re);
 }
 
