@@ -132,7 +132,8 @@ enum ktre_error {
 	KTRE_ERROR_STACK_OVERFLOW,
 	KTRE_ERROR_INVALID_MODE_MODIFIER,
 	KTRE_ERROR_INVALID_RANGE,
-	KTRE_ERROR_INVALID_BACKREFERENCE
+	KTRE_ERROR_INVALID_BACKREFERENCE,
+	KTRE_ERROR_CALL_OVERFLOW
 };
 
 /* options */
@@ -145,7 +146,7 @@ enum {
 /* settings and limits */
 #define KTRE_MAX_GROUPS 100
 #define KTRE_MAX_THREAD 200
-#define KTRE_MAX_CALL_DEPTH 5
+#define KTRE_MAX_CALL_DEPTH 100
 
 /* memory functions */
 #define KTRE_MALLOC malloc
@@ -188,7 +189,7 @@ struct ktre {
 	struct thread {
 		int ip, sp;
 		int opt, old_sp;
-		int frame[KTRE_MAX_CALL_DEPTH];
+		int *frame;
 		int *vec;
 		int fp;
 		int *prog;
@@ -1487,41 +1488,46 @@ run(struct ktre *re, const char *subject)
 	for (int i = 0; i <= (int)strlen(subject); i++)
 		subject_lc[i] = lc(subject[i]);
 
-#define new_thread(_ip, _sp, _opt, _fp)                                                                       \
-	do {                                                                                                  \
-		++tp;                                                                                         \
-                                                                                                              \
-		if (tp == re->thread_alloc) {                                                                 \
-			if (re->thread_alloc * 2 >= KTRE_MAX_THREAD)                                          \
-				re->thread_alloc = KTRE_MAX_THREAD;                                           \
-			else                                                                                  \
-				re->thread_alloc *= 2;                                                        \
-			re->t = KTRE_REALLOC(re->t, re->thread_alloc * sizeof re->t[0]);                      \
-			memset(&re->t[re->tp + 1], 0, (re->thread_alloc - re->tp - 2) * sizeof re->t[0]);     \
-			t = re->t;                                                                            \
-		}                                                                                             \
-                                                                                                              \
-		t[tp].ip = _ip;                                                                               \
-		t[tp].sp = _sp;                                                                               \
-		t[tp].opt = _opt;                                                                             \
-                                                                                                              \
-		if (!t[tp].vec) {                                                                             \
-			t[tp].vec = KTRE_MALLOC(re->num_groups * 2 * sizeof t[tp].vec[0]);                    \
-			memset(t[tp].vec, 0, re->num_groups * 2 * sizeof t[tp].vec[0]);                       \
-		}                                                                                             \
-                                                                                                              \
-		if (!t[tp].prog) {                                                                            \
-			t[tp].prog = KTRE_MALLOC(re->num_prog * sizeof t[tp].prog[0]);                        \
-			memset(t[tp].prog, -1, re->num_prog * sizeof t[tp].prog[0]);                          \
-		}                                                                                             \
-                                                                                                              \
-		if (tp > 0) memcpy(t[tp].frame, t[tp - 1].frame, KTRE_MAX_CALL_DEPTH * sizeof t[0].frame[0]); \
-		if (tp > 0) memcpy(t[tp].vec, t[tp - 1].vec, re->num_groups * 2 * sizeof t[0].vec[0]);        \
-		if (tp > 0) memcpy(t[tp].prog, t[tp - 1].prog, re->num_prog * sizeof t[0].prog[0]);           \
-                                                                                                              \
-		t[tp].fp = _fp;                                                                               \
-		re->tp = tp;                                                                                  \
-		re->max_tp = tp > re->max_tp ? tp : re->max_tp;                                               \
+#define new_thread(_ip, _sp, _opt, _fp)                                                                   \
+	do {                                                                                              \
+		++tp;                                                                                     \
+                                                                                                          \
+		if (tp == re->thread_alloc) {                                                             \
+			if (re->thread_alloc * 2 >= KTRE_MAX_THREAD)                                      \
+				re->thread_alloc = KTRE_MAX_THREAD;                                       \
+			else                                                                              \
+				re->thread_alloc *= 2;                                                    \
+			re->t = KTRE_REALLOC(re->t, re->thread_alloc * sizeof re->t[0]);                  \
+			memset(&re->t[re->tp + 1], 0, (re->thread_alloc - re->tp - 2) * sizeof re->t[0]); \
+			t = re->t;                                                                        \
+		}                                                                                         \
+                                                                                                          \
+		t[tp].ip  = _ip;                                                                          \
+		t[tp].sp  = _sp;                                                                          \
+		t[tp].fp  = _fp;                                                                          \
+		t[tp].opt = _opt;                                                                         \
+                                                                                                          \
+		if (!t[tp].vec) {                                                                         \
+			t[tp].vec = KTRE_MALLOC(re->num_groups * 2 * sizeof t[tp].vec[0]);                \
+			memset(t[tp].vec, 0, re->num_groups * 2 * sizeof t[tp].vec[0]);                   \
+		}                                                                                         \
+                                                                                                          \
+		if (!t[tp].prog) {                                                                        \
+			t[tp].prog = KTRE_MALLOC(re->num_prog * sizeof t[tp].prog[0]);                    \
+			memset(t[tp].prog, -1, re->num_prog * sizeof t[tp].prog[0]);                      \
+		}                                                                                         \
+		                                                                                          \
+		if (!t[tp].frame) {                                                                       \
+			t[tp].frame = KTRE_MALLOC((_fp + 1) * sizeof t[tp].frame[0]);                     \
+			memset(t[tp].frame, -1,   (_fp + 1) * sizeof t[tp].frame[0]);                     \
+		}                                                                                         \
+                                                                                                          \
+		if (tp > 0) memcpy(t[tp].frame, t[tp - 1].frame, (_fp + 1) * sizeof t[0].frame[0]);       \
+		if (tp > 0) memcpy(t[tp].vec, t[tp - 1].vec, re->num_groups * 2 * sizeof t[0].vec[0]);    \
+		if (tp > 0) memcpy(t[tp].prog, t[tp - 1].prog, re->num_prog * sizeof t[0].prog[0]);       \
+                                                                                                          \
+		re->tp = tp;                                                                              \
+		re->max_tp = tp > re->max_tp ? tp : re->max_tp;                                           \
 	} while (0)
 
 	/* push the initial thread */
@@ -1740,6 +1746,12 @@ run(struct ktre *re, const char *subject)
 			free(subject_lc);
 			return false;
 		}
+
+		if (fp == KTRE_MAX_CALL_DEPTH) {
+			error(re, KTRE_ERROR_CALL_OVERFLOW, loc, "regex exceeded the maximum depth for subroutine calls");
+			free(subject_lc);
+			return false;
+		}
 	}
 
 	free(subject_lc);
@@ -1757,6 +1769,7 @@ ktre_free(struct ktre *re)
 	for (int i = 0; i <= re->max_tp; i++) {
 		KTRE_FREE(re->t[i].vec);
 		KTRE_FREE(re->t[i].prog);
+		KTRE_FREE(re->t[i].frame);
 	}
 
 	KTRE_FREE(re->t);
