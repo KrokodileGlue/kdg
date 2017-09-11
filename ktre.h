@@ -194,6 +194,7 @@ struct ktre {
 		int *vec;
 		int fp;
 		int *prog;
+		_Bool die;
 	} *t;
 
 	int thread_alloc;
@@ -203,9 +204,6 @@ struct ktre {
 struct ktre *ktre_compile(const char *pat, int opt);
 _Bool ktre_exec(struct ktre *re, const char *subject, int **vec);
 void ktre_free(struct ktre *re);
-
-#define KTRE_IMPLEMENTATION
-#define KTRE_DEBUG
 
 #ifdef KTRE_IMPLEMENTATION
 #define WHITESPACE " \t\r\n\v\f"
@@ -1238,7 +1236,6 @@ compile(struct ktre *re, struct node *n)
 			emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
 			compile(re, n->a);
 			emit(re, INSTR_KILL_TP, n->loc);
-			emit(re, INSTR_DIE, n->loc);
 			break;
 		default:
 			a = re->ip;
@@ -1329,7 +1326,6 @@ compile(struct ktre *re, struct node *n)
 	case NODE_ATOM:
 		compile(re, n->a);
 		emit(re, INSTR_KILL_TP, n->loc);
-		emit(re, INSTR_DIE, n->loc);
 		break;
 
 	case NODE_LA_YES:
@@ -1579,6 +1575,11 @@ run(struct ktre *re, const char *subject)
 		DBG("\nip: %3d | sp: %3d | tp: %3d | fp: %3d | %s", ip, sp, TP, fp, sp <= (int)strlen(subject) && sp >= 0 ? subject + sp : "");
 #endif
 
+		if (t[TP].die) {
+			free(subject_lc);
+			return false;
+		}
+
 		switch (re->c[ip].op) {
 		case INSTR_BACKREF:
 			--TP;
@@ -1690,6 +1691,7 @@ run(struct ktre *re, const char *subject)
 
 		case INSTR_KILL_TP: {
 			new_thread(re, ip + 1, sp, opt, fp);
+			t[TP].die = true;
 			new_thread(re, ip + 2, sp, opt, fp);
 		} break;
 
