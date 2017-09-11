@@ -1562,6 +1562,10 @@ run(struct ktre *re, const char *subject)
 	/* push the initial thread */
 	new_thread(re, 0, 0, re->opt, 0);
 
+#ifdef KTRE_DEBUG
+	int num_steps = 0;
+#endif
+
 	while (TP >= 0) {
 		int ip     = t[TP].ip;
 		int sp     = t[TP].sp;
@@ -1572,7 +1576,7 @@ run(struct ktre *re, const char *subject)
 		int loc    = re->c[ip].loc;
 
 #ifdef KTRE_DEBUG
-		DBG("\nip: %3d | sp: %3d | tp: %3d | fp: %3d | %s", ip, sp, TP, fp, sp <= (int)strlen(subject) && sp >= 0 ? subject + sp : "");
+		DBG("\n%3d | ip: %3d | sp: %3d | tp: %3d | fp: %3d | %s", num_steps, ip, sp, TP, fp, sp <= (int)strlen(subject) && sp >= 0 ? subject + sp : "");
 #endif
 
 		if (t[TP].die) {
@@ -1645,7 +1649,8 @@ run(struct ktre *re, const char *subject)
 
 		case INSTR_ANY:
 			--TP;
-			if (subject[sp] != 0) new_thread(re, ip + 1, sp + 1, opt, fp);
+			if (subject[sp])
+				new_thread(re, ip + 1, sp + 1, opt, fp);
 			break;
 
 		case INSTR_SPLIT:
@@ -1793,6 +1798,10 @@ run(struct ktre *re, const char *subject)
 			free(subject_lc);
 			return false;
 		}
+
+#ifdef KTRE_DEBUG
+		num_steps++;
+#endif
 	}
 
 	free(subject_lc);
