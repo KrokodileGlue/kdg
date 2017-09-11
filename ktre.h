@@ -203,6 +203,9 @@ struct ktre *ktre_compile(const char *pat, int opt);
 _Bool ktre_exec(struct ktre *re, const char *subject, int **vec);
 void ktre_free(struct ktre *re);
 
+#define KTRE_IMPLEMENTATION
+#define KTRE_DEBUG
+
 #ifdef KTRE_IMPLEMENTATION
 #define WHITESPACE " \t\r\n\v\f"
 #define WORD "_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -298,8 +301,8 @@ static void
 grow_code(struct ktre *re, int n)
 {
 	if (!re->instr_alloc) {
-		re->instr_alloc = 1;
-		re->c = KTRE_MALLOC(sizeof re->c[0]);
+		re->instr_alloc = 25;
+		re->c = KTRE_MALLOC(sizeof re->c[0] * re->instr_alloc);
 	}
 
 	if (re->ip + n >= re->instr_alloc) {
@@ -314,46 +317,46 @@ grow_code(struct ktre *re, int n)
 }
 
 static void
-emit_ab(struct ktre *re, int instr, int a, int b)
+emit_ab(struct ktre *re, int instr, int a, int b, int loc)
 {
 	grow_code(re, 1);
 	re->c[re->ip].op = instr;
 
 	re->c[re->ip].a = a;
 	re->c[re->ip].b = b;
-	re->c[re->ip].loc = re->loc;
+	re->c[re->ip].loc = loc;
 
 	re->ip++;
 }
 
 static void
-emit_c(struct ktre *re, int instr, int c)
+emit_c(struct ktre *re, int instr, int c, int loc)
 {
 	grow_code(re, 1);
 	re->c[re->ip].op = instr;
 	re->c[re->ip].c = c;
-	re->c[re->ip].loc = re->loc;
+	re->c[re->ip].loc = loc;
 
 	re->ip++;
 }
 
 static void
-emit_class(struct ktre *re, int instr, char *class)
+emit_class(struct ktre *re, int instr, char *class, int loc)
 {
 	grow_code(re, 1);
 	re->c[re->ip].op = instr;
 	re->c[re->ip].class = class;
-	re->c[re->ip].loc = re->loc;
+	re->c[re->ip].loc = loc;
 
 	re->ip++;
 }
 
 static void
-emit(struct ktre *re, int instr)
+emit(struct ktre *re, int instr, int loc)
 {
 	grow_code(re, 1);
 	re->c[re->ip].op = instr;
-	re->c[re->ip].loc = re->loc;
+	re->c[re->ip].loc = loc;
 	re->ip++;
 }
 
@@ -485,10 +488,19 @@ strclone(const char *str)
 }
 
 static struct node *
+new_node()
+{
+	struct node *n = KTRE_MALLOC(sizeof *n);
+	memset(n, 0, sizeof *n);
+	n->loc = -1;
+	return n;
+}
+
+static struct node *
 factor(struct ktre *re)
 {
-	struct node *left = KTRE_MALLOC(sizeof *left);
-	left->loc = 0;
+	struct node *left = new_node();
+	left->loc = re->sp - re->pat;
 
 again:
 	/* parse a primary */
@@ -657,6 +669,7 @@ again:
 			}
 		} else if (*re->sp == '?' && re->sp[1] == ':') { /* uncaptured group */
 			re->sp += 2;
+			free_node(left);
 			left = parse(re);
 
 			if (*re->sp != ')') {
@@ -772,10 +785,12 @@ again:
 				if (off || neg) re->popt &= ~opt;
 				else re->popt |= opt;
 
-				struct node *tmp = KTRE_MALLOC(sizeof *tmp);
+				struct node *tmp = new_node();
+				tmp->loc = re->sp - re->pat;
 				tmp->type = NODE_SEQUENCE;
 				tmp->a = left;
-				tmp->b = KTRE_MALLOC(sizeof *tmp->b);
+				tmp->b = new_node();
+				tmp->b->loc = re->sp - re->pat;
 				tmp->b->type = off || neg ? NODE_OPT_OFF : NODE_OPT_ON;
 				tmp->b->c = opt;
 				left = tmp;
@@ -846,7 +861,7 @@ again:
 
 	while (*re->sp && (*re->sp == '*' || *re->sp == '+' || *re->sp == '?' || *re->sp == '{')) {
 		NEXT;
-		struct node *n = KTRE_MALLOC(sizeof *n);
+		struct node *n = new_node();
 
 		switch (re->sp[-1]) {
 		case '*': n->type = NODE_ASTERISK; break;
@@ -947,8 +962,9 @@ again:
 static struct node *
 term(struct ktre *re)
 {
-	struct node *left = KTRE_MALLOC(sizeof *left);
+	struct node *left = new_node();
 	left->type = NODE_NONE;
+	left->loc = re->sp - re->pat;
 
 	while (*re->sp && *re->sp != '|' && *re->sp != ')') {
 		struct node *right = factor(re);
@@ -1013,7 +1029,8 @@ term(struct ktre *re)
 					free_node(right);
 				}
 			} else {
-				struct node *tmp = KTRE_MALLOC(sizeof *tmp);
+				struct node *tmp = new_node();
+				tmp->loc = re->sp - re->pat;
 				tmp->a = left;
 				tmp->b = right;
 				tmp->type = NODE_SEQUENCE;
@@ -1033,10 +1050,11 @@ parse(struct ktre *re)
 	if (*re->sp && *re->sp == '|') {
 		NEXT;
 
-		struct node *m = KTRE_MALLOC(sizeof *m);
+		struct node *m = new_node();
 		m->type = NODE_OR;
 		m->a = n;
 		m->b = parse(re);
+		m->loc = re->sp - re->pat;
 
 		if (re->err) {
 			free_node(m->b);
@@ -1129,15 +1147,14 @@ compile(struct ktre *re, struct node *n)
 #define PATCH_B(loc, _b) re->c[loc].b = _b
 #define PATCH_C(loc, _c) re->c[loc].c = _c
 	int a = -1, b = -1, old = -1;
-	re->loc = n->loc;
 
 	switch (n->type) {
 	case NODE_ASTERISK:
 		a = re->ip;
-		emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
-		emit_c(re, INSTR_PROG, re->num_prog++);
+		emit_ab(re, INSTR_SPLIT, re->ip + 1, -1, n->loc);
+		emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
 		compile(re, n->a);
-		emit_ab(re, INSTR_SPLIT, a + 1, re->ip + 1);
+		emit_ab(re, INSTR_SPLIT, a + 1, re->ip + 1, n->loc);
 		PATCH_B(a, re->ip);
 		break;
 
@@ -1145,28 +1162,28 @@ compile(struct ktre *re, struct node *n)
 		switch (n->a->type) {
 		case NODE_ASTERISK:
 			a = re->ip;
-			emit_ab(re, INSTR_SPLIT, -1, re->ip + 1);
-			emit_c(re, INSTR_PROG, re->num_prog++);
+			emit_ab(re, INSTR_SPLIT, -1, re->ip + 1, n->loc);
+			emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
 			compile(re, n->a->a);
-			emit_ab(re, INSTR_SPLIT, re->ip + 1, a + 1);
+			emit_ab(re, INSTR_SPLIT, re->ip + 1, a + 1, n->loc);
 			PATCH_A(a, re->ip);
 			break;
 		case NODE_PLUS:
 			a = re->ip;
-			emit_c(re, INSTR_PROG, re->num_prog++);
+			emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
 			compile(re, n->a->a);
-			emit_ab(re, INSTR_SPLIT, re->ip + 1, a);
+			emit_ab(re, INSTR_SPLIT, re->ip + 1, a, n->loc);
 			break;
 		case NODE_QUESTION:
 			a = re->ip;
-			emit_ab(re, INSTR_SPLIT, -1, re->ip + 1);
-			emit_c(re, INSTR_PROG, re->num_prog++);
+			emit_ab(re, INSTR_SPLIT, -1, re->ip + 1, n->loc);
+			emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
 			compile(re, n->a->a);
 			PATCH_A(a, re->ip);
 			break;
 		default:
 			a = re->ip;
-			emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
+			emit_ab(re, INSTR_SPLIT, re->ip + 1, -1, n->loc);
 			compile(re, n->a);
 			PATCH_B(a, re->ip);
 		}
@@ -1174,23 +1191,23 @@ compile(struct ktre *re, struct node *n)
 
 	case NODE_GROUP:
 		if (re->group[n->gi].is_called) {
-			emit_c(re, INSTR_CALL, re->ip + 3);
-			emit_c(re, INSTR_SAVE, re->num_groups * 2 + 1);
+			emit_c(re, INSTR_CALL, re->ip + 3, n->loc);
+			emit_c(re, INSTR_SAVE, re->num_groups * 2 + 1, n->loc);
 			a = re->ip;
-			emit_c(re, INSTR_JMP, -1);
-			emit_c(re, INSTR_SAVE, re->num_groups * 2);
+			emit_c(re, INSTR_JMP, -1, n->loc);
+			emit_c(re, INSTR_SAVE, re->num_groups * 2, n->loc);
 
 			old = re->num_groups;
 			re->group[re->num_groups++].address = re->ip - 1;
 
 			compile(re, n->a);
 
-			emit(re, INSTR_RET);
+			emit(re, INSTR_RET, n->loc);
 			PATCH_C(a, re->ip);
 
 			re->group[old].is_compiled = true;
 		} else {
-			emit_c(re, INSTR_SAVE, re->num_groups * 2);
+			emit_c(re, INSTR_SAVE, re->num_groups * 2, n->loc);
 
 			old = re->num_groups;
 			re->num_groups++;
@@ -1198,7 +1215,7 @@ compile(struct ktre *re, struct node *n)
 
 			compile(re, n->a);
 
-			emit_c(re, INSTR_SAVE, old * 2 + 1);
+			emit_c(re, INSTR_SAVE, old * 2 + 1, n->loc);
 
 			re->group[old].is_compiled = true;
 		}
@@ -1210,32 +1227,32 @@ compile(struct ktre *re, struct node *n)
 			return;
 		}
 
-		emit_c(re, INSTR_CALL, re->group[n->c].address + 1);
+		emit_c(re, INSTR_CALL, re->group[n->c].address + 1, n->loc);
 		break;
 
 	case NODE_PLUS:
 		switch (n->a->type) {
 		case NODE_ASTERISK: case NODE_PLUS: case NODE_QUESTION:
 		case NODE_REP:
-			emit_c(re, INSTR_PROG, re->num_prog++);
+			emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
 			compile(re, n->a);
-			emit(re, INSTR_KILL_TP);
-			emit(re, INSTR_DIE);
+			emit(re, INSTR_KILL_TP, n->loc);
+			emit(re, INSTR_DIE, n->loc);
 			break;
 		default:
 			a = re->ip;
-			emit_c(re, INSTR_PROG, re->num_prog++);
+			emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
 			compile(re, n->a);
-			emit_ab(re, INSTR_SPLIT, a, re->ip + 1);
+			emit_ab(re, INSTR_SPLIT, a, re->ip + 1, n->loc);
 		}
 		break;
 
 	case NODE_OR:
 		a = re->ip;
-		emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
+		emit_ab(re, INSTR_SPLIT, re->ip + 1, -1, n->loc);
 		compile(re, n->a);
 		b = re->ip;
-		emit_c(re, INSTR_JMP, -1);
+		emit_c(re, INSTR_JMP, -1, n->loc);
 		PATCH_B(a, re->ip);
 		compile(re, n->b);
 		PATCH_C(b, re->ip);
@@ -1246,18 +1263,18 @@ compile(struct ktre *re, struct node *n)
 		compile(re, n->b);
 		break;
 
-	case NODE_CLASS:     emit_class(re, INSTR_CLASS, n->class); break;
-	case NODE_STR:       emit_class(re, INSTR_STR,   n->class); break;
-	case NODE_NOT:       emit_class(re, INSTR_NOT, n->class);   break;
-	case NODE_OPT_ON:    emit_c(re, INSTR_OPT_ON,  n->c);       break;
-	case NODE_OPT_OFF:   emit_c(re, INSTR_OPT_OFF, n->c);       break;
-	case NODE_CHAR:      emit_c(re, INSTR_CHAR,    n->c);       break;
-	case NODE_BOL:       emit(re, INSTR_BOL);                   break;
-	case NODE_EOL:       emit(re, INSTR_EOL);                   break;
-	case NODE_ANY:       emit(re, INSTR_ANY);                   break;
-	case NODE_SET_START: emit(re, INSTR_SET_START);             break;
-	case NODE_WB:        emit(re, INSTR_WB);                    break;
-	case NODE_NONE:                                             break;
+	case NODE_CLASS:     emit_class(re, INSTR_CLASS, n->class, n->loc); break;
+	case NODE_STR:       emit_class(re, INSTR_STR,   n->class, n->loc); break;
+	case NODE_NOT:       emit_class(re, INSTR_NOT, n->class, n->loc);   break;
+	case NODE_OPT_ON:    emit_c(re, INSTR_OPT_ON,  n->c, n->loc);       break;
+	case NODE_OPT_OFF:   emit_c(re, INSTR_OPT_OFF, n->c, n->loc);       break;
+	case NODE_CHAR:      emit_c(re, INSTR_CHAR,    n->c, n->loc);       break;
+	case NODE_BOL:       emit(re, INSTR_BOL, n->loc);                   break;
+	case NODE_EOL:       emit(re, INSTR_EOL, n->loc);                   break;
+	case NODE_ANY:       emit(re, INSTR_ANY, n->loc);                   break;
+	case NODE_SET_START: emit(re, INSTR_SET_START, n->loc);             break;
+	case NODE_WB:        emit(re, INSTR_WB, n->loc);                    break;
+	case NODE_NONE:                                                     break;
 
 	case NODE_BACKREF:
 		if (n->c <= 0 || n->c >= re->num_groups) {
@@ -1270,7 +1287,7 @@ compile(struct ktre *re, struct node *n)
 			return;
 		}
 
-		emit_c(re, INSTR_BACKREF, n->c);
+		emit_c(re, INSTR_BACKREF, n->c, n->loc);
 		break;
 
 	case NODE_REP:
@@ -1280,7 +1297,7 @@ compile(struct ktre *re, struct node *n)
 			if (n->a->type == NODE_GROUP && !re->group[n->a->gi].is_compiled) {
 				compile(re, n->a);
 			} else if (n->a->type == NODE_GROUP) {
-				emit_c(re, INSTR_CALL, re->group[n->a->gi].address);
+				emit_c(re, INSTR_CALL, re->group[n->a->gi].address, n->loc);
 			} else {
 				compile(re, n->a);
 			}
@@ -1288,17 +1305,17 @@ compile(struct ktre *re, struct node *n)
 
 		/* TODO: make repetitions work with groups */
 		if (n->d == 0) {
-			emit_ab(re, INSTR_SPLIT, a, re->ip + 1);
+			emit_ab(re, INSTR_SPLIT, a, re->ip + 1, n->loc);
 		} else {
 			/* this will fail to do anything if n->d is less than n->c,
 			 * which handles the case where n->d == -1.
 			 * n->d == -1 when the repetition is of the form {n}. */
 			for (int i = 0; i < n->d - n->c; i++) {
 				a = re->ip;
-				emit_ab(re, INSTR_SPLIT, re->ip + 1, -1);
+				emit_ab(re, INSTR_SPLIT, re->ip + 1, -1, n->loc);
 
 				if (n->a->type == NODE_GROUP) {
-					emit_c(re, INSTR_CALL, re->group[n->a->gi].address);
+					emit_c(re, INSTR_CALL, re->group[n->a->gi].address, n->loc);
 				} else {
 					compile(re, n->a);
 				}
@@ -1310,51 +1327,51 @@ compile(struct ktre *re, struct node *n)
 
 	case NODE_ATOM:
 		compile(re, n->a);
-		emit(re, INSTR_KILL_TP);
-		emit(re, INSTR_DIE);
+		emit(re, INSTR_KILL_TP, n->loc);
+		emit(re, INSTR_DIE, n->loc);
 		break;
 
 	case NODE_LA_YES:
-		emit(re, INSTR_LA_YES);
+		emit(re, INSTR_LA_YES, n->loc);
 		compile(re, n->a);
-		emit(re, INSTR_LA_WIN);
+		emit(re, INSTR_LA_WIN, n->loc);
 		break;
 
 	case NODE_LA_NO:
 		a = re->ip;
-		emit_c(re, INSTR_LA_NO, -1);
+		emit_c(re, INSTR_LA_NO, -1, n->loc);
 		compile(re, n->a);
-		emit(re, INSTR_DIE);
+		emit(re, INSTR_DIE, n->loc);
 		PATCH_C(a, re->ip);
 		break;
 
 	case NODE_LB_YES:
-		emit(re, INSTR_LB_YES);
+		emit(re, INSTR_LB_YES, n->loc);
 		compile(re, n->a);
 		break;
 
 	case NODE_LB_NO:
 		a = re->ip;
-		emit_c(re, INSTR_LB_NO, -1);
+		emit_c(re, INSTR_LB_NO, -1, n->loc);
 		compile(re, n->a);
-		emit(re, INSTR_DIE);
+		emit(re, INSTR_DIE, n->loc);
 		PATCH_C(a, re->ip);
 		break;
 
 	case NODE_RECURSE:
-		emit_c(re, INSTR_CALL, re->group[0].address + 1);
+		emit_c(re, INSTR_CALL, re->group[0].address + 1, n->loc);
 		break;
 
 	case NODE_DIGIT:
-		emit(re, INSTR_DIGIT);
+		emit(re, INSTR_DIGIT, n->loc);
 		break;
 
 	case NODE_WORD:
-		emit(re, INSTR_WORD);
+		emit(re, INSTR_WORD, n->loc);
 		break;
 
 	case NODE_SPACE:
-		emit(re, INSTR_SPACE);
+		emit(re, INSTR_SPACE, n->loc);
 		break;
 
 	default:
@@ -1391,7 +1408,8 @@ ktre_compile(const char *pat, int opt)
 		return re;
 	}
 
-	re->n = KTRE_MALLOC(sizeof *re->n);
+	re->n = new_node();
+	re->n->loc = 0;
 	re->n->type = NODE_GROUP;
 	re->n->gi = add_group(re);
 	re->group[0].is_compiled = false;
@@ -1411,24 +1429,26 @@ ktre_compile(const char *pat, int opt)
 
 	/* just emit the bytecode for .*? */
 	if (re->opt & KTRE_UNANCHORED) {
-		emit_ab(re, INSTR_SPLIT, 3, 1);
-		emit(re, INSTR_ANY);
-		emit_ab(re, INSTR_SPLIT, 3, 1);
+		emit_ab(re, INSTR_SPLIT, 3, 1, 0);
+		emit(re, INSTR_ANY, 0);
+		emit_ab(re, INSTR_SPLIT, 3, 1, 0);
 	}
 
 	compile(re, re->n);
 	if (re->failed)
 		return re;
 
-	emit(re, INSTR_MATCH);
+	emit(re, INSTR_MATCH, re->sp - re->pat);
 
 #ifdef KTRE_DEBUG
-	for (int i = 0; i < re->num_groups; i++) {
-		DBG("\ngroup %d address: %d", i, re->group[i].address);
-	}
 
 	for (int i = 0; i < re->ip; i++) {
-		DBG("\n%3d: ", i);
+		for (int j = 0; j < re->num_groups; j++) {
+			if (re->group[j].address == i)
+				DBG("\ngroup %d:", j);
+		}
+
+		DBG("\n%3d: [%3d] ", i, re->c[i].loc);
 
 		switch (re->c[i].op) {
 		case INSTR_CLASS: DBG("CLASS   '"); DBGF(re->c[i].class); DBG("'");   break;
@@ -1471,10 +1491,57 @@ ktre_compile(const char *pat, int opt)
 	return re;
 }
 
+#define TP (re->tp)
+
+static void
+new_thread(struct ktre *re, int ip, int sp, int opt, int fp)
+{
+	++TP;
+	struct thread *t = re->t;
+
+	if (TP == re->thread_alloc) {
+		if (re->thread_alloc * 2 >= KTRE_MAX_THREAD)
+			re->thread_alloc = KTRE_MAX_THREAD;
+		else
+			re->thread_alloc *= 2;
+		re->t = KTRE_REALLOC(re->t, re->thread_alloc * sizeof re->t[0]);
+		memset(&re->t[TP], 0, (re->thread_alloc - TP - 1) * sizeof re->t[0]);
+		t = re->t;
+	}
+
+	t[TP].ip  = ip;
+	t[TP].sp  = sp;
+	t[TP].fp  = fp;
+	t[TP].opt = opt;
+
+	if (!t[TP].vec) {
+		t[TP].vec = KTRE_MALLOC(re->num_groups * 2 * sizeof t[TP].vec[0]);
+		memset(t[TP].vec, 0,    re->num_groups * 2 * sizeof t[TP].vec[0]);
+	}
+
+	if (!t[TP].prog) {
+		t[TP].prog = KTRE_MALLOC(re->num_prog * sizeof t[TP].prog[0]);
+		memset(t[TP].prog, -1,   re->num_prog * sizeof t[TP].prog[0]);
+	}
+
+	if (!t[TP].frame) {
+		t[TP].frame = KTRE_MALLOC((fp + 1) * sizeof t[TP].frame[0]);
+		memset(t[TP].frame, -1,   (fp + 1) * sizeof t[TP].frame[0]);
+	} else if (t[TP].fp < fp) {
+		t[TP].frame = KTRE_REALLOC(t[TP].frame, (fp + 1) * sizeof t[TP].frame[0]);
+	}
+
+	if (TP > 0) memcpy(t[TP].frame, t[TP - 1].frame, t[TP - 1].fp  * sizeof t[0].frame[0]);
+	if (TP > 0) memcpy(t[TP].vec,   t[TP - 1].vec,  re->num_groups * 2 * sizeof t[0].vec[0]);
+	if (TP > 0) memcpy(t[TP].prog,  t[TP - 1].prog, re->num_prog       * sizeof t[0].prog[0]);
+
+	re->max_tp = TP > re->max_tp ? TP : re->max_tp;
+}
+
 static bool
 run(struct ktre *re, const char *subject)
 {
-	int tp = -1;
+	TP = -1;
 
 	if (!re->thread_alloc) {
 		re->thread_alloc = 25;
@@ -1488,128 +1555,93 @@ run(struct ktre *re, const char *subject)
 	for (int i = 0; i <= (int)strlen(subject); i++)
 		subject_lc[i] = lc(subject[i]);
 
-#define new_thread(_ip, _sp, _opt, _fp)                                                                   \
-	do {                                                                                              \
-		++tp;                                                                                     \
-                                                                                                          \
-		if (tp == re->thread_alloc) {                                                             \
-			if (re->thread_alloc * 2 >= KTRE_MAX_THREAD)                                      \
-				re->thread_alloc = KTRE_MAX_THREAD;                                       \
-			else                                                                              \
-				re->thread_alloc *= 2;                                                    \
-			re->t = KTRE_REALLOC(re->t, re->thread_alloc * sizeof re->t[0]);                  \
-			memset(&re->t[re->tp + 1], 0, (re->thread_alloc - re->tp - 2) * sizeof re->t[0]); \
-			t = re->t;                                                                        \
-		}                                                                                         \
-                                                                                                          \
-		t[tp].ip  = _ip;                                                                          \
-		t[tp].sp  = _sp;                                                                          \
-		t[tp].fp  = _fp;                                                                          \
-		t[tp].opt = _opt;                                                                         \
-                                                                                                          \
-		if (!t[tp].vec) {                                                                         \
-			t[tp].vec = KTRE_MALLOC(re->num_groups * 2 * sizeof t[tp].vec[0]);                \
-			memset(t[tp].vec, 0, re->num_groups * 2 * sizeof t[tp].vec[0]);                   \
-		}                                                                                         \
-                                                                                                          \
-		if (!t[tp].prog) {                                                                        \
-			t[tp].prog = KTRE_MALLOC(re->num_prog * sizeof t[tp].prog[0]);                    \
-			memset(t[tp].prog, -1, re->num_prog * sizeof t[tp].prog[0]);                      \
-		}                                                                                         \
-		                                                                                          \
-		if (!t[tp].frame) {                                                                       \
-			t[tp].frame = KTRE_MALLOC((_fp + 1) * sizeof t[tp].frame[0]);                     \
-			memset(t[tp].frame, -1,   (_fp + 1) * sizeof t[tp].frame[0]);                     \
-		}                                                                                         \
-                                                                                                          \
-		if (tp > 0) memcpy(t[tp].frame, t[tp - 1].frame, (_fp + 1) * sizeof t[0].frame[0]);       \
-		if (tp > 0) memcpy(t[tp].vec, t[tp - 1].vec, re->num_groups * 2 * sizeof t[0].vec[0]);    \
-		if (tp > 0) memcpy(t[tp].prog, t[tp - 1].prog, re->num_prog * sizeof t[0].prog[0]);       \
-                                                                                                          \
-		re->tp = tp;                                                                              \
-		re->max_tp = tp > re->max_tp ? tp : re->max_tp;                                           \
-	} while (0)
-
 	/* push the initial thread */
-	new_thread(0, 0, re->opt, 0);
+	new_thread(re, 0, 0, re->opt, 0);
 
-	while (tp >= 0) {
-		int ip = t[tp].ip, sp = t[tp].sp, opt = t[tp].opt, *frame = t[tp].frame, *vec = t[tp].vec, fp = t[tp].fp, loc = re->c[ip].loc;
+	while (TP >= 0) {
+		int ip     = t[TP].ip;
+		int sp     = t[TP].sp;
+		int opt    = t[TP].opt;
+		int *frame = t[TP].frame;
+		int *vec   = t[TP].vec;
+		int fp     = t[TP].fp;
+		int loc    = re->c[ip].loc;
+
 #ifdef KTRE_DEBUG
-		DBG("\nip: %3d | sp: %3d | tp: %3d | fp: %3d | %s", ip, sp, tp, fp, sp <= (int)strlen(subject) && sp >= 0 ? subject + sp : "");
+		DBG("\nip: %3d | sp: %3d | tp: %3d | fp: %3d | %s", ip, sp, TP, fp, sp <= (int)strlen(subject) && sp >= 0 ? subject + sp : "");
 #endif
 
 		switch (re->c[ip].op) {
 		case INSTR_BACKREF:
-			--tp;
+			--TP;
 			if (!strncmp(subject + sp, &subject[vec[re->c[ip].c * 2]], vec[re->c[ip].c * 2 + 1]))
-				new_thread(ip + 1, sp + vec[re->c[ip].c * 2 + 1], opt, fp);
+				new_thread(re, ip + 1, sp + vec[re->c[ip].c * 2 + 1], opt, fp);
 			break;
 
 		case INSTR_CLASS:
-			--tp;
+			--TP;
 			if (strchr(re->c[ip].class, subject[sp]) && subject[sp])
-				new_thread(ip + 1, sp + 1, opt, fp);
+				new_thread(re, ip + 1, sp + 1, opt, fp);
 			break;
 
 		case INSTR_STR:
-			--tp;
+			--TP;
 			if (opt & KTRE_INSENSITIVE) {
 				if (!strncmp(subject_lc + sp, re->c[ip].class, strlen(re->c[ip].class)))
-					new_thread(ip + 1, sp + strlen(re->c[ip].class), opt, fp);
+					new_thread(re, ip + 1, sp + strlen(re->c[ip].class), opt, fp);
 			} else {
 				if (!strncmp(subject + sp, re->c[ip].class, strlen(re->c[ip].class)))
-					new_thread(ip + 1, sp + strlen(re->c[ip].class), opt, fp);
+					new_thread(re, ip + 1, sp + strlen(re->c[ip].class), opt, fp);
 			}
 			break;
 
 		case INSTR_NOT:
-			--tp;
+			--TP;
 			if (!strchr(re->c[ip].class, subject[sp]))
-				new_thread(ip + 1, sp + 1, opt, fp);
+				new_thread(re, ip + 1, sp + 1, opt, fp);
 			break;
 
 		case INSTR_BOL:
-			--tp;
-			if (sp == 0) new_thread(ip + 1, sp, opt, fp);
+			--TP;
+			if (sp == 0) new_thread(re, ip + 1, sp, opt, fp);
 			break;
 
 		case INSTR_EOL:
-			--tp;
-			if (subject[sp] == 0 || subject[sp] == '\n') new_thread(ip + 1, sp, opt, fp);
+			--TP;
+			if (subject[sp] == 0 || subject[sp] == '\n') new_thread(re, ip + 1, sp, opt, fp);
 			break;
 
 		case INSTR_WB:
-			--tp;
+			--TP;
 			if (sp &&
 			    ((strchr(WORD, subject[sp - 1]) && !strchr(WORD, subject[sp]))
 			     || (!strchr(WORD, subject[sp - 1]) && strchr(WORD, subject[sp]))))
-				new_thread(ip + 1, sp, opt, fp);
+				new_thread(re, ip + 1, sp, opt, fp);
 			else if (sp == 0 || sp == (int)strlen(subject))
-				new_thread(ip + 1, sp, opt, fp);
+				new_thread(re, ip + 1, sp, opt, fp);
 			break;
 
 		case INSTR_CHAR:
-			--tp;
+			--TP;
 			if (opt & KTRE_INSENSITIVE) {
 				if (lc(subject[sp]) == lc(re->c[ip].c)) {
-					new_thread(ip + 1, sp + 1, opt, fp);
+					new_thread(re, ip + 1, sp + 1, opt, fp);
 				}
 			} else {
 				if (subject[sp] == re->c[ip].c) {
-					new_thread(ip + 1, sp + 1, opt, fp);
+					new_thread(re, ip + 1, sp + 1, opt, fp);
 				}
 			}
 			break;
 
 		case INSTR_ANY:
-			--tp;
-			if (subject[sp] != 0) new_thread(ip + 1, sp + 1, opt, fp);
+			--TP;
+			if (subject[sp] != 0) new_thread(re, ip + 1, sp + 1, opt, fp);
 			break;
 
 		case INSTR_SPLIT:
-			t[tp].ip = re->c[ip].b;
-			new_thread(re->c[ip].a, sp, opt, fp);
+			t[TP].ip = re->c[ip].b;
+			new_thread(re, re->c[ip].a, sp, opt, fp);
 			break;
 
 		case INSTR_MATCH:
@@ -1622,37 +1654,36 @@ run(struct ktre *re, const char *subject)
 				free(subject_lc);
 				return true;
 			}
-			--tp;
+			--TP;
 			break;
 
 		case INSTR_SAVE:
-			--tp;
+			--TP;
 			if (re->c[ip].c % 2 == 0)
-				t[tp].vec[re->c[ip].c] = sp;
+				t[TP].vec[re->c[ip].c] = sp;
 			else
-				t[tp].vec[re->c[ip].c] = sp - t[tp].vec[re->c[ip].c - 1];
-			new_thread(ip + 1, sp, opt, fp);
+				t[TP].vec[re->c[ip].c] = sp - t[TP].vec[re->c[ip].c - 1];
+			new_thread(re, ip + 1, sp, opt, fp);
 			break;
 
 		case INSTR_JMP:
-			t[tp].ip = re->c[ip].c;
+			t[TP].ip = re->c[ip].c;
 			break;
 
 		case INSTR_OPT_ON:
-			t[tp].opt |= re->c[ip].c;
-			t[tp].ip++;
+			t[TP].opt |= re->c[ip].c;
+			t[TP].ip++;
 			break;
 
 		case INSTR_OPT_OFF:
-			t[tp].opt &= ~re->c[ip].c;
-			t[tp].ip++;
+			t[TP].opt &= ~re->c[ip].c;
+			t[TP].ip++;
 			break;
 
-		case INSTR_KILL_TP:
-			memcpy(re->t, &re->t[tp], sizeof re->t[0]);
-			tp = 0;
-			new_thread(ip + 2, sp, opt, fp);
-			break;
+		case INSTR_KILL_TP: {
+			new_thread(re, ip + 1, sp, opt, fp);
+			new_thread(re, ip + 2, sp, opt, fp);
+		} break;
 
 		case INSTR_DIE:
 			free(subject_lc);
@@ -1660,76 +1691,76 @@ run(struct ktre *re, const char *subject)
 
 		case INSTR_SET_START:
 			vec[0] = sp;
-			t[tp].ip++;
+			t[TP].ip++;
 			break;
 
 		case INSTR_CALL:
-			--tp;
-			t[tp].frame[fp] = ip + 1;
-			new_thread(re->c[ip].c, sp, opt, fp + 1);
+			--TP;
+			new_thread(re, re->c[ip].c, sp, opt, fp + 1);
+			t[TP].frame[fp] = ip + 1;
 			break;
 
 		case INSTR_RET:
-			--tp;
-			new_thread(frame[fp - 1], sp, opt, fp - 1);
+			--TP;
+			new_thread(re, frame[fp - 1], sp, opt, fp - 1);
 			break;
 
 		case INSTR_LA_YES:
-			--tp;
-			new_thread(ip + 1, sp, opt, fp);
+			--TP;
+			new_thread(re, ip + 1, sp, opt, fp);
 			break;
 
 		case INSTR_LA_NO:
-			--tp;
-			new_thread(re->c[ip].c, sp, opt, fp);
-			new_thread(ip + 1, sp, opt, fp);
+			--TP;
+			new_thread(re, re->c[ip].c, sp, opt, fp);
+			new_thread(re, ip + 1, sp, opt, fp);
 			break;
 
 		case INSTR_LA_WIN:
-			t[tp].sp = t[tp].old_sp;
-			t[tp].ip++;
+			t[TP].sp = t[TP].old_sp;
+			t[TP].ip++;
 			break;
 
 		case INSTR_LA_FAIL:
-			--tp;
+			--TP;
 			break;
 
 		case INSTR_LB_YES:
-			--tp;
-			new_thread(ip + 1, 0, opt, fp);
+			--TP;
+			new_thread(re, ip + 1, 0, opt, fp);
 			break;
 
 		case INSTR_LB_NO:
-			--tp;
-			new_thread(re->c[ip].c, 0, opt, fp);
-			new_thread(ip + 1, 0, opt, fp);
+			--TP;
+			new_thread(re, re->c[ip].c, 0, opt, fp);
+			new_thread(re, ip + 1, 0, opt, fp);
 			break;
 
 		case INSTR_PROG:
-			if (t[tp].prog[re->c[ip].c] == sp) {
-				--tp;
+			if (t[TP].prog[re->c[ip].c] == sp) {
+				--TP;
 			} else {
-				t[tp].prog[re->c[ip].c] = sp;
-				t[tp].ip++;
+				t[TP].prog[re->c[ip].c] = sp;
+				t[TP].ip++;
 			}
 			break;
 
 		case INSTR_DIGIT:
-			--tp;
+			--TP;
 			if (strchr(DIGIT, subject[sp]) && subject[sp])
-				new_thread(ip + 1, sp + 1, opt, fp);
+				new_thread(re, ip + 1, sp + 1, opt, fp);
 			break;
 
 		case INSTR_WORD:
-			--tp;
+			--TP;
 			if (strchr(WORD, subject[sp]) && subject[sp])
-				new_thread(ip + 1, sp + 1, opt, fp);
+				new_thread(re, ip + 1, sp + 1, opt, fp);
 			break;
 
 		case INSTR_SPACE:
-			--tp;
+			--TP;
 			if (strchr(WHITESPACE, subject[sp]) && subject[sp])
-				new_thread(ip + 1, sp + 1, opt, fp);
+				new_thread(re, ip + 1, sp + 1, opt, fp);
 			break;
 
 		default:
@@ -1741,7 +1772,7 @@ run(struct ktre *re, const char *subject)
 			return false;
 		}
 
-		if (tp == KTRE_MAX_THREAD - 1) {
+		if (TP == KTRE_MAX_THREAD - 1) {
 			error(re, KTRE_ERROR_STACK_OVERFLOW, loc, "regex exceeded the maximum number of executable threads");
 			free(subject_lc);
 			return false;
