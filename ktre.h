@@ -133,7 +133,8 @@ enum ktre_error {
 	KTRE_ERROR_INVALID_MODE_MODIFIER,
 	KTRE_ERROR_INVALID_RANGE,
 	KTRE_ERROR_INVALID_BACKREFERENCE,
-	KTRE_ERROR_CALL_OVERFLOW
+	KTRE_ERROR_CALL_OVERFLOW,
+	KTRE_ERROR_SYNTAX_ERROR
 };
 
 /* options */
@@ -1371,6 +1372,7 @@ ktre_compile(const char *pat, int opt)
 {
 	struct ktre *re = KTRE_CALLOC(sizeof *re, 1);
 	re->pat = pat, re->opt = opt, re->sp = pat, re->popt = opt;
+	re->max_tp = -1;
 	re->err_str = "no error";
 	fprintf(stderr, "regexpr: %s", pat);
 
@@ -1402,6 +1404,12 @@ ktre_compile(const char *pat, int opt)
 	re->n->a = n;
 	if (re->failed) {
 		free_node(re->n);
+		return re;
+	}
+
+	if (*re->sp) {
+		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "invalid regex syntax; unmatched righthand delimiter");
+		re->failed = true;
 		return re;
 	}
 
