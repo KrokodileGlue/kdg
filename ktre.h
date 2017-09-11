@@ -1690,9 +1690,9 @@ run(struct ktre *re, const char *subject)
 			break;
 
 		case INSTR_KILL_TP: {
-			new_thread(re, ip + 1, sp, opt, fp);
+			new_thread(re, ip, sp, opt, fp);
 			t[TP].die = true;
-			new_thread(re, ip + 2, sp, opt, fp);
+			new_thread(re, ip + 1, sp, opt, fp);
 		} break;
 
 		case INSTR_DIE:
@@ -1827,12 +1827,6 @@ ktre_exec(struct ktre *re, const char *subject, int **vec)
 
 	if (run(re, subject)) {
 		*vec = re->t[re->tp].vec;
-
-		for (int i = 0; i < re->ip; i++) {
-			if (re->c[i].op == INSTR_PROG)
-				re->c[i].c = -1;
-		}
-
 		return true;
 	} else {
 		return false;
