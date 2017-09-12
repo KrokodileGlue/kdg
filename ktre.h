@@ -149,25 +149,19 @@ enum {
 #define KTRE_MAX_THREAD 200
 #define KTRE_MAX_CALL_DEPTH 100
 
-/* memory functions */
-#define KTRE_MALLOC malloc
-#define KTRE_FREE free
-#define KTRE_REALLOC realloc
-#define KTRE_CALLOC calloc
-
 struct ktre {
-	/* public fields */
+	/* ===== public fields ===== */
 	int num_groups, opt;
 	/* string containing an error message in the case
 	 * of failure during parsing or compilation */
 	char *err_str;
 	enum ktre_error err; /* error status code */
-	_Bool failed;
+	_Bool failed; /* whether or not this regex compiled successfully */
 	/* the location of any error that occurred, as an index
 	 * in the last subject the regex was run on */
 	int loc;
 
-	/* implementation details */
+	/* ===== private fields ===== */
 	struct instr *c; /* code */
 	int ip;          /* instruction pointer */
 	int instr_alloc; /* the number of instructions that have been allocated so far */
@@ -181,22 +175,38 @@ struct ktre {
 	struct group {
 		int address;
 		_Bool is_compiled;
-		/* whether this is a group that is ever called as a subroutine */
-		_Bool is_called;
+		_Bool is_called; /* whether this group is ever called as a subroutine */
 	} *group;
 	int gp;
 
 	/* runtime */
 	struct thread {
-		int ip, sp;
-		int opt, old_sp;
-		int *frame;
-		int *vec;
-		int fp;
-		int *prog;
+		/*
+		 * instruction pointer, string pointer, frame pointer,
+		 * options.
+		 */
+		int ip, sp, fp, opt;
+
+		/*
+		 * frame return addresses, vec contains the bounds
+		 * for the submatches, and prog contains the
+		 * forbidden sp values for individual prog instructions.
+		 */
+		int *frame, *vec, *prog;
+		int old_sp;
+
+		/*
+		 * Threads with the die field set to true are special;
+		 * if the vm ever backtracks into one the entire match must
+		 * fail immediately.
+		 * This is used to implement the kill_tp instruction,
+		 * which prevents backtracking.
+		 */
 		_Bool die;
 	} *t;
 
+	/* The number of threads that have been allocated. This
+	 * persists between executions. */
 	int thread_alloc;
 	int tp, max_tp;
 };
@@ -206,6 +216,19 @@ _Bool ktre_exec(struct ktre *re, const char *subject, int **vec);
 void ktre_free(struct ktre *re);
 
 #ifdef KTRE_IMPLEMENTATION
+/* memory functions */
+#ifndef KTRE_MALLOC
+#define KTRE_MALLOC  malloc
+#endif
+
+#ifndef KTRE_REALLOC
+#define KTRE_REALLOC realloc
+#endif
+
+#ifndef KTRE_FREE
+#define KTRE_FREE    free
+#endif
+
 #define WHITESPACE " \t\r\n\v\f"
 #define WORD "_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 #define DIGIT "0123456789"
@@ -506,6 +529,7 @@ again:
 	switch (*re->sp) {
 	case '\\': /* escape sequences */
 		NEXT;
+
 		switch (*re->sp) {
 		case 's':
 			left->type = NODE_SPACE;
@@ -1383,13 +1407,18 @@ compile(struct ktre *re, struct node *n)
 struct ktre *
 ktre_compile(const char *pat, int opt)
 {
-	struct ktre *re = KTRE_CALLOC(sizeof *re, 1);
-	re->pat = pat, re->opt = opt, re->sp = pat, re->popt = opt;
+	struct ktre *re = KTRE_MALLOC(sizeof *re);
+	memset(re, 0, sizeof *re);
+
+	re->pat = pat;
+	re->opt = opt;
+	re->sp = pat;
+	re->popt = opt;
 	re->max_tp = -1;
 	re->err_str = "no error";
-	fprintf(stderr, "regexpr: %s", pat);
 
 #ifdef KTRE_DEBUG
+	DBG("regexpr: %s", pat);
 	if (opt) DBG("\noptions:");
 	for (size_t i = 0; i < sizeof opt; i++) {
 		switch (opt & 1 << i) {
