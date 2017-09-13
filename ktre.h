@@ -1503,11 +1503,12 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp)
 	++TP;
 	struct thread *t = re->t;
 
-	if (TP == re->thread_alloc) {
+	if (TP >= re->thread_alloc - 1) {
 		if (re->thread_alloc * 2 >= KTRE_MAX_THREAD)
 			re->thread_alloc = KTRE_MAX_THREAD;
 		else
 			re->thread_alloc *= 2;
+
 		re->t = KTRE_REALLOC(re->t, re->thread_alloc * sizeof re->t[0]);
 		memset(&re->t[TP], 0, (re->thread_alloc - TP - 1) * sizeof re->t[0]);
 		t = re->t;
@@ -1549,11 +1550,9 @@ run(struct ktre *re, const char *subject)
 
 	if (!re->thread_alloc) {
 		re->thread_alloc = 25;
-		re->t = KTRE_REALLOC(re->t, re->thread_alloc * sizeof re->t[0]);
+		re->t = KTRE_MALLOC(re->thread_alloc * sizeof re->t[0]);
 		memset(re->t, 0, re->thread_alloc * sizeof re->t[0]);
 	}
-
-	struct thread *t = re->t;
 
 	char *subject_lc = KTRE_MALLOC(strlen(subject) + 1);
 	for (int i = 0; i <= (int)strlen(subject); i++)
@@ -1563,6 +1562,8 @@ run(struct ktre *re, const char *subject)
 	new_thread(re, 0, 0, re->opt, 0);
 
 	while (TP >= 0) {
+		struct thread *t = re->t;
+
 		int ip     = t[TP].ip;
 		int sp     = t[TP].sp;
 		int opt    = t[TP].opt;
@@ -1788,7 +1789,7 @@ run(struct ktre *re, const char *subject)
 			return false;
 		}
 
-		if (fp == KTRE_MAX_CALL_DEPTH) {
+		if (fp == KTRE_MAX_CALL_DEPTH - 1) {
 			error(re, KTRE_ERROR_CALL_OVERFLOW, loc, "regex exceeded the maximum depth for subroutine calls");
 			free(subject_lc);
 			return false;
