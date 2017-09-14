@@ -1374,7 +1374,7 @@ compile(struct ktre *re, struct node *n)
 		a = re->ip;
 		emit_c(re, INSTR_LA_NO, -1, n->loc);
 		compile(re, n->a);
-		emit(re, INSTR_DIE, n->loc);
+		emit(re, INSTR_LA_FAIL, n->loc);
 		PATCH_C(a, re->ip);
 		break;
 
