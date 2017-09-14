@@ -122,8 +122,6 @@
 #ifndef KTRE_H
 #define KTRE_H
 
-#include <setjmp.h>
-
 /* error codes */
 enum ktre_error {
 	KTRE_ERROR_NO_ERROR,
@@ -170,7 +168,6 @@ struct ktre {
 	char const *sp;  /* pointer to the character currently being parsed */
 	struct node *n;
 	int popt;        /* the options, as seen by the parser */
-	jmp_buf jmp;     /* the parser must return as soon as it encounters an error */
 
 	struct group {
 		int address;
@@ -235,6 +232,9 @@ void ktre_free(struct ktre *re);
 #ifdef KTRE_DEBUG
 #include <stdio.h>
 #include <assert.h>
+
+static void print_node(struct node *n);
+
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #define DBGF(str)							\
 	do {								\
@@ -426,7 +426,7 @@ struct node {
 static void
 free_node(struct node *n)
 {
-	/* sometimes errors can produce NULL nodes */
+	/* sometimes parse errors can produce NULL nodes */
 	if (!n) return;
 
 	switch (n->type) {
@@ -520,6 +520,8 @@ new_node()
 static struct node *
 factor(struct ktre *re)
 {
+	if (!*re->sp) return NULL;
+
 	struct node *left = new_node();
 	left->loc = re->sp - re->pat;
 
@@ -654,8 +656,8 @@ again:
 
 		if (*re->sp != ']') {
 			error(re, KTRE_ERROR_UNTERMINATED_CLASS, loc, "unterminated character class");
-			left->type = NODE_NONE;
-			return left;
+			free_node(left);
+			return NULL;
 		}
 
 		left->class = class;
@@ -667,12 +669,15 @@ again:
 
 		if (*re->sp == '?' && re->sp[1] == '#') { /* comments */
 			while (*re->sp && *re->sp != ')') re->sp++;
+
 			if (*re->sp != ')') {
 				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
 				free_node(left->a);
-				left->type = NODE_NONE;
-				return left;
+				left->a = NULL;
+				free_node(left);
+				return NULL;
 			}
+
 			left->type = NODE_NONE;
 		} else if (!strncmp(re->sp, "?R)", 3)) {
 			re->sp += 2;
@@ -685,9 +690,9 @@ again:
 
 			if (*re->sp != ')') {
 				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
-				free_node(left->a);
-				left->type = NODE_NONE;
-				return left;
+				free_node(left->a); left->a = NULL;
+				free_node(left);
+				return NULL;
 			}
 		} else if (*re->sp == '?' && re->sp[1] == ':') { /* uncaptured group */
 			re->sp += 2;
@@ -696,9 +701,9 @@ again:
 
 			if (*re->sp != ')') {
 				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
-				free_node(left->a);
-				left->type = NODE_NONE;
-				return left;
+				free_node(left->a); left->a = NULL;
+				free_node(left);
+				return NULL;
 			}
 		} else if (*re->sp == '?' && re->sp[1] == '<' && re->sp[2] == '!') { /* positive lookbehind */
 			left->type = NODE_LB_NO;
@@ -707,9 +712,9 @@ again:
 
 			if (*re->sp != ')') {
 				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
-				free_node(left->a);
-				left->type = NODE_NONE;
-				return left;
+				free_node(left->a); left->a = NULL;
+				free_node(left);
+				return NULL;
 			}
 		} else if (*re->sp == '?' && re->sp[1] == '>') {
 			re->sp += 2;
@@ -718,9 +723,9 @@ again:
 
 			if (*re->sp != ')') {
 				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
-				free_node(left->a);
-				left->type = NODE_NONE;
-				return left;
+				free_node(left->a); left->a = NULL;
+				free_node(left);
+				return NULL;
 			}
 		} else if (*re->sp == '?' && isdigit(re->sp[1])) { /* subroutine call */
 			NEXT;
@@ -729,9 +734,9 @@ again:
 			while (re->sp[len] && re->sp[len] != ')') len++;
 			if (re->sp[len] != ')') {
 				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp + len - re->pat - 1, "unmatched '('");
-				free_node(left->a);
-				left->type = NODE_NONE;
-				return left;
+				free_node(left->a); left->a = NULL;
+				free_node(left);
+				return NULL;
 			}
 
 			len--;
@@ -740,8 +745,8 @@ again:
 				if (!isdigit(re->sp[i])) {
 					error(re, KTRE_ERROR_INVALID_RANGE, re->pat - re->sp + i,
 					      "non-digits and negative numbers are forbidden in subroutine calls");
-					left->type = NODE_NONE;
-					return left;
+					free_node(left);
+					return NULL;
 				}
 
 				if (i == len) a = re->sp[i] - '0';
@@ -769,9 +774,9 @@ again:
 
 			if (*re->sp != ')') {
 				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
-				free_node(left->a);
-				left->type = NODE_NONE;
-				return left;
+				free_node(left->a); left->a = NULL;
+				free_node(left);
+				return NULL;
 			}
 		} else if (*re->sp == '?' && re->sp[1] == '!') {
 			left->type = NODE_LA_NO;
@@ -780,9 +785,9 @@ again:
 
 			if (*re->sp != ')') {
 				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
-				free_node(left->a);
-				left->type = NODE_NONE;
-				return left;
+				free_node(left->a); left->a = NULL;
+				free_node(left);
+				return NULL;
 			}
 		} else if (*re->sp == '?') { /* mode modifiers */
 			NEXT;
@@ -800,8 +805,8 @@ again:
 				case '-': neg = true; NEXT; continue;
 				default:
 					error(re, KTRE_ERROR_INVALID_MODE_MODIFIER, re->sp - re->pat, "invalid mode modifier");
-					left->type = NODE_NONE;
-					return left;
+					free_node(left);
+					return NULL;
 				}
 
 				if (off || neg) re->popt &= ~opt;
@@ -823,21 +828,21 @@ again:
 
 			if (*re->sp != ')') {
 				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
-				free_node(left->a);
-				left->type = NODE_NONE;
-				return left;
+				free_node(left->a); left->a = NULL;
+				free_node(left);
+				return NULL;
 			}
 		} else {
 			left->gi = add_group(re);
+			re->group[left->gi].is_called = false;
 			left->type = NODE_GROUP;
 			left->a = parse(re);
-			re->group[left->gi].is_called = false;
 
 			if (*re->sp != ')') {
 				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat - 1, "unmatched '('");
-				free_node(left->a);
-				left->type = NODE_NONE;
-				return left;
+				free_node(left->a); left->a = NULL;
+				free_node(left);
+				return NULL;
 			}
 		}
 
@@ -899,8 +904,8 @@ again:
 					if (!isdigit(re->sp[i])) {
 						error(re, KTRE_ERROR_INVALID_RANGE, re->pat - re->sp + i,
 						      "non-digits and negative numbers are forbidden in counted repetitions");
-						left->type = NODE_NONE;
-						return left;
+						free_node(left);
+						return NULL;
 					}
 
 					if (i == len) a = re->sp[i] - '0';
@@ -922,8 +927,8 @@ again:
 					if (!isdigit(re->sp[i])) {
 						error(re, KTRE_ERROR_INVALID_RANGE, re->pat - re->sp + i,
 						      "non-digits and negative numbers are forbidden in counted repetitions");
-						left->type = NODE_NONE;
-						return left;
+						free_node(left);
+						return NULL;
 					}
 
 					if (i == len) b = re->sp[i] - '0';
@@ -943,8 +948,8 @@ again:
 					if (!isdigit(re->sp[i])) {
 						error(re, KTRE_ERROR_INVALID_RANGE, re->pat - re->sp + i,
 						      "non-digits and negative numbers are forbidden in counted repetitions");
-						left->type = NODE_NONE;
-						return left;
+						free_node(left);
+						return NULL;
 					}
 
 					if (i == len) a = re->sp[i] - '0';
@@ -990,9 +995,11 @@ term(struct ktre *re)
 
 	while (*re->sp && *re->sp != '|' && *re->sp != ')') {
 		struct node *right = factor(re);
+
 		if (re->err) {
+			free_node(left);
 			free_node(right);
-			longjmp(re->jmp, 1);
+			return NULL;
 		}
 
 		if (left->type == NODE_NONE) {
@@ -1080,7 +1087,8 @@ parse(struct ktre *re)
 
 		if (re->err) {
 			free_node(m->b);
-			longjmp(re->jmp, 1);
+			m->b = NULL;
+			return m;
 		}
 
 		return m;
@@ -1122,6 +1130,11 @@ print_node(struct node *n)
 		print_node(n->b);       \
 		l--;                    \
 	} while(0);
+
+	if (!n) {
+		DBG("(null)");
+		return;
+	}
 
 	switch (n->type) {
 	case NODE_ANY:       DBG("(any)");                                    break;
@@ -1429,11 +1442,6 @@ ktre_compile(const char *pat, int opt)
 	}
 #endif
 
-	int j = setjmp(re->jmp);
-	if (j) {
-		return re;
-	}
-
 	re->n = new_node();
 	re->n->loc = 0;
 	re->n->type = NODE_GROUP;
@@ -1444,8 +1452,10 @@ ktre_compile(const char *pat, int opt)
 	re->n->a = NULL;
 	struct node *n = parse(re);
 	re->n->a = n;
+
 	if (re->failed) {
 		free_node(re->n);
+		re->n = NULL;
 		return re;
 	}
 
@@ -1495,6 +1505,7 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_BACKREF:   DBG("BACKREF  %d",  re->c[i].c);                break;
 		case INSTR_CALL:      DBG("CALL     %d",  re->c[i].a);                break;
 		case INSTR_LA_NO:     DBG("LA_NO    %d",  re->c[i].a);                break;
+		case INSTR_PROG:      DBG("PROG     %d",  re->c[i].a);                break;
 		case INSTR_SET_START: DBG("SET_START");                               break;
 		case INSTR_KILL_TP:   DBG("KILL_TP");                                 break;
 		case INSTR_ANY:       DBG("ANY");                                     break;
@@ -1506,7 +1517,6 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_DIE:       DBG("DIE");                                     break;
 		case INSTR_RET:       DBG("RET");                                     break;
 		case INSTR_WB:        DBG("WB");                                      break;
-		case INSTR_PROG:      DBG("PROG");                                    break;
 		case INSTR_MATCH:     DBG("MATCH");                                   break;
 		case INSTR_LA_YES:    DBG("LA_YES");                                  break;
 		case INSTR_LA_WIN:    DBG("LA_WIN");                                  break;
@@ -1571,8 +1581,8 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la)
 		THREAD[TP].las = KTRE_REALLOC(THREAD[TP].las, (la + 1) * sizeof THREAD[TP].las[0]);
 	}
 
-	if (TP > 0) memcpy(THREAD[TP].frame, THREAD[TP - 1].frame, THREAD[TP - 1].fp  * sizeof THREAD[0].frame[0]);
-	if (TP > 0) memcpy(THREAD[TP].las,   THREAD[TP - 1].las,   THREAD[TP - 1].la  * sizeof THREAD[0].frame[0]);
+	if (TP > 0) memcpy(THREAD[TP].frame, THREAD[TP - 1].frame, THREAD[TP - 1].fp * sizeof THREAD[0].frame[0]);
+	if (TP > 0) memcpy(THREAD[TP].las,   THREAD[TP - 1].las,   THREAD[TP - 1].la * sizeof THREAD[0].frame[0]);
 	if (TP > 0) memcpy(THREAD[TP].vec,   THREAD[TP - 1].vec,  re->num_groups * 2 * sizeof THREAD[0].vec[0]);
 	if (TP > 0) memcpy(THREAD[TP].prog,  THREAD[TP - 1].prog, re->num_prog       * sizeof THREAD[0].prog[0]);
 
@@ -1608,8 +1618,6 @@ run(struct ktre *re, const char *subject)
 		int fp     = THREAD[TP].fp;
 		int la     = THREAD[TP].la;
 		int opt    = THREAD[TP].opt;
-		int *frame = THREAD[TP].frame;
-		int *vec   = THREAD[TP].vec;
 		int loc    = re->c[ip].loc;
 
 #ifdef KTRE_DEBUG
@@ -1624,8 +1632,8 @@ run(struct ktre *re, const char *subject)
 		switch (re->c[ip].op) {
 		case INSTR_BACKREF:
 			--TP;
-			if (!strncmp(subject + sp, &subject[vec[re->c[ip].c * 2]], vec[re->c[ip].c * 2 + 1]))
-				new_thread(re, ip + 1, sp + vec[re->c[ip].c * 2 + 1], opt, fp, la);
+			if (!strncmp(subject + sp, &subject[THREAD[TP].vec[re->c[ip].c * 2]], THREAD[TP].vec[re->c[ip].c * 2 + 1]))
+				new_thread(re, ip + 1, sp + THREAD[TP].vec[re->c[ip].c * 2 + 1], opt, fp, la);
 			break;
 
 		case INSTR_CLASS:
@@ -1742,7 +1750,7 @@ run(struct ktre *re, const char *subject)
 			return false;
 
 		case INSTR_SET_START:
-			vec[0] = sp;
+			THREAD[TP].vec[0] = sp;
 			THREAD[TP].ip++;
 			break;
 
@@ -1754,7 +1762,7 @@ run(struct ktre *re, const char *subject)
 
 		case INSTR_RET:
 			--TP;
-			new_thread(re, frame[fp - 1], sp, opt, fp - 1, la);
+			new_thread(re, THREAD[TP].frame[fp - 1], sp, opt, fp - 1, la);
 			break;
 
 		case INSTR_LA_YES:
@@ -1789,10 +1797,11 @@ run(struct ktre *re, const char *subject)
 			break;
 
 		case INSTR_PROG:
-			if (THREAD[TP].prog[re->c[ip].c] == sp) {
+			--TP;
+			if (THREAD[TP].prog[re->c[ip].a] == sp) {
 				--TP;
 			} else {
-				THREAD[TP].prog[re->c[ip].c] = sp;
+				THREAD[TP].prog[re->c[ip].a] = sp;
 				THREAD[TP].ip++;
 			}
 			break;
