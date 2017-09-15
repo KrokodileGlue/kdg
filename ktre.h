@@ -132,7 +132,9 @@ enum ktre_error {
 	KTRE_ERROR_INVALID_RANGE,
 	KTRE_ERROR_INVALID_BACKREFERENCE,
 	KTRE_ERROR_CALL_OVERFLOW,
-	KTRE_ERROR_SYNTAX_ERROR
+	KTRE_ERROR_SYNTAX_ERROR,
+	KTRE_ERROR_EMPTY_CLASS,
+	KTRE_ERROR_UNEXPECTED_TOKEN
 };
 
 /* options */
@@ -281,6 +283,7 @@ struct instr {
 		INSTR_SPLIT,
 		INSTR_ANY,
 		INSTR_CLASS,
+		INSTR_TSTR,
 		INSTR_STR,
 		INSTR_NOT,
 		INSTR_BACKREF,
@@ -517,6 +520,29 @@ new_node()
 	return n;
 }
 
+static int
+parse_number(struct ktre *re)
+{
+	int n = 0;
+
+	if (!isdigit(*re->sp)) {
+		error(re, KTRE_ERROR_UNEXPECTED_TOKEN, re->sp - re->pat, "expected a number");
+		return -1;
+	}
+
+	DBG("\n*re->sp = %c", *re->sp);
+
+	while (*re->sp && isdigit(*re->sp)) {
+		n *= 10;
+		n += *re->sp - '0';
+		re->sp++;
+	}
+
+	DBG("\nn = %d", n);
+
+	return n;
+}
+
 static struct node *
 factor(struct ktre *re)
 {
@@ -656,6 +682,12 @@ again:
 
 		if (*re->sp != ']') {
 			error(re, KTRE_ERROR_UNTERMINATED_CLASS, loc, "unterminated character class");
+			free_node(left);
+			return NULL;
+		}
+
+		if (!class) {
+			error(re, KTRE_ERROR_EMPTY_CLASS, loc, "empty character class");
 			free_node(left);
 			return NULL;
 		}
@@ -887,88 +919,34 @@ again:
 	}
 
 	while (*re->sp && (*re->sp == '*' || *re->sp == '+' || *re->sp == '?' || *re->sp == '{')) {
-		NEXT;
 		struct node *n = new_node();
 
-		switch (re->sp[-1]) {
-		case '*': n->type = NODE_ASTERISK; break;
-		case '?': n->type = NODE_QUESTION; break;
-		case '+': n->type = NODE_PLUS;     break;
+		switch (*re->sp) {
+		case '*': n->type = NODE_ASTERISK; NEXT; break;
+		case '?': n->type = NODE_QUESTION; NEXT; break;
+		case '+': n->type = NODE_PLUS;     NEXT; break;
 		case '{': { /* counted repetition */
-			int len = 0, a = 0, b = 0;
+			n->type = NODE_REP; n->c = -1; n->d = 0;
 
-			while (re->sp[len] != '}' && re->sp[len] != ',' && re->sp[len]) len++;
-			if (re->sp[len] == ',') {
-				len--;
-				for (int i = len; i >= 0; i--) {
-					if (!isdigit(re->sp[i])) {
-						error(re, KTRE_ERROR_INVALID_RANGE, re->pat - re->sp + i,
-						      "non-digits and negative numbers are forbidden in counted repetitions");
-						free_node(left);
-						return NULL;
-					}
+			NEXT;
+			n->c = parse_number(re);
 
-					if (i == len) a = re->sp[i] - '0';
-					else {
-						int d = re->sp[i] - '0';
-						for (int j = 0; j < len - i; j++) {
-							d *= 10;
-						}
-						a += d;
-					}
-				}
-
-				re->sp += len + 2;
-				len = 0;
-
-				while (re->sp[len] != '}' && re->sp[len]) len++;
-				len--;
-				for (int i = len; i >= 0; i--) {
-					if (!isdigit(re->sp[i])) {
-						error(re, KTRE_ERROR_INVALID_RANGE, re->pat - re->sp + i,
-						      "non-digits and negative numbers are forbidden in counted repetitions");
-						free_node(left);
-						return NULL;
-					}
-
-					if (i == len) b = re->sp[i] - '0';
-					else {
-						int d = re->sp[i] - '0';
-						for (int j = 0; j < len - i; j++) {
-							d *= 10;
-						}
-						b += d;
-					}
-				}
-
-				re->sp += len + 2;
-			} else {
-				len--;
-				for (int i = len; i >= 0; i--) {
-					if (!isdigit(re->sp[i])) {
-						error(re, KTRE_ERROR_INVALID_RANGE, re->pat - re->sp + i,
-						      "non-digits and negative numbers are forbidden in counted repetitions");
-						free_node(left);
-						return NULL;
-					}
-
-					if (i == len) a = re->sp[i] - '0';
-					else {
-						int d = re->sp[i] - '0';
-						for (int j = 0; j < len - i; j++) {
-							d *= 10;
-						}
-						a += d;
-					}
-				}
-
-				re->sp += len + 2;
-				b = -1;
+			if (*re->sp == ',') {
+				NEXT;
+				if (isdigit(*re->sp))
+					n->d = parse_number(re);
+				else
+					n->d = -1;
 			}
 
-			n->type = NODE_REP;
-			n->c = a;
-			n->d = b;
+			if (*re->sp != '}') {
+				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat - 1, "unmatched '{'");
+				free_node(n);
+				free_node(left);
+				return NULL;
+			}
+
+			NEXT;
 		} break;
 		}
 
@@ -1333,17 +1311,19 @@ compile(struct ktre *re, struct node *n)
 			} else if (n->a->type == NODE_GROUP) {
 				emit_c(re, INSTR_CALL, re->group[n->a->gi].address, n->loc);
 			} else {
-				compile(re, n->a);
+				if (n->a->type == NODE_CHAR) {
+					char *str = KTRE_MALLOC(n->c + 1);
+					for (int i = 0; i < n->c; i++) str[i] = n->a->c;
+					str[n->c] = 0;
+					emit_class(re, INSTR_TSTR, str, n->loc);
+					break;
+				} else compile(re, n->a);
 			}
 		}
 
-		/* TODO: make repetitions work with groups */
-		if (n->d == 0) {
+		if (n->d == -1) {
 			emit_ab(re, INSTR_SPLIT, a, re->ip + 1, n->loc);
 		} else {
-			/* this will fail to do anything if n->d is less than n->c,
-			 * which handles the case where n->d == -1.
-			 * n->d == -1 when the repetition is of the form {n}. */
 			for (int i = 0; i < n->d - n->c; i++) {
 				a = re->ip;
 				emit_ab(re, INSTR_SPLIT, re->ip + 1, -1, n->loc);
@@ -1495,6 +1475,7 @@ ktre_compile(const char *pat, int opt)
 		switch (re->c[i].op) {
 		case INSTR_CLASS: DBG("CLASS   '"); DBGF(re->c[i].class); DBG("'");   break;
 		case INSTR_STR:   DBG("STR     '"); DBGF(re->c[i].class); DBG("'");   break;
+		case INSTR_TSTR:  DBG("TSTR    '"); DBGF(re->c[i].class); DBG("'");   break;
 		case INSTR_SPLIT:     DBG("SPLIT    %d, %d", re->c[i].a, re->c[i].b); break;
 		case INSTR_NOT:       DBG("NOT     '%s'", re->c[i].class);            break;
 		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].c);                break;
@@ -1542,13 +1523,17 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la)
 	++TP;
 
 	if (TP >= re->thread_alloc - 1) {
-		if (re->thread_alloc * 2 >= KTRE_MAX_THREAD)
+		if (re->thread_alloc * 2 >= KTRE_MAX_THREAD) {
 			re->thread_alloc = KTRE_MAX_THREAD;
-		else
+
+			/* account for the case where we're about to
+			 * bump up against the thread limit. */
+			TP = TP >= KTRE_MAX_THREAD ? KTRE_MAX_THREAD - 1 : TP;
+		} else
 			re->thread_alloc *= 2;
 
 		re->t = KTRE_REALLOC(re->t, re->thread_alloc * sizeof THREAD[0]);
-		memset(&THREAD[TP], 0, (re->thread_alloc - TP - 1) * sizeof THREAD[0]);
+		memset(&THREAD[TP], 0, (re->thread_alloc - TP) * sizeof THREAD[0]);
 	}
 
 	THREAD[TP].ip  = ip;
@@ -1644,7 +1629,7 @@ run(struct ktre *re, const char *subject)
 				new_thread(re, ip + 1, sp + 1, opt, fp, la);
 			break;
 
-		case INSTR_STR:
+		case INSTR_STR: case INSTR_TSTR:
 			--TP;
 
 			if (opt & KTRE_INSENSITIVE) {
@@ -1855,13 +1840,13 @@ run(struct ktre *re, const char *subject)
 			return false;
 		}
 
-		if (TP == KTRE_MAX_THREAD - 1) {
+		if (TP >= KTRE_MAX_THREAD - 1) {
 			error(re, KTRE_ERROR_STACK_OVERFLOW, loc, "regex exceeded the maximum number of executable threads");
 			free(subject_lc);
 			return false;
 		}
 
-		if (fp == KTRE_MAX_CALL_DEPTH - 1) {
+		if (fp >= KTRE_MAX_CALL_DEPTH - 1) {
 			error(re, KTRE_ERROR_CALL_OVERFLOW, loc, "regex exceeded the maximum depth for subroutine calls");
 			free(subject_lc);
 			return false;
@@ -1880,6 +1865,12 @@ void
 ktre_free(struct ktre *re)
 {
 	free_node(re->n);
+
+	for (int i = 0; i < re->ip; i++) {
+		if (re->c[i].op == INSTR_TSTR)
+			KTRE_FREE(re->c[i].class);
+	}
+
 	KTRE_FREE(re->c);
 	if (re->err) KTRE_FREE(re->err_str);
 	KTRE_FREE(re->group);
