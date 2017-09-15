@@ -1613,12 +1613,12 @@ run(struct ktre *re, const char *subject)
 #endif
 
 	while (TP >= 0) {
-		int ip     = THREAD[TP].ip;
-		int sp     = THREAD[TP].sp;
-		int fp     = THREAD[TP].fp;
-		int la     = THREAD[TP].la;
-		int opt    = THREAD[TP].opt;
-		int loc    = re->c[ip].loc;
+		int ip  = THREAD[TP].ip;
+		int sp  = THREAD[TP].sp;
+		int fp  = THREAD[TP].fp;
+		int la  = THREAD[TP].la;
+		int opt = THREAD[TP].opt;
+		int loc = re->c[ip].loc;
 
 #ifdef KTRE_DEBUG
 		DBG("\n| %4d | %4d | %4d | %4d | %4d | %s", ip, sp, TP, fp, num_steps, sp <= (int)strlen(subject) && sp >= 0 ? subject + sp : "");
@@ -1821,7 +1821,7 @@ run(struct ktre *re, const char *subject)
 				--TP;
 			} else {
 				THREAD[TP].prog[re->c[ip].a] = sp;
-				THREAD[TP].ip++;
+				new_thread(re, ip + 1, sp, opt, fp, la);
 			}
 			break;
 
