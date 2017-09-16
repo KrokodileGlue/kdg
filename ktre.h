@@ -530,15 +530,11 @@ parse_number(struct ktre *re)
 		return -1;
 	}
 
-	DBG("\n*re->sp = %c", *re->sp);
-
 	while (*re->sp && isdigit(*re->sp)) {
 		n *= 10;
 		n += *re->sp - '0';
 		re->sp++;
 	}
-
-	DBG("\nn = %d", n);
 
 	return n;
 }
@@ -1309,7 +1305,7 @@ compile(struct ktre *re, struct node *n)
 			if (n->a->type == NODE_GROUP && !re->group[n->a->gi].is_compiled) {
 				compile(re, n->a);
 			} else if (n->a->type == NODE_GROUP) {
-				emit_c(re, INSTR_CALL, re->group[n->a->gi].address, n->loc);
+				emit_c(re, INSTR_CALL, re->group[n->a->gi].address + 1, n->loc);
 			} else {
 				if (n->a->type == NODE_CHAR) {
 					char *str = KTRE_MALLOC(n->c + 1);
@@ -1329,7 +1325,7 @@ compile(struct ktre *re, struct node *n)
 				emit_ab(re, INSTR_SPLIT, re->ip + 1, -1, n->loc);
 
 				if (n->a->type == NODE_GROUP) {
-					emit_c(re, INSTR_CALL, re->group[n->a->gi].address, n->loc);
+					emit_c(re, INSTR_CALL, re->group[n->a->gi].address + 1, n->loc);
 				} else {
 					compile(re, n->a);
 				}
@@ -1536,12 +1532,6 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la)
 		memset(&THREAD[TP], 0, (re->thread_alloc - TP) * sizeof THREAD[0]);
 	}
 
-	THREAD[TP].ip  = ip;
-	THREAD[TP].sp  = sp;
-	THREAD[TP].fp  = fp;
-	THREAD[TP].la  = la;
-	THREAD[TP].opt = opt;
-
 	if (!THREAD[TP].vec) {
 		THREAD[TP].vec = KTRE_MALLOC(re->num_groups * 2 * sizeof THREAD[TP].vec[0]);
 		memset(THREAD[TP].vec, 0,    re->num_groups * 2 * sizeof THREAD[TP].vec[0]);
@@ -1566,10 +1556,28 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la)
 		THREAD[TP].las = KTRE_REALLOC(THREAD[TP].las, (la + 1) * sizeof THREAD[TP].las[0]);
 	}
 
-	if (TP > 0) memcpy(THREAD[TP].frame, THREAD[TP - 1].frame, THREAD[TP - 1].fp * sizeof THREAD[0].frame[0]);
-	if (TP > 0) memcpy(THREAD[TP].las,   THREAD[TP - 1].las,   THREAD[TP - 1].la * sizeof THREAD[0].frame[0]);
-	if (TP > 0) memcpy(THREAD[TP].vec,   THREAD[TP - 1].vec,  re->num_groups * 2 * sizeof THREAD[0].vec[0]);
-	if (TP > 0) memcpy(THREAD[TP].prog,  THREAD[TP - 1].prog, re->num_prog       * sizeof THREAD[0].prog[0]);
+	THREAD[TP].ip  = ip;
+	THREAD[TP].sp  = sp;
+	THREAD[TP].fp  = fp;
+	THREAD[TP].la  = la;
+	THREAD[TP].opt = opt;
+
+	if (TP > 0)
+		memcpy(THREAD[TP].frame,
+		       THREAD[TP - 1].frame,
+		       THREAD[TP - 1].fp > fp
+		       ? fp * sizeof THREAD[0].frame[0]
+		       : THREAD[TP - 1].fp * sizeof THREAD[0].frame[0]);
+	if (TP > 0)
+		memcpy(THREAD[TP].las,
+		       THREAD[TP - 1].las,
+		       THREAD[TP - 1].la > la
+		       ? la * sizeof THREAD[0].frame[0]
+		       : THREAD[TP - 1].la * sizeof THREAD[0].frame[0]);
+	if (TP > 0)
+		memcpy(THREAD[TP].vec, THREAD[TP - 1].vec, re->num_groups * 2 * sizeof THREAD[0].vec[0]);
+	if (TP > 0)
+		memcpy(THREAD[TP].prog, THREAD[TP - 1].prog, re->num_prog * sizeof THREAD[0].prog[0]);
 
 	re->max_tp = TP > re->max_tp ? TP : re->max_tp;
 }
@@ -1754,19 +1762,20 @@ run(struct ktre *re, const char *subject)
 		case INSTR_CALL:
 			--TP;
 
+			new_thread(re, re->c[ip].c, THREAD[TP].sp, THREAD[TP].opt, THREAD[TP].fp + 1, THREAD[TP].la);
+			THREAD[TP].frame[fp] = ip + 1;
+
 			new_thread(re, re->c[ip].c, sp, opt, fp + 1, la);
 			THREAD[TP].frame[fp] = ip + 1;
 			break;
 
 		case INSTR_RET:
-			--TP;
-
-			new_thread(re, THREAD[TP + 1].frame[fp - 1], sp, opt, fp - 1, la);
+			THREAD[TP].ip = THREAD[TP].frame[THREAD[TP].fp - 1];
+			--THREAD[TP].fp;
 			break;
 
 		case INSTR_LA_YES:
 			--TP;
-
 			new_thread(re, ip + 1, sp, opt, fp, la + 1);
 			THREAD[TP].las[la] = sp;
 			break;
@@ -1783,18 +1792,15 @@ run(struct ktre *re, const char *subject)
 
 		case INSTR_LA_FAIL:
 			--TP;
-
 			break;
 
 		case INSTR_LB_YES:
 			--TP;
-
 			new_thread(re, ip + 1, 0, opt, fp, la);
 			break;
 
 		case INSTR_LB_NO:
 			--TP;
-
 			new_thread(re, re->c[ip].c, 0, opt, fp, la);
 			new_thread(re, ip + 1, 0, opt, fp, la);
 			break;
