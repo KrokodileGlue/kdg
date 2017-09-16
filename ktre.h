@@ -1318,7 +1318,15 @@ compile(struct ktre *re, struct node *n)
 		}
 
 		if (n->d == -1) {
-			emit_ab(re, INSTR_SPLIT, a, re->ip + 1, n->loc);
+			if (n->a->type == NODE_GROUP) {
+				/* basically just manually emit the
+				 * bytecode for * */
+				emit_ab(re, INSTR_SPLIT, re->ip + 1, re->ip + 2, n->loc);
+				emit_c(re, INSTR_CALL, re->group[n->a->gi].address + 1, n->loc);
+				emit_ab(re, INSTR_SPLIT, re->ip - 1, re->ip + 1, n->loc);
+			} else {
+				emit_ab(re, INSTR_SPLIT, a, re->ip + 1, n->loc);
+			}
 		} else {
 			for (int i = 0; i < n->d - n->c; i++) {
 				a = re->ip;
