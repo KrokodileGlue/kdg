@@ -1776,9 +1776,10 @@ run(struct ktre *re, const char *subject)
 			--TP;
 
 			THREAD[TP].frame = KTRE_REALLOC(THREAD[TP].frame, (THREAD[TP].fp + 1) * sizeof THREAD[TP].frame[0]);
-			THREAD[TP].frame[THREAD[TP].fp++] = ip + 1;
+			THREAD[TP].frame[THREAD[TP].fp] = ip + 1;
 
-			new_thread(re, re->c[ip].c, THREAD[TP].sp, THREAD[TP].opt, THREAD[TP].fp, THREAD[TP].la, e);
+			new_thread(re, re->c[ip].c, THREAD[TP].sp, THREAD[TP].opt, THREAD[TP].fp + 1, THREAD[TP].la, e);
+			THREAD[TP].frame[THREAD[TP].fp - 1] = ip + 1;
 			break;
 
 		case INSTR_RET:
