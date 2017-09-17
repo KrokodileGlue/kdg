@@ -279,13 +279,14 @@ struct instr {
 		INSTR_WB,
 		INSTR_SAVE,
 		INSTR_CALL,
-		INSTR_LA_YES,
-		INSTR_LA_NO,
+		INSTR_PLA,
+		INSTR_NLA,
 		INSTR_LA_WIN,
 		INSTR_LA_FAIL,
-		INSTR_LB_YES,
-		INSTR_LB_NO,
-		INSTR_LB_NO_FAIL,
+		INSTR_PLB,
+		INSTR_PLB_WIN,
+		INSTR_NLB,
+		INSTR_NLB_FAIL,
 		INSTR_PROG,
 		INSTR_DIGIT,
 		INSTR_SPACE,
@@ -390,10 +391,10 @@ struct node {
 		NODE_SET_START, /* set the start position of the group capturing the entire match */
 		NODE_WB,	/* word boundary */
 		NODE_CALL,
-		NODE_LA_YES,	/* positive lookahead */
-		NODE_LB_YES,	/* positive lookbehind */
-		NODE_LA_NO,	/* negative lookahead */
-		NODE_LB_NO,	/* negative lookbehind */
+		NODE_PLA,	/* positive lookahead */
+		NODE_PLB,	/* positive lookbehind */
+		NODE_NLA,	/* negative lookahead */
+		NODE_NLB,	/* negative lookbehind */
 		NODE_RECURSE,	/* (?R) tries to match the entire regex again at the current point */
 		NODE_DIGIT,
 		NODE_SPACE,
@@ -422,8 +423,8 @@ free_node(struct node *n)
 		break;
 	case NODE_QUESTION: case NODE_REP:   case NODE_ASTERISK:
 	case NODE_PLUS:     case NODE_GROUP: case NODE_ATOM:
-	case NODE_LA_YES:   case NODE_LA_NO: case NODE_LB_YES:
-	case NODE_LB_NO:
+	case NODE_PLA:      case NODE_NLA:   case NODE_PLB:
+	case NODE_NLB:
 		free_node(n->a);
 		break;
 	case NODE_CLASS: case NODE_STR: KTRE_FREE(n->class); break;
@@ -695,7 +696,7 @@ again:
 			left->type = NODE_RECURSE;
 			re->group[0].is_called = true;
 		} else if (*re->sp == '?' && re->sp[1] == '<' && re->sp[2] == '=') { /* positive lookbehind */
-			left->type = NODE_LB_YES;
+			left->type = NODE_PLB;
 			re->sp += 3;
 			left->a = parse(re);
 
@@ -717,7 +718,7 @@ again:
 				return NULL;
 			}
 		} else if (*re->sp == '?' && re->sp[1] == '<' && re->sp[2] == '!') { /* positive lookbehind */
-			left->type = NODE_LB_NO;
+			left->type = NODE_NLB;
 			re->sp += 3;
 			left->a = parse(re);
 
@@ -779,7 +780,7 @@ again:
 
 			re->sp += len + 1;
 		} else if (*re->sp == '?' && re->sp[1] == '=') {
-			left->type = NODE_LA_YES;
+			left->type = NODE_PLA;
 			NEXT; NEXT;
 			left->a = parse(re);
 
@@ -790,7 +791,7 @@ again:
 				return NULL;
 			}
 		} else if (*re->sp == '?' && re->sp[1] == '!') {
-			left->type = NODE_LA_NO;
+			left->type = NODE_NLA;
 			NEXT; NEXT;
 			left->a = parse(re);
 
@@ -1120,10 +1121,10 @@ print_node(struct node *n)
 	case NODE_GROUP:     N1 ("(group)");                                  break;
 	case NODE_QUESTION:  N1 ("(question)");                               break;
 	case NODE_ATOM:      N1 ("(atom)");                                   break;
-	case NODE_LA_YES:    N1 ("(lookahead)");                              break;
-	case NODE_LA_NO:     N1 ("(negative lookahead)");                     break;
-	case NODE_LB_YES:    N1 ("(lookbehind)");                             break;
-	case NODE_LB_NO:     N1 ("(negative lookbehind)");                    break;
+	case NODE_PLA:       N1 ("(lookahead)");                              break;
+	case NODE_NLA:       N1 ("(negative lookahead)");                     break;
+	case NODE_PLB:       N1 ("(lookbehind)");                             break;
+	case NODE_NLB:       N1 ("(negative lookbehind)");                    break;
 
 	default:
 		DBG("\nunimplemented printer for node of type %d\n", n->type);
@@ -1331,30 +1332,31 @@ compile(struct ktre *re, struct node *n)
 		emit(re, INSTR_KILL_TP, n->loc);
 		break;
 
-	case NODE_LA_YES:
-		emit(re, INSTR_LA_YES, n->loc);
+	case NODE_PLA:
+		emit(re, INSTR_PLA, n->loc);
 		compile(re, n->a);
 		emit(re, INSTR_LA_WIN, n->loc);
 		break;
 
-	case NODE_LA_NO:
+	case NODE_NLA:
 		a = re->ip;
-		emit_c(re, INSTR_LA_NO, -1, n->loc);
+		emit_c(re, INSTR_NLA, -1, n->loc);
 		compile(re, n->a);
 		emit(re, INSTR_LA_FAIL, n->loc);
 		PATCH_C(a, re->ip);
 		break;
 
-	case NODE_LB_YES:
-		emit(re, INSTR_LB_YES, n->loc);
+	case NODE_PLB:
+		emit(re, INSTR_PLB, n->loc);
 		compile(re, n->a);
+		emit(re, INSTR_PLB_WIN, n->loc);
 		break;
 
-	case NODE_LB_NO:
+	case NODE_NLB:
 		a = re->ip;
-		emit_c(re, INSTR_LB_NO, -1, n->loc);
+		emit_c(re, INSTR_NLB, -1, n->loc);
 		compile(re, n->a);
-		emit(re, INSTR_LB_NO_FAIL, n->loc);
+		emit(re, INSTR_NLB_FAIL, n->loc);
 		PATCH_C(a, re->ip);
 		break;
 
@@ -1472,7 +1474,7 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_OPT_OFF:   DBG("OPTOFF   %d",  re->c[i].c);                break;
 		case INSTR_BACKREF:   DBG("BACKREF  %d",  re->c[i].c);                break;
 		case INSTR_CALL:      DBG("CALL     %d",  re->c[i].a);                break;
-		case INSTR_LA_NO:     DBG("LA_NO    %d",  re->c[i].a);                break;
+		case INSTR_NLA:       DBG("NLA    %d",  re->c[i].a);                  break;
 		case INSTR_PROG:      DBG("PROG     %d",  re->c[i].a);                break;
 		case INSTR_SET_START: DBG("SET_START");                               break;
 		case INSTR_KILL_TP:   DBG("KILL_TP");                                 break;
@@ -1486,12 +1488,13 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_RET:       DBG("RET");                                     break;
 		case INSTR_WB:        DBG("WB");                                      break;
 		case INSTR_MATCH:     DBG("MATCH");                                   break;
-		case INSTR_LA_YES:    DBG("LA_YES");                                  break;
+		case INSTR_PLA:       DBG("PLA");                                     break;
 		case INSTR_LA_WIN:    DBG("LA_WIN");                                  break;
 		case INSTR_LA_FAIL:   DBG("LA_FAIL");                                 break;
-		case INSTR_LB_YES:    DBG("LB_YES");                                  break;
-		case INSTR_LB_NO:     DBG("LB_NO");                                   break;
-		case INSTR_LB_NO_FAIL:DBG("LB_NO_FAIL");                              break;
+		case INSTR_PLB:       DBG("PLB");                                     break;
+		case INSTR_PLB_WIN:   DBG("PLB_WIN");                                 break;
+		case INSTR_NLB:       DBG("NLB");                                     break;
+		case INSTR_NLB_FAIL:  DBG("NLB_FAIL");                                break;
 
 		default:
  			DBG("\nunimplemented instruction printer %d\n", re->c[i].op);
@@ -1734,13 +1737,11 @@ run(struct ktre *re, const char *subject)
 			break;
 
 		case INSTR_SAVE:
-			--TP;
-
 			if (re->c[ip].c % 2 == 0)
 				THREAD[TP].vec[re->c[ip].c] = sp;
 			else
 				THREAD[TP].vec[re->c[ip].c] = sp - THREAD[TP].vec[re->c[ip].c - 1];
-			new_thread(re, ip + 1, sp, opt, fp, la, e);
+			THREAD[TP].ip++;
 			break;
 
 		case INSTR_JMP:
@@ -1778,6 +1779,8 @@ run(struct ktre *re, const char *subject)
 			THREAD[TP].frame = KTRE_REALLOC(THREAD[TP].frame, (THREAD[TP].fp + 1) * sizeof THREAD[TP].frame[0]);
 			THREAD[TP].frame[THREAD[TP].fp++] = ip + 1;
 			THREAD[TP].sp = sp;
+			/* only god knows whether the other thread
+			 * variables need to be assigned here. */
 
 			new_thread(re, re->c[ip].c, THREAD[TP].sp, THREAD[TP].opt, THREAD[TP].fp, THREAD[TP].la, THREAD[TP].e);
 			THREAD[TP].frame[THREAD[TP].fp - 1] = ip + 1;
@@ -1788,13 +1791,13 @@ run(struct ktre *re, const char *subject)
 			--THREAD[TP].fp;
 			break;
 
-		case INSTR_LA_YES:
+		case INSTR_PLA:
 			--TP;
 			new_thread(re, ip + 1, sp, opt, fp, la + 1, e);
 			THREAD[TP].las[la] = sp;
 			break;
 
-		case INSTR_LA_NO:
+		case INSTR_NLA:
 			THREAD[TP].ip = re->c[ip].c;
 			new_thread(re, ip + 1, sp, opt, fp, la, e);
 			break;
@@ -1809,20 +1812,28 @@ run(struct ktre *re, const char *subject)
 			return false;
 			break;
 
-		case INSTR_LB_YES:
-			THREAD[TP].ip++;
-			break;
-
-		case INSTR_LB_NO:
+		case INSTR_PLB:
 			--TP;
-			new_thread(re, re->c[ip].c, sp, opt, fp, la, e + 1);
-			THREAD[TP].exception[THREAD[TP].e - 1] = TP;
 			new_thread(re, ip + 1, sp, opt, fp, la, e + 1);
+			THREAD[TP].exception[THREAD[TP].e - 1] = TP;
 			break;
 
-		case INSTR_LB_NO_FAIL:
+		case INSTR_PLB_WIN:
 			TP = THREAD[TP].exception[THREAD[TP].e - 1];
-			THREAD[0].sp = sp;
+			THREAD[TP - 1].sp = sp;
+			THREAD[TP].ip = ip + 1;
+			break;
+
+		case INSTR_NLB:
+			--TP;
+			new_thread(re, re->c[ip].c, 0, opt, fp, la, e + 1);
+			THREAD[TP].exception[THREAD[TP].e - 1] = TP;
+			new_thread(re, ip + 1, 0, opt, fp, la, e + 1);
+			break;
+
+		case INSTR_NLB_FAIL:
+			TP = THREAD[TP].exception[THREAD[TP].e - 1];
+			THREAD[TP - 1].sp = sp;
 			break;
 
 		case INSTR_PROG:
