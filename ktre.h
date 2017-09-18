@@ -1825,7 +1825,7 @@ run(struct ktre *re, const char *subject)
 
 		case INSTR_TRY:
 			THREAD[TP].ip++;
-			THREAD[TP].exception[e] = TP;
+			THREAD[TP].exception[THREAD[TP].e++] = TP;
 			break;
 
 		case INSTR_CATCH:
