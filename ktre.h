@@ -282,8 +282,6 @@ struct instr {
 		INSTR_CALL,
 		INSTR_PLA,
 		INSTR_NLA,
-		INSTR_LA_WIN,
-		INSTR_LA_FAIL,
 		INSTR_PLB,
 		INSTR_PLB_WIN,
 		INSTR_NLB,
@@ -1340,20 +1338,6 @@ compile(struct ktre *re, struct node *n, bool rev)
 		emit(re, INSTR_CATCH, n->loc);
 		break;
 
-	case NODE_PLA:
-		emit(re, INSTR_PLA, n->loc);
-		compile(re, n->a, rev);
-		emit(re, INSTR_LA_WIN, n->loc);
-		break;
-
-	case NODE_NLA:
-		a = re->ip;
-		emit_c(re, INSTR_NLA, -1, n->loc);
-		compile(re, n->a, rev);
-		emit(re, INSTR_LA_FAIL, n->loc);
-		PATCH_C(a, re->ip);
-		break;
-
 	case NODE_PLB:
 		emit(re, INSTR_PLB, n->loc);
 		compile(re, n->a, true);
@@ -1363,7 +1347,7 @@ compile(struct ktre *re, struct node *n, bool rev)
 	case NODE_NLB:
 		a = re->ip;
 		emit_c(re, INSTR_NLB, -1, n->loc);
-		compile(re, n->a, rev);
+		compile(re, n->a, true);
 		emit(re, INSTR_NLB_FAIL, n->loc);
 		PATCH_C(a, re->ip);
 		break;
@@ -1482,7 +1466,7 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_OPT_OFF:   DBG("OPTOFF   %d",  re->c[i].c);                break;
 		case INSTR_BACKREF:   DBG("BACKREF  %d",  re->c[i].c);                break;
 		case INSTR_CALL:      DBG("CALL     %d",  re->c[i].a);                break;
-		case INSTR_NLA:       DBG("NLA    %d",  re->c[i].a);                  break;
+		case INSTR_NLA:       DBG("NLA      %d",  re->c[i].a);                break;
 		case INSTR_PROG:      DBG("PROG     %d",  re->c[i].a);                break;
 		case INSTR_SET_START: DBG("SET_START");                               break;
 		case INSTR_TRY:       DBG("TRY");                                     break;
@@ -1498,8 +1482,6 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_WB:        DBG("WB");                                      break;
 		case INSTR_MATCH:     DBG("MATCH");                                   break;
 		case INSTR_PLA:       DBG("PLA");                                     break;
-		case INSTR_LA_WIN:    DBG("LA_WIN");                                  break;
-		case INSTR_LA_FAIL:   DBG("LA_FAIL");                                 break;
 		case INSTR_PLB:       DBG("PLB");                                     break;
 		case INSTR_PLB_WIN:   DBG("PLB_WIN");                                 break;
 		case INSTR_NLB:       DBG("NLB");                                     break;
@@ -1640,7 +1622,9 @@ run(struct ktre *re, const char *subject)
 		bool rev = THREAD[TP].rev;
 
 #ifdef KTRE_DEBUG
-		DBG("\n| %4d | %4d | %4d | %4d | %4d | %s", ip, sp, TP, fp, num_steps, sp <= (int)strlen(subject) && sp >= 0 ? subject + sp : "");
+		DBG("\n| %4d | %4d | %4d | %4d | %4d | ", ip, sp, TP, fp, num_steps);
+		if (sp >= 0) DBG("%s", subject + sp);
+		else DBG("%s", subject);
 #endif
 
 		if (THREAD[TP].die) {
@@ -1663,7 +1647,7 @@ run(struct ktre *re, const char *subject)
 		case INSTR_CLASS:
 			THREAD[TP].ip++;
 
-			if (strchr(re->c[ip].class, subject[sp]) && subject[sp])
+			if (strchr(re->c[ip].class, subject[sp]) && subject[sp] && sp >= 0)
 				THREAD[TP].sp++;
 			else
 				--TP;
@@ -1674,13 +1658,13 @@ run(struct ktre *re, const char *subject)
 
 			if (rev) {
 				if (opt & KTRE_INSENSITIVE) {
-					if (!strncmp(subject_lc + sp - strlen(re->c[ip].class), re->c[ip].class, strlen(re->c[ip].class)))
-						THREAD[TP].sp -= strlen(re->c[ip].class) + 1;
+					if (!strncmp(subject_lc + sp + 1 - strlen(re->c[ip].class), re->c[ip].class, strlen(re->c[ip].class)))
+						THREAD[TP].sp -= strlen(re->c[ip].class);
 					else
 						--TP;
 				} else {
-					if (!strncmp(subject + sp - strlen(re->c[ip].class), re->c[ip].class, strlen(re->c[ip].class)))
-						THREAD[TP].sp -= strlen(re->c[ip].class) + 1;
+					if (!strncmp(subject + sp + 1 - strlen(re->c[ip].class), re->c[ip].class, strlen(re->c[ip].class)))
+						THREAD[TP].sp -= strlen(re->c[ip].class);
 					else
 						--TP;
 				}
@@ -1702,7 +1686,7 @@ run(struct ktre *re, const char *subject)
 		case INSTR_NOT:
 			THREAD[TP].ip++;
 
-			if (!strchr(re->c[ip].class, subject[sp]))
+			if (!strchr(re->c[ip].class, subject[sp]) && subject[sp] && sp >= 0)
 				THREAD[TP].sp++;
 			else
 				--TP;
@@ -1714,14 +1698,14 @@ run(struct ktre *re, const char *subject)
 			break;
 
 		case INSTR_EOL:
-			if (subject[sp] == 0 || subject[sp] == '\n')
+			if ((subject[sp] == 0 || subject[sp] == '\n') && sp >= 0)
 				THREAD[TP].ip++;
 			else
 				--TP;
 			break;
 
 		case INSTR_WB:
-			if (sp &&
+			if (sp >= 0 &&
 			    ((strchr(WORD, subject[sp - 1]) && !strchr(WORD, subject[sp]))
 			     || (!strchr(WORD, subject[sp - 1]) && strchr(WORD, subject[sp]))))
 				THREAD[TP].ip++;
@@ -1734,9 +1718,9 @@ run(struct ktre *re, const char *subject)
 		case INSTR_CHAR:
 			THREAD[TP].ip++;
 
-			if ((opt & KTRE_INSENSITIVE && lc(subject[sp]) == lc(re->c[ip].c))
+			if (sp >= 0 && (opt & KTRE_INSENSITIVE && lc(subject[sp]) == lc(re->c[ip].c))
 			    || subject[sp] == re->c[ip].c)
-				THREAD[TP].sp++;
+				if (rev) THREAD[TP].sp--; else THREAD[TP].sp++;
 			else
 				--TP;
 			break;
@@ -1744,8 +1728,8 @@ run(struct ktre *re, const char *subject)
 		case INSTR_ANY:
 			THREAD[TP].ip++;
 
-			if (subject[sp])
-				THREAD[TP].sp++;
+			if (subject[sp] && sp >= 0)
+				if (rev) THREAD[TP].sp--; else THREAD[TP].sp++;
 			else
 				--TP;
 			break;
@@ -1757,7 +1741,7 @@ run(struct ktre *re, const char *subject)
 
 		case INSTR_MATCH:
 			if ((opt & KTRE_UNANCHORED) == 0) {
-				if (!subject[sp]) {
+				if (sp >= 0 && !subject[sp]) {
 					free(subject_lc);
 					return true;
 				}
@@ -1802,7 +1786,7 @@ run(struct ktre *re, const char *subject)
 			break;
 
 		case INSTR_CALL:
-			THREAD[TP].ip = re->c[ip].a;
+			THREAD[TP].ip = re->c[ip].c;
 			THREAD[TP].frame = KTRE_REALLOC(THREAD[TP].frame, (fp + 1) * sizeof THREAD[TP].frame[0]);
 			THREAD[TP].frame[THREAD[TP].fp++] = ip + 1;
 			break;
@@ -1814,31 +1798,34 @@ run(struct ktre *re, const char *subject)
 		case INSTR_PROG:
 			THREAD[TP].ip++;
 
-			if (THREAD[TP].prog[re->c[ip].a] == sp)
+			if (THREAD[TP].prog[re->c[ip].c] == sp)
 				--TP;
 			else
-				THREAD[TP].prog[re->c[ip].a] = sp;
+				THREAD[TP].prog[re->c[ip].c] = sp;
 
 			break;
 
 		case INSTR_DIGIT:
+			THREAD[TP].ip++;
+
 			if (strchr(DIGIT, subject[sp]) && subject[sp]) {
-				THREAD[TP].ip++;
-				THREAD[TP].sp++;
+				if (rev) THREAD[TP].sp--; else THREAD[TP].sp++;
 			} else --TP;
 			break;
 
 		case INSTR_WORD:
+			THREAD[TP].ip++;
+
 			if (strchr(WORD, subject[sp]) && subject[sp]) {
-				THREAD[TP].ip++;
-				THREAD[TP].sp++;
+				if (rev) THREAD[TP].sp--; else THREAD[TP].sp++;
 			} else --TP;
 			break;
 
 		case INSTR_SPACE:
+			THREAD[TP].ip++;
+
 			if (strchr(WHITESPACE, subject[sp]) && subject[sp]) {
-				THREAD[TP].ip++;
-				THREAD[TP].sp++;
+				if (rev) THREAD[TP].sp--; else THREAD[TP].sp++;
 			} else
 				--TP;
 			break;
@@ -1856,7 +1843,7 @@ run(struct ktre *re, const char *subject)
 
 		case INSTR_PLB:
 			THREAD[TP].die = true;
-			new_thread(re, ip + 1, sp, opt, fp, la, e + 1);
+			new_thread(re, ip + 1, sp - 1, opt, fp, la, e + 1);
 			THREAD[TP].exception[e] = TP - 1;
 			THREAD[TP].rev = true;
 			break;
@@ -1866,6 +1853,17 @@ run(struct ktre *re, const char *subject)
 			THREAD[TP].rev = false;
 			THREAD[TP].die = false;
 			THREAD[TP].ip = ip + 1;
+			break;
+
+		case INSTR_NLB:
+			THREAD[TP].ip = re->c[ip].c;
+			new_thread(re, ip + 1, sp - 1, opt, fp, la, e + 1);
+			THREAD[TP].exception[e] = TP - 1;
+			THREAD[TP].rev = true;
+			break;
+
+		case INSTR_NLB_FAIL:
+			TP = THREAD[TP].exception[--THREAD[TP].e] - 1;;
 			break;
 
 		default:
