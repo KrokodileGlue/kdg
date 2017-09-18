@@ -182,7 +182,7 @@ struct ktre {
 	struct thread {
 		int ip, sp, fp, la, e, opt;
 		int *frame, *vec, *prog, *las, *exception;
-		_Bool die;
+		_Bool die, rev;
 	} *t;
 
 	/* The number of threads that have been allocated. This
@@ -1563,11 +1563,11 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int e)
 		THREAD[TP].exception = KTRE_REALLOC(THREAD[TP].exception, (e + 1) * sizeof THREAD[TP].exception[0]);
 	}
 
+	THREAD[TP].e   = e;
 	THREAD[TP].ip  = ip;
 	THREAD[TP].sp  = sp;
 	THREAD[TP].fp  = fp;
 	THREAD[TP].la  = la;
-	THREAD[TP].e  = e;
 	THREAD[TP].opt = opt;
 
 	if (TP > 0) {
@@ -1625,21 +1625,22 @@ run(struct ktre *re, const char *subject)
 #endif
 
 	while (TP >= 0) {
-		int ip  = THREAD[TP].ip;
-		int sp  = THREAD[TP].sp;
-		int fp  = THREAD[TP].fp;
-		int la  = THREAD[TP].la;
-		int e   = THREAD[TP].e;
-		int opt = THREAD[TP].opt;
-		int loc = re->c[ip].loc;
+		int ip   = THREAD[TP].ip;
+		int sp   = THREAD[TP].sp;
+		int fp   = THREAD[TP].fp;
+		int la   = THREAD[TP].la;
+		int e    = THREAD[TP].e;
+		int opt  = THREAD[TP].opt;
+		int loc  = re->c[ip].loc;
+		bool rev = THREAD[TP].rev;
 
 #ifdef KTRE_DEBUG
 		DBG("\n| %4d | %4d | %4d | %4d | %4d | %s", ip, sp, TP, fp, num_steps, sp <= (int)strlen(subject) && sp >= 0 ? subject + sp : "");
 #endif
 
 		if (THREAD[TP].die) {
-			free(subject_lc);
-			return false;
+			THREAD[TP].die = false;
+			--TP; continue;
 		}
 
 		switch (re->c[ip].op) {
@@ -1666,16 +1667,30 @@ run(struct ktre *re, const char *subject)
 		case INSTR_STR: case INSTR_TSTR:
 			THREAD[TP].ip++;
 
-			if (opt & KTRE_INSENSITIVE) {
-				if (!strncmp(subject_lc + sp, re->c[ip].class, strlen(re->c[ip].class)))
-					THREAD[TP].sp += strlen(re->c[ip].class);
-				else
-					--TP;
+			if (rev) {
+				if (opt & KTRE_INSENSITIVE) {
+					if (!strncmp(subject_lc + sp - strlen(re->c[ip].class), re->c[ip].class, strlen(re->c[ip].class)))
+						THREAD[TP].sp -= strlen(re->c[ip].class);
+					else
+						--TP;
+				} else {
+					if (!strncmp(subject + sp - strlen(re->c[ip].class), re->c[ip].class, strlen(re->c[ip].class)))
+						THREAD[TP].sp -= strlen(re->c[ip].class);
+					else
+						--TP;
+				}
 			} else {
-				if (!strncmp(subject + sp, re->c[ip].class, strlen(re->c[ip].class)))
-					THREAD[TP].sp += strlen(re->c[ip].class);
-				else
-					--TP;
+				if (opt & KTRE_INSENSITIVE) {
+					if (!strncmp(subject_lc + sp, re->c[ip].class, strlen(re->c[ip].class)))
+						THREAD[TP].sp += strlen(re->c[ip].class);
+					else
+						--TP;
+				} else {
+					if (!strncmp(subject + sp, re->c[ip].class, strlen(re->c[ip].class)))
+						THREAD[TP].sp += strlen(re->c[ip].class);
+					else
+						--TP;
+				}
 			}
 			break;
 
@@ -1832,6 +1847,20 @@ run(struct ktre *re, const char *subject)
 			TP = THREAD[TP].exception[e - 1];
 			THREAD[TP].ip = ip + 1;
 			THREAD[TP].sp = sp;
+			break;
+
+		case INSTR_PLB:
+			THREAD[TP].die = true;
+			new_thread(re, ip + 1, sp, opt, fp, la, e + 1);
+			THREAD[TP].exception[e] = TP - 1;
+			THREAD[TP].rev = true;
+			break;
+
+		case INSTR_PLB_WIN:
+			TP = THREAD[TP].exception[--THREAD[TP].e];
+			THREAD[TP].rev = false;
+			THREAD[TP].die = false;
+			THREAD[TP].ip = ip + 1;
 			break;
 
 		default:
