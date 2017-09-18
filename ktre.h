@@ -1135,7 +1135,7 @@ print_node(struct node *n)
 #endif
 
 static void
-compile(struct ktre *re, struct node *n)
+compile(struct ktre *re, struct node *n, bool rev)
 {
 #define PATCH_A(loc, _a) re->c[loc].a = _a
 #define PATCH_B(loc, _b) re->c[loc].b = _b
@@ -1147,7 +1147,7 @@ compile(struct ktre *re, struct node *n)
 		a = re->ip;
 		emit_ab(re, INSTR_SPLIT, re->ip + 1, -1, n->loc);
 		emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
-		compile(re, n->a);
+		compile(re, n->a, rev);
 		emit_ab(re, INSTR_SPLIT, a + 1, re->ip + 1, n->loc);
 		PATCH_B(a, re->ip);
 		break;
@@ -1158,27 +1158,27 @@ compile(struct ktre *re, struct node *n)
 			a = re->ip;
 			emit_ab(re, INSTR_SPLIT, -1, re->ip + 1, n->loc);
 			emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
-			compile(re, n->a->a);
+			compile(re, n->a->a, rev);
 			emit_ab(re, INSTR_SPLIT, re->ip + 1, a + 1, n->loc);
 			PATCH_A(a, re->ip);
 			break;
 		case NODE_PLUS:
 			a = re->ip;
 			emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
-			compile(re, n->a->a);
+			compile(re, n->a->a, rev);
 			emit_ab(re, INSTR_SPLIT, re->ip + 1, a, n->loc);
 			break;
 		case NODE_QUESTION:
 			a = re->ip;
 			emit_ab(re, INSTR_SPLIT, -1, re->ip + 1, n->loc);
 			emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
-			compile(re, n->a->a);
+			compile(re, n->a->a, rev);
 			PATCH_A(a, re->ip);
 			break;
 		default:
 			a = re->ip;
 			emit_ab(re, INSTR_SPLIT, re->ip + 1, -1, n->loc);
-			compile(re, n->a);
+			compile(re, n->a, rev);
 			PATCH_B(a, re->ip);
 		}
 	} break;
@@ -1194,7 +1194,7 @@ compile(struct ktre *re, struct node *n)
 			old = re->num_groups;
 			re->group[re->num_groups++].address = re->ip - 1;
 
-			compile(re, n->a);
+			compile(re, n->a, rev);
 
 			emit(re, INSTR_RET, n->loc);
 			PATCH_C(a, re->ip);
@@ -1207,7 +1207,7 @@ compile(struct ktre *re, struct node *n)
 			re->num_groups++;
 			re->group[old].address = re->ip - 1;
 
-			compile(re, n->a);
+			compile(re, n->a, rev);
 
 			emit_c(re, INSTR_SAVE, old * 2 + 1, n->loc);
 
@@ -1230,13 +1230,13 @@ compile(struct ktre *re, struct node *n)
 		case NODE_REP:
 			emit(re, INSTR_TRY, n->loc);
 			emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
-			compile(re, n->a);
+			compile(re, n->a, rev);
 			emit(re, INSTR_CATCH, n->loc);
 			break;
 		default:
 			a = re->ip;
 			emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
-			compile(re, n->a);
+			compile(re, n->a, rev);
 			emit_ab(re, INSTR_SPLIT, a, re->ip + 1, n->loc);
 		}
 		break;
@@ -1244,17 +1244,22 @@ compile(struct ktre *re, struct node *n)
 	case NODE_OR:
 		a = re->ip;
 		emit_ab(re, INSTR_SPLIT, re->ip + 1, -1, n->loc);
-		compile(re, n->a);
+		compile(re, n->a, rev);
 		b = re->ip;
 		emit_c(re, INSTR_JMP, -1, n->loc);
 		PATCH_B(a, re->ip);
-		compile(re, n->b);
+		compile(re, n->b, rev);
 		PATCH_C(b, re->ip);
 		break;
 
 	case NODE_SEQUENCE:
-		compile(re, n->a);
-		compile(re, n->b);
+		if (rev) {
+			compile(re, n->b, rev);
+			compile(re, n->a, rev);
+		} else {
+			compile(re, n->a, rev);
+			compile(re, n->b, rev);
+		}
 		break;
 
 	case NODE_CLASS:     emit_class(re, INSTR_CLASS, n->class, n->loc); break;
@@ -1289,7 +1294,7 @@ compile(struct ktre *re, struct node *n)
 		for (int i = 0; i < n->c; i++) {
 			a = re->ip;
 			if (n->a->type == NODE_GROUP && !re->group[n->a->gi].is_compiled) {
-				compile(re, n->a);
+				compile(re, n->a, rev);
 			} else if (n->a->type == NODE_GROUP) {
 				emit_c(re, INSTR_CALL, re->group[n->a->gi].address + 1, n->loc);
 			} else {
@@ -1299,7 +1304,7 @@ compile(struct ktre *re, struct node *n)
 					str[n->c] = 0;
 					emit_class(re, INSTR_TSTR, str, n->loc);
 					break;
-				} else compile(re, n->a);
+				} else compile(re, n->a, rev);
 			}
 		}
 
@@ -1321,7 +1326,7 @@ compile(struct ktre *re, struct node *n)
 				if (n->a->type == NODE_GROUP) {
 					emit_c(re, INSTR_CALL, re->group[n->a->gi].address + 1, n->loc);
 				} else {
-					compile(re, n->a);
+					compile(re, n->a, rev);
 				}
 
 				PATCH_B(a, re->ip);
@@ -1331,34 +1336,34 @@ compile(struct ktre *re, struct node *n)
 
 	case NODE_ATOM:
 		emit(re, INSTR_TRY, n->loc);
-		compile(re, n->a);
+		compile(re, n->a, rev);
 		emit(re, INSTR_CATCH, n->loc);
 		break;
 
 	case NODE_PLA:
 		emit(re, INSTR_PLA, n->loc);
-		compile(re, n->a);
+		compile(re, n->a, rev);
 		emit(re, INSTR_LA_WIN, n->loc);
 		break;
 
 	case NODE_NLA:
 		a = re->ip;
 		emit_c(re, INSTR_NLA, -1, n->loc);
-		compile(re, n->a);
+		compile(re, n->a, rev);
 		emit(re, INSTR_LA_FAIL, n->loc);
 		PATCH_C(a, re->ip);
 		break;
 
 	case NODE_PLB:
 		emit(re, INSTR_PLB, n->loc);
-		compile(re, n->a);
+		compile(re, n->a, true);
 		emit(re, INSTR_PLB_WIN, n->loc);
 		break;
 
 	case NODE_NLB:
 		a = re->ip;
 		emit_c(re, INSTR_NLB, -1, n->loc);
-		compile(re, n->a);
+		compile(re, n->a, rev);
 		emit(re, INSTR_NLB_FAIL, n->loc);
 		PATCH_C(a, re->ip);
 		break;
@@ -1448,7 +1453,7 @@ ktre_compile(const char *pat, int opt)
 		emit_ab(re, INSTR_SPLIT, 3, 1, 0);
 	}
 
-	compile(re, re->n);
+	compile(re, re->n, false);
 	if (re->failed)
 		return re;
 
@@ -1670,12 +1675,12 @@ run(struct ktre *re, const char *subject)
 			if (rev) {
 				if (opt & KTRE_INSENSITIVE) {
 					if (!strncmp(subject_lc + sp - strlen(re->c[ip].class), re->c[ip].class, strlen(re->c[ip].class)))
-						THREAD[TP].sp -= strlen(re->c[ip].class);
+						THREAD[TP].sp -= strlen(re->c[ip].class) + 1;
 					else
 						--TP;
 				} else {
 					if (!strncmp(subject + sp - strlen(re->c[ip].class), re->c[ip].class, strlen(re->c[ip].class)))
-						THREAD[TP].sp -= strlen(re->c[ip].class);
+						THREAD[TP].sp -= strlen(re->c[ip].class) + 1;
 					else
 						--TP;
 				}
