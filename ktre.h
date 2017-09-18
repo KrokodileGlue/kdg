@@ -281,7 +281,9 @@ struct instr {
 		INSTR_SAVE,
 		INSTR_CALL,
 		INSTR_PLA,
+		INSTR_PLA_WIN,
 		INSTR_NLA,
+		INSTR_NLA_FAIL,
 		INSTR_PLB,
 		INSTR_PLB_WIN,
 		INSTR_NLB,
@@ -1338,6 +1340,20 @@ compile(struct ktre *re, struct node *n, bool rev)
 		emit(re, INSTR_CATCH, n->loc);
 		break;
 
+	case NODE_PLA:
+		emit(re, INSTR_PLA, n->loc);
+		compile(re, n->a, false);
+		emit(re, INSTR_PLA_WIN, n->loc);
+		break;
+
+	case NODE_NLA:
+		a = re->ip;
+		emit(re, INSTR_NLA, n->loc);
+		compile(re, n->a, false);
+		emit(re, INSTR_NLA_FAIL, n->loc);
+		PATCH_C(a, re->ip);
+		break;
+
 	case NODE_PLB:
 		emit(re, INSTR_PLB, n->loc);
 		compile(re, n->a, true);
@@ -1459,14 +1475,13 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_TSTR:  DBG("TSTR    '"); DBGF(re->c[i].class); DBG("'");   break;
 		case INSTR_SPLIT:     DBG("SPLIT    %d, %d", re->c[i].a, re->c[i].b); break;
 		case INSTR_NOT:       DBG("NOT     '%s'", re->c[i].class);            break;
-		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].c);                break;
-		case INSTR_SAVE:      DBG("SAVE     %d",  re->c[i].c);                break;
-		case INSTR_JMP:       DBG("JMP      %d",  re->c[i].c);                break;
-		case INSTR_OPT_ON:    DBG("OPTON    %d",  re->c[i].c);                break;
-		case INSTR_OPT_OFF:   DBG("OPTOFF   %d",  re->c[i].c);                break;
-		case INSTR_BACKREF:   DBG("BACKREF  %d",  re->c[i].c);                break;
+		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].a);                break;
+		case INSTR_SAVE:      DBG("SAVE     %d",  re->c[i].a);                break;
+		case INSTR_JMP:       DBG("JMP      %d",  re->c[i].a);                break;
+		case INSTR_OPT_ON:    DBG("OPTON    %d",  re->c[i].a);                break;
+		case INSTR_OPT_OFF:   DBG("OPTOFF   %d",  re->c[i].a);                break;
+		case INSTR_BACKREF:   DBG("BACKREF  %d",  re->c[i].a);                break;
 		case INSTR_CALL:      DBG("CALL     %d",  re->c[i].a);                break;
-		case INSTR_NLA:       DBG("NLA      %d",  re->c[i].a);                break;
 		case INSTR_PROG:      DBG("PROG     %d",  re->c[i].a);                break;
 		case INSTR_SET_START: DBG("SET_START");                               break;
 		case INSTR_TRY:       DBG("TRY");                                     break;
@@ -1482,9 +1497,12 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_WB:        DBG("WB");                                      break;
 		case INSTR_MATCH:     DBG("MATCH");                                   break;
 		case INSTR_PLA:       DBG("PLA");                                     break;
+		case INSTR_PLA_WIN:   DBG("PLA_WIN");                                 break;
+		case INSTR_NLA:       DBG("NLA      %d",  re->c[i].a);                break;
+		case INSTR_NLA_FAIL:  DBG("NLA_FAIL");                                break;
 		case INSTR_PLB:       DBG("PLB");                                     break;
 		case INSTR_PLB_WIN:   DBG("PLB_WIN");                                 break;
-		case INSTR_NLB:       DBG("NLB");                                     break;
+		case INSTR_NLB:       DBG("NLB      %d",  re->c[i].a);                break;
 		case INSTR_NLB_FAIL:  DBG("NLB_FAIL");                                break;
 
 		default:
@@ -1863,7 +1881,29 @@ run(struct ktre *re, const char *subject)
 			break;
 
 		case INSTR_NLB_FAIL:
-			TP = THREAD[TP].exception[--THREAD[TP].e] - 1;;
+			TP = THREAD[TP].exception[--THREAD[TP].e] - 1;
+			break;
+
+		case INSTR_PLA:
+			THREAD[TP].die = true;
+			new_thread(re, ip + 1, sp, opt, fp, la, e + 1);
+			THREAD[TP].exception[e] = TP - 1;
+			break;
+
+		case INSTR_PLA_WIN:
+			TP = THREAD[TP].exception[--THREAD[TP].e];
+			THREAD[TP].die = false;
+			THREAD[TP].ip = ip + 1;
+			break;
+
+		case INSTR_NLA:
+			THREAD[TP].ip = re->c[ip].a;
+			new_thread(re, ip + 1, sp, opt, fp, la, e + 1);
+			THREAD[TP].exception[e] = TP - 1;
+			break;
+
+		case INSTR_NLA_FAIL:
+			TP = THREAD[TP].exception[--THREAD[TP].e] - 1;
 			break;
 
 		default:
