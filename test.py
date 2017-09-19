@@ -105,4 +105,4 @@ while True:
 sys.stdout.write('ran ' + str(testno) + ' tests, ' + str(testno - failedno) + ' succeeded')
 if failedno != 0:
     sys.stdout.write(' - ' + str(failedno) + ' failed')
-sys.stdout.write('.')
+sys.stdout.write('.\n')

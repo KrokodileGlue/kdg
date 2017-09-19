@@ -285,8 +285,9 @@ struct instr {
 		INSTR_NLA,
 		INSTR_NLA_FAIL,
 		INSTR_PLB,
+		INSTR_PLB_WIN,
 		INSTR_NLB,
-		INSTR_LEND,
+		INSTR_NLB_FAIL,
 		INSTR_PROG,
 		INSTR_DIGIT,
 		INSTR_SPACE,
@@ -1347,9 +1348,9 @@ compile(struct ktre *re, struct node *n, bool rev)
 
 	case NODE_NLA:
 		a = re->ip;
-		emit_c(re, INSTR_NLA, -1, n->loc);
-		compile(re, n->a);
-		emit(re, INSTR_LEND, n->loc);
+		emit(re, INSTR_NLA, n->loc);
+		compile(re, n->a, false);
+		emit(re, INSTR_NLA_FAIL, n->loc);
 		PATCH_C(a, re->ip);
 		break;
 
@@ -1366,6 +1367,7 @@ compile(struct ktre *re, struct node *n, bool rev)
 		emit(re, INSTR_NLB_FAIL, n->loc);
 		PATCH_C(a, re->ip);
 		break;
+
 
 	case NODE_RECURSE:
 		emit_c(re, INSTR_CALL, re->group[0].address + 1, n->loc);
