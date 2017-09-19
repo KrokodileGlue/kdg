@@ -1654,12 +1654,44 @@ run(struct ktre *re, const char *subject)
 		case INSTR_BACKREF:
 			THREAD[TP].ip++;
 
-			if (!strncmp(subject + sp,
-			             &subject[THREAD[TP].vec[re->c[ip].c * 2]],
-			             THREAD[TP].vec[re->c[ip].c * 2 + 1]))
-				THREAD[TP].sp += THREAD[TP].vec[re->c[ip].c * 2 + 1];
-			else
-				--TP;
+			if (rev) {
+				if (opt & KTRE_INSENSITIVE) {
+					for (int i = 0; i < THREAD[TP].vec[re->c[ip].c * 2 + 1]; i++) {
+						if (subject_lc[sp - i]
+						    != lc(subject[THREAD[TP].vec[re->c[ip].c * 2] + sp - i])) {
+							--TP;
+							continue;
+						}
+					}
+
+					THREAD[TP].sp -= THREAD[TP].vec[re->c[ip].c * 2 + 1];
+				} else {
+					if (!strncmp(subject + sp,
+					             &subject[THREAD[TP].vec[re->c[ip].c * 2]],
+					             THREAD[TP].vec[re->c[ip].c * 2 + 1]))
+						THREAD[TP].sp += THREAD[TP].vec[re->c[ip].c * 2 + 1];
+					else
+						--TP;
+				}
+			} else {
+				if (opt & KTRE_INSENSITIVE) {
+					for (int i = 0; i < THREAD[TP].vec[re->c[ip].c * 2 + 1]; i++) {
+						if (subject_lc[sp + i] != lc(subject[THREAD[TP].vec[re->c[ip].c * 2] + i])) {
+							--TP;
+							continue;
+						}
+					}
+
+					THREAD[TP].sp += THREAD[TP].vec[re->c[ip].c * 2 + 1];
+				} else {
+					if (!strncmp(subject + sp,
+					             &subject[THREAD[TP].vec[re->c[ip].c * 2]],
+					             THREAD[TP].vec[re->c[ip].c * 2 + 1]))
+						THREAD[TP].sp += THREAD[TP].vec[re->c[ip].c * 2 + 1];
+					else
+						--TP;
+				}
+			}
 			break;
 
 		case INSTR_CLASS:
