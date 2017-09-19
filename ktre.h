@@ -282,12 +282,9 @@ struct instr {
 		INSTR_CALL,
 		INSTR_PLA,
 		INSTR_NLA,
-		INSTR_LA_WIN,
-		INSTR_LA_FAIL,
 		INSTR_PLB,
-		INSTR_PLB_WIN,
 		INSTR_NLB,
-		INSTR_NLB_FAIL,
+		INSTR_LEND,
 		INSTR_PROG,
 		INSTR_DIGIT,
 		INSTR_SPACE,
@@ -1338,28 +1335,28 @@ compile(struct ktre *re, struct node *n)
 	case NODE_PLA:
 		emit(re, INSTR_PLA, n->loc);
 		compile(re, n->a);
-		emit(re, INSTR_LA_WIN, n->loc);
+		emit(re, INSTR_LEND, n->loc);
 		break;
 
 	case NODE_NLA:
 		a = re->ip;
 		emit_c(re, INSTR_NLA, -1, n->loc);
 		compile(re, n->a);
-		emit(re, INSTR_LA_FAIL, n->loc);
+		emit(re, INSTR_LEND, n->loc);
 		PATCH_C(a, re->ip);
 		break;
 
 	case NODE_PLB:
 		emit(re, INSTR_PLB, n->loc);
 		compile(re, n->a);
-		emit(re, INSTR_PLB_WIN, n->loc);
+		emit(re, INSTR_LEND, n->loc);
 		break;
 
 	case NODE_NLB:
 		a = re->ip;
 		emit_c(re, INSTR_NLB, -1, n->loc);
 		compile(re, n->a);
-		emit(re, INSTR_NLB_FAIL, n->loc);
+		emit(re, INSTR_LEND, n->loc);
 		PATCH_C(a, re->ip);
 		break;
 
@@ -1477,7 +1474,6 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_OPT_OFF:   DBG("OPTOFF   %d",  re->c[i].c);                break;
 		case INSTR_BACKREF:   DBG("BACKREF  %d",  re->c[i].c);                break;
 		case INSTR_CALL:      DBG("CALL     %d",  re->c[i].a);                break;
-		case INSTR_NLA:       DBG("NLA    %d",  re->c[i].a);                  break;
 		case INSTR_PROG:      DBG("PROG     %d",  re->c[i].a);                break;
 		case INSTR_SET_START: DBG("SET_START");                               break;
 		case INSTR_TRY:       DBG("TRY");                                     break;
@@ -1493,12 +1489,10 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_WB:        DBG("WB");                                      break;
 		case INSTR_MATCH:     DBG("MATCH");                                   break;
 		case INSTR_PLA:       DBG("PLA");                                     break;
-		case INSTR_LA_WIN:    DBG("LA_WIN");                                  break;
-		case INSTR_LA_FAIL:   DBG("LA_FAIL");                                 break;
 		case INSTR_PLB:       DBG("PLB");                                     break;
-		case INSTR_PLB_WIN:   DBG("PLB_WIN");                                 break;
+		case INSTR_NLA:       DBG("NLA    %d",  re->c[i].a);                  break;
 		case INSTR_NLB:       DBG("NLB");                                     break;
-		case INSTR_NLB_FAIL:  DBG("NLB_FAIL");                                break;
+		case INSTR_LEND:      DBG("LEND");                                    break;
 
 		default:
  			DBG("\nunimplemented instruction printer %d\n", re->c[i].op);
@@ -1638,7 +1632,7 @@ run(struct ktre *re, const char *subject)
 #endif
 
 		if (THREAD[TP].die) {
-			free(subject_lc);
+			KTRE_FREE(subject_lc);
 			return false;
 		}
 
@@ -1738,11 +1732,11 @@ run(struct ktre *re, const char *subject)
 		case INSTR_MATCH:
 			if ((opt & KTRE_UNANCHORED) == 0) {
 				if (!subject[sp]) {
-					free(subject_lc);
+					KTRE_FREE(subject_lc);
 					return true;
 				}
 			} else {
-				free(subject_lc);
+				KTRE_FREE(subject_lc);
 				return true;
 			}
 
@@ -1773,7 +1767,7 @@ run(struct ktre *re, const char *subject)
 			break;
 
 		case INSTR_DIE:
-			free(subject_lc);
+			KTRE_FREE(subject_lc);
 			return false;
 
 		case INSTR_SET_START:
@@ -1825,6 +1819,7 @@ run(struct ktre *re, const char *subject)
 
 		case INSTR_TRY:
 			THREAD[TP].ip++;
+			THREAD[TP].exception = KTRE_REALLOC(THREAD[TP].exception, (e + 1) * sizeof THREAD[TP].exception[0]);
 			THREAD[TP].exception[THREAD[TP].e++] = TP;
 			break;
 
@@ -1834,24 +1829,29 @@ run(struct ktre *re, const char *subject)
 			THREAD[TP].sp = sp;
 			break;
 
+		case INSTR_NLB:
+			THREAD[TP].ip = re->c[ip].a;
+			THREAD[TP].exception = KTRE_REALLOC(THREAD[TP].exception, (e + 1) * sizeof THREAD[TP].exception[0]);
+			break;
+
 		default:
 #ifdef KTRE_DEBUG
 			DBG("\nunimplemented instruction %d\n", re->c[ip].op);
 			assert(false);
 #endif
-			free(subject_lc);
+			KTRE_FREE(subject_lc);
 			return false;
 		}
 
 		if (TP >= KTRE_MAX_THREAD - 1) {
 			error(re, KTRE_ERROR_STACK_OVERFLOW, loc, "regex exceeded the maximum number of executable threads");
-			free(subject_lc);
+			KTRE_FREE(subject_lc);
 			return false;
 		}
 
 		if (fp >= KTRE_MAX_CALL_DEPTH - 1) {
 			error(re, KTRE_ERROR_CALL_OVERFLOW, loc, "regex exceeded the maximum depth for subroutine calls");
-			free(subject_lc);
+			KTRE_FREE(subject_lc);
 			return false;
 		}
 
@@ -1860,7 +1860,7 @@ run(struct ktre *re, const char *subject)
 #endif
 	}
 
-	free(subject_lc);
+	KTRE_FREE(subject_lc);
 	return false;
 }
 
