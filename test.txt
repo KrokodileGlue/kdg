@@ -105,7 +105,7 @@ END_CASE
 
 # test 8
 BEGIN_TEST
-(\w+) \1
+(?i)(\w+) \1
 END_TEST
 
 BEGIN_CASE
@@ -113,4 +113,42 @@ word WORD
 EXPECT_OUTPUT
 word WORD
 word
+END_CASE
+
+# test 9
+BEGIN_TEST
+[+-]?(\d+(\.\d+)?|\.\d+)([eE][+-]?\d+)?
+END_TEST
+
+BEGIN_CASE
+-123.4e-56
+EXPECT_OUTPUT
+-123.4e-56
+123.4
+.4
+e-56
+END_CASE
+
+BEGIN_CASE
+12.e2
+EXPECT_OUTPUT
+12
+12
+END_CASE
+
+# test 10
+BEGIN_TEST
+^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$
+END_TEST
+
+BEGIN_CASE
+email@domain.com
+EXPECT_OUTPUT
+email@domain.com
+END_CASE
+
+BEGIN_CASE
+email@domain.
+EXPECT_OUTPUT
+no match.
 END_CASE
