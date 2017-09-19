@@ -42,7 +42,7 @@ def parse_output(case):
 
     return case[i:]
 
-def run_test(test, case, testno, caseno):
+def run_test(test, case, testno, caseno, lineno):
     subject = parse_subject(case)
     output = parse_output(case)
     global failedno
@@ -53,7 +53,7 @@ def run_test(test, case, testno, caseno):
     poutput = '\n'.join(poutput)
 
     if '\n'.join(output) + '\n' != poutput:
-        print 'test #' + str(testno) + ' case #' + str(caseno) + ' failed:'
+        print 'test #' + str(testno) + ' case #' + str(caseno) + ' failed at line ' + str(lineno) + ':'
         print 'expected: '
         print '\n'.join(output) + '\n'
         print 'recieved: '
@@ -99,7 +99,7 @@ while True:
 
         caseno += 1
 
-        run_test(test, case, testno, caseno)
+        run_test(test, case, testno, caseno, i + 1)
         i = j + 2
 
 sys.stdout.write('ran ' + str(testno) + ' tests, ' + str(testno - failedno) + ' succeeded')
