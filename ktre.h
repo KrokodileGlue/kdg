@@ -142,6 +142,7 @@ enum {
 	KTRE_INSENSITIVE = 1 << 0,
 	KTRE_UNANCHORED  = 1 << 1,
 	KTRE_EXTENDED    = 1 << 2,
+	KTRE_GLOBAL      = 1 << 3,
 };
 
 /* settings and limits */
@@ -151,7 +152,9 @@ enum {
 
 struct ktre {
 	/* ===== public fields ===== */
-	int num_groups, opt;
+	int num_groups;
+	int num_matches;
+	int opt;
 	/* string containing an error message in the case
 	 * of failure during parsing or compilation */
 	char *err_str;
@@ -189,10 +192,12 @@ struct ktre {
 	 * persists between executions. */
 	int thread_alloc;
 	int tp, max_tp;
+
+	int **vec;
 };
 
 struct ktre *ktre_compile(const char *pat, int opt);
-_Bool ktre_exec(struct ktre *re, const char *subject, int **vec);
+_Bool ktre_exec(struct ktre *re, const char *subject, int ***vec);
 void ktre_free(struct ktre *re);
 
 #ifdef KTRE_IMPLEMENTATION
@@ -275,7 +280,6 @@ struct instr {
 		INSTR_OPT_OFF,
 		INSTR_TRY,
 		INSTR_CATCH,
-		INSTR_DIE,
 		INSTR_SET_START,
 		INSTR_WB,
 		INSTR_SAVE,
@@ -1415,11 +1419,13 @@ ktre_compile(const char *pat, int opt)
 		case KTRE_INSENSITIVE: DBG("\n\tINSENSITIVE"); break;
 		case KTRE_UNANCHORED:  DBG("\n\tUNANCHORED");  break;
 		case KTRE_EXTENDED:    DBG("\n\tEXTENDED");    break;
+		case KTRE_GLOBAL:      DBG("\n\tGLOBAL");    break;
 		default: continue;
 		}
 	}
 #endif
 
+	re->num_prog = 1;
 	re->n = new_node();
 	re->n->loc = 0;
 	re->n->type = NODE_GROUP;
@@ -1493,7 +1499,6 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_SPACE:     DBG("SPACE");                                   break;
 		case INSTR_BOL:       DBG("BOL");                                     break;
 		case INSTR_EOL:       DBG("EOL");                                     break;
-		case INSTR_DIE:       DBG("DIE");                                     break;
 		case INSTR_RET:       DBG("RET");                                     break;
 		case INSTR_WB:        DBG("WB");                                      break;
 		case INSTR_MATCH:     DBG("MATCH");                                   break;
@@ -1608,8 +1613,19 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int e)
 }
 
 static bool
-run(struct ktre *re, const char *subject)
+run(struct ktre *re, const char *subject, int ***vec)
 {
+	if (*vec) {
+		for (int i = 0; i < re->num_matches; i++) {
+			KTRE_FREE((*vec)[i]);
+		}
+
+		KTRE_FREE(*vec);
+	}
+
+	*vec = NULL;
+	re->vec = NULL;
+	re->num_matches = 0;
 	TP = -1;
 
 	if (!re->thread_alloc) {
@@ -1791,14 +1807,24 @@ run(struct ktre *re, const char *subject)
 			break;
 
 		case INSTR_MATCH:
-			if ((opt & KTRE_UNANCHORED) == 0) {
-				if (sp >= 0 && !subject[sp]) {
-					free(subject_lc);
+			if ((opt & KTRE_UNANCHORED) != 0 || (sp >= 0 && !subject[sp])) {
+				*vec = KTRE_REALLOC(*vec, (re->num_matches + 1) * sizeof *vec);
+				(*vec)[re->num_matches] = KTRE_MALLOC(re->num_groups * 2 * sizeof *vec[0]);
+
+				memcpy((*vec)[re->num_matches++],
+				       THREAD[TP].vec,
+				       re->num_groups * 2 * sizeof *vec[0][0]);
+
+				re->vec = *vec;
+
+				if (opt & KTRE_GLOBAL == 0) {
+					KTRE_FREE(subject_lc);
 					return true;
+				} else {
+					TP = 0;
+					THREAD[TP].sp = sp;
+					continue;
 				}
-			} else {
-				KTRE_FREE(subject_lc);
-				return true;
 			}
 
 			--TP;
@@ -1826,10 +1852,6 @@ run(struct ktre *re, const char *subject)
 			THREAD[TP].ip++;
 			THREAD[TP].opt &= ~re->c[ip].c;
 			break;
-
-		case INSTR_DIE:
-			KTRE_FREE(subject_lc);
-			return false;
 
 		case INSTR_SET_START:
 			THREAD[TP].ip++;
@@ -1967,7 +1989,7 @@ run(struct ktre *re, const char *subject)
 	}
 
 	KTRE_FREE(subject_lc);
-	return false;
+	return !!re->num_matches;
 }
 
 void
@@ -1992,24 +2014,28 @@ ktre_free(struct ktre *re)
 		KTRE_FREE(THREAD[i].exception);
 	}
 
+	if (re->vec) {
+		for (int i = 0; i < re->num_matches; i++) {
+			KTRE_FREE((re->vec)[i]);
+		}
+
+		KTRE_FREE(re->vec);
+	}
+
+
 	KTRE_FREE(re->t);
 	KTRE_FREE(re);
 }
 
 _Bool
-ktre_exec(struct ktre *re, const char *subject, int **vec)
+ktre_exec(struct ktre *re, const char *subject, int ***vec)
 {
 	if (re->err) {
 		KTRE_FREE(re->err_str);
 		re->err = 0;
 	}
 
-	if (run(re, subject)) {
-		*vec = THREAD[re->tp].vec;
-		return true;
-	} else {
-		return false;
-	}
+	return run(re, subject, vec);
 }
 #endif /* ifdef KTRE_IMPLEMENTATION */
 #endif /* ifndef KTRE_H */

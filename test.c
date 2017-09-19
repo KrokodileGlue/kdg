@@ -5,14 +5,16 @@
 #include "ktre.h"
 
 static inline void
-do_regex(struct ktre *re, const char *regex, const char *subject, FILE *f)
+do_regex(struct ktre *re, const char *subject, FILE *f)
 {
-	int *vec = NULL;
+	int **vec = NULL;
 
 	if (ktre_exec(re, subject, &vec)) {
-		for (int i = 0; i < re->num_groups; i++) {
-			if (vec[i * 2 + 1] && (int)strlen(subject) != vec[i * 2]) {
-				fprintf(f, "%.*s\n", vec[i * 2 + 1], subject + vec[i * 2]);
+		for (int i = 0; i < re->num_matches; i++) {
+			for (int j = 0; j < re->num_groups; j++) {
+				if (vec[i][j * 2 + 1] && (int)strlen(subject) != vec[i][j * 2]) {
+					fprintf(f, "%.*s\n", vec[i][j * 2 + 1], subject + vec[i][j * 2]);
+				}
 			}
 		}
 	} else if (re->err) {
@@ -37,7 +39,7 @@ main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
-	do_regex(re, regex, subject, f);
+	do_regex(re, subject, f);
 	ktre_free(re);
 
 	return EXIT_SUCCESS;
