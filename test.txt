@@ -152,3 +152,14 @@ email@domain.
 EXPECT_OUTPUT
 no match.
 END_CASE
+
+# test 11
+BEGIN_TEST
+(?>[^!]*+![^\s]*+\sPRIVMSG\s)(?i)(.*?\s)?(?:re|hi)[.!]*(\s+.*)?$
+END_TEST
+
+BEGIN_CASE
+user!host PART PRIVMSG before re after
+EXPECT_OUTPUT
+no match.
+END_CASE

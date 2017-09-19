@@ -1667,7 +1667,7 @@ run(struct ktre *re, const char *subject)
 
 					THREAD[TP].sp -= THREAD[TP].vec[re->c[ip].c * 2 + 1];
 				} else {
-					if (!strncmp(subject + sp,
+					if (!strncmp(subject + sp + 1 - THREAD[TP].vec[re->c[ip].c * 2 + 1],
 					             &subject[THREAD[TP].vec[re->c[ip].c * 2]],
 					             THREAD[TP].vec[re->c[ip].c * 2 + 1]))
 						THREAD[TP].sp += THREAD[TP].vec[re->c[ip].c * 2 + 1];
