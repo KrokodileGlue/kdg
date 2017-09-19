@@ -12,9 +12,7 @@ do_regex(struct ktre *re, const char *subject, FILE *f)
 	if (ktre_exec(re, subject, &vec)) {
 		for (int i = 0; i < re->num_matches; i++) {
 			for (int j = 0; j < re->num_groups; j++) {
-				if (vec[i][j * 2 + 1] && (int)strlen(subject) != vec[i][j * 2]) {
-					fprintf(f, "%.*s\n", vec[i][j * 2 + 1], subject + vec[i][j * 2]);
-				}
+				fprintf(f, "%.*s\n", vec[i][j * 2 + 1], subject + vec[i][j * 2]);
 			}
 		}
 	} else if (re->err) {

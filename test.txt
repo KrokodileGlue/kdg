@@ -7,6 +7,7 @@ BEGIN_CASE
 user!host PRIVMSG before re after
 EXPECT_OUTPUT
 user!host PRIVMSG before re after
+
 before
  after
 END_CASE
@@ -20,6 +21,7 @@ BEGIN_CASE
 aaaa
 EXPECT_OUTPUT
 aaaa
+
 END_CASE
 
 # test 3
@@ -36,6 +38,9 @@ BEGIN_CASE
 01-01-01
 EXPECT_OUTPUT
 01-01-01
+
+
+
 -
 END_CASE
 
@@ -44,6 +49,9 @@ BEGIN_CASE
 EXPECT_OUTPUT
 12/31/01
 /
+
+
+
 END_CASE
 
 # test 4
@@ -134,8 +142,12 @@ BEGIN_CASE
 EXPECT_OUTPUT
 12
 12
+
+
 2
 2
+
+
 END_CASE
 
 # test 10
