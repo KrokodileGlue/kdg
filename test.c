@@ -25,6 +25,8 @@ do_regex(struct ktre *re, const char *regex, const char *subject, FILE *f)
 int
 main(int argc, char *argv[])
 {
+	if (argc < 3) return 0;
+
 	char *subject = argv[1], *regex = argv[2];
 	struct ktre *re = ktre_compile(regex, KTRE_UNANCHORED);
 
