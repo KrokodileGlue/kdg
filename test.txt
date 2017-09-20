@@ -22,6 +22,8 @@ aaaa
 EXPECT_OUTPUT
 aaaa
 
+
+
 END_CASE
 
 # test 3

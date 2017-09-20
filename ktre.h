@@ -1822,7 +1822,14 @@ run(struct ktre *re, const char *subject, int ***vec)
 					return true;
 				} else {
 					TP = 0;
+					THREAD[TP].ip = 0;
 					THREAD[TP].sp = sp;
+
+					if (re->num_matches - 1 && sp == (*vec)[0][0] + (*vec)[0][1]) {
+						KTRE_FREE(subject_lc);
+						return true;
+					}
+
 					continue;
 				}
 			}
