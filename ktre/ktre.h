@@ -494,7 +494,7 @@ new_node()
 }
 
 static int
-parse_number(struct ktre *re)
+parse_dec_num(struct ktre *re)
 {
 	int n = 0;
 
@@ -507,6 +507,48 @@ parse_number(struct ktre *re)
 		n *= 10;
 		n += *re->sp - '0';
 		re->sp++;
+	}
+
+	return n;
+}
+
+static int
+parse_hex_num(struct ktre *re)
+{
+	int n = 0;
+
+	if (!((lc(*re->sp) >= 'a' && lc(*re->sp) <= 'f')
+	       || (*re->sp >= '0' && *re->sp <= '9'))) {
+		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "expected a number");
+		return -1;
+	}
+
+	while ((lc(*re->sp) >= 'a' && lc(*re->sp) <= 'f')
+	       || (*re->sp >= '0' && *re->sp <= '9'))
+	{
+		char c = lc(*re->sp);
+		n *= 16;
+		n += (c >= 'a' && c <= 'f') ? c - 'a' + 10 : c - '0';
+		next_char(re);
+	}
+
+	return n;
+}
+
+static int
+parse_oct_num(struct ktre *re)
+{
+	int n = 0;
+
+	if (!(*re->sp >= '0' && *re->sp <= '7')) {
+		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "expected a number");
+		return -1;
+	}
+
+	while (*re->sp >= '0' && *re->sp <= '7') {
+		n *= 8;
+		n += *re->sp - '0';
+		next_char(re);
 	}
 
 	return n;
@@ -723,7 +765,13 @@ again:
 			next_char(re);
 			break;
 
-		case '0': case '1': case '2': case '3': case '4':
+		case '0': /* octal escape sequences */
+			next_char(re);
+			left->type = NODE_CHAR;
+			left->c = parse_oct_num(re);
+			break;
+
+		case '1': case '2': case '3': case '4':
 		case '5': case '6': case '7': case '8': case '9':
 			left->type = NODE_BACKREF;
 			left->c = *re->sp - '0';
@@ -749,6 +797,12 @@ again:
 			left->type = NODE_CHAR;
 			left->c = '\n';
 			next_char(re);
+			break;
+
+		case 'x': /* hexadecimal escape sequences */
+			next_char(re);
+			left->type = NODE_CHAR;
+			left->c = parse_hex_num(re);
 			break;
 
 		default:
@@ -882,12 +936,12 @@ again:
 			n->type = NODE_REP; n->c = -1; n->d = 0;
 
 			next_char(re);
-			n->c = parse_number(re);
+			n->c = parse_dec_num(re);
 
 			if (*re->sp == ',') {
 				next_char(re);
 				if (isdigit(*re->sp))
-					n->d = parse_number(re);
+					n->d = parse_dec_num(re);
 				else
 					n->d = -1;
 			}
