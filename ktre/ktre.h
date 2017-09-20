@@ -110,7 +110,7 @@
  * main(int argc, char *argv[])
  * {
  * 	if (argc < 3 || argc > 4) {
- * 		fprintf(stderr, "Usage: subject regex [replacement]");
+ * 		fprintf(stderr, "Usage: subject regex [replacement]\n");
  * 		return EXIT_FAILURE;
  * 	}
  *
@@ -2163,7 +2163,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 			}
 		}
 
-		if (*r) {
+		if (group) {
 			group[j] = 0;
 
 			ret = KTRE_REALLOC(ret, (idx + j + 1) * sizeof *ret);
