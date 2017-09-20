@@ -84,15 +84,34 @@
  * 	}
  * }
  *
+ * static inline void
+ * do_replace(struct ktre *re, const char *regex, const char *subject, const char *replacement, FILE *f)
+ * {
+ * 	char *ret = NULL;
+ *
+ * 	if ((ret = ktre_filter(re, subject, replacement))) {
+ * 		fprintf(f, "\nmatched: %s", ret);
+ * 	} else if (re->err) {
+ * 		fprintf(f, "\nfailed at runtime with error code %d: %s\n", re->err, re->err_str);
+ * 		fprintf(stderr, "\t%s\n\t", regex);
+ * 		for (int i = 0; i < re->loc; i++) fputc(' ', stderr);
+ * 		fputc('^', stderr);
+ * 	} else {
+ * 		fprintf(f, "\nno match.");
+ * 	}
+ * }
+ *
  * int
  * main(int argc, char *argv[])
  * {
- * 	if (argc != 3) {
- * 		fprintf(stderr, "Usage: subject regex");
+ * 	if (argc < 3 || argc > 4) {
+ * 		fprintf(stderr, "Usage: regex subject [replacement]");
  * 		return EXIT_FAILURE;
  * 	}
  *
- * 	char *subject = argv[1], *regex = argv[2];
+ * 	char *regex = argv[1], *subject = argv[2], *replacement = NULL;
+ * 	if (argc == 4) replacement = argv[3];
+ *
  * 	struct ktre *re = ktre_compile(regex, KTRE_UNANCHORED | KTRE_GLOBAL);
  *
  * 	if (re->err) {
@@ -103,7 +122,9 @@
  * 		return EXIT_FAILURE;
  * 	}
  *
- * 	do_regex(re, regex, subject, stderr);
+ * 	if (replacement) do_replace(re, regex, subject, replacement, stderr);
+ * 	else             do_regex(re, regex, subject, stderr);
+ *
  * 	ktre_free(re);
  *
  * 	return EXIT_SUCCESS;
