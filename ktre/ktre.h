@@ -207,6 +207,11 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 void ktre_free(struct ktre *re);
 
 #ifdef KTRE_IMPLEMENTATION
+#include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
 /* memory functions */
 #ifndef KTRE_MALLOC
 #define KTRE_MALLOC  malloc
@@ -223,11 +228,6 @@ void ktre_free(struct ktre *re);
 #define WHITESPACE " \t\r\n\v\f"
 #define WORD "_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 #define DIGIT "0123456789"
-
-#include <stdbool.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
 
 #ifdef KTRE_DEBUG
 #include <stdio.h>
@@ -2141,7 +2141,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 				r++;
 				int n = dec_num(&r);
 
-				group = KTRE_REALLOC(group, (j + vec[i][n * 2 + 1] + 1) * sizeof *group);
+				group = KTRE_REALLOC(group, (j + vec[i][n * 2 + 1] + 2) * sizeof *group);
 				strncpy(group + j, subject + vec[i][n * 2], vec[i][n * 2 + 1]);
 				j += vec[i][n * 2 + 1];
 			} else {
