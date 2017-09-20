@@ -182,6 +182,7 @@ struct ktre {
 
 struct ktre *ktre_compile(const char *pat, int opt);
 _Bool ktre_exec(struct ktre *re, const char *subject, int ***vec);
+char *ktre_filter(struct ktre *re, const char *subject, const char *replacement);
 void ktre_free(struct ktre *re);
 
 #ifdef KTRE_IMPLEMENTATION
@@ -494,63 +495,74 @@ new_node()
 }
 
 static int
-parse_dec_num(struct ktre *re)
+dec_num(const char **s)
 {
 	int n = 0;
 
-	if (!isdigit(*re->sp)) {
+	while (**s && isdigit(**s)) {
+		n = n * 10 + (**s - '0');
+		(*s)++;
+	}
+
+	return n;
+}
+
+static int
+hex_num(const char **s)
+{
+	int n = 0;
+
+	while (**s
+	       && ((lc(**s) >= 'a' && lc(**s) <= 'f')
+	           || (**s >= '0' && **s <= '9')))
+	{
+		char c = lc(**s);
+		n *= 16;
+		n += (c >= 'a' && c <= 'f') ? c - 'a' + 10 : c - '0';
+		(*s)++;
+	}
+
+	return n;
+}
+
+static int
+oct_num(const char **s)
+{
+	int n = 0;
+
+	while (**s >= '0' && **s <= '7') {
+		n *= 8;
+		n += **s - '0';
+		(*s)++;
+	}
+
+	return n;
+}
+
+static int
+parse_dec_num(struct ktre *re)
+{
+	int n = dec_num(&re->sp);
+	if (n < 0)
 		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "expected a number");
-		return -1;
-	}
-
-	while (*re->sp && isdigit(*re->sp)) {
-		n *= 10;
-		n += *re->sp - '0';
-		re->sp++;
-	}
-
 	return n;
 }
 
 static int
 parse_hex_num(struct ktre *re)
 {
-	int n = 0;
-
-	if (!((lc(*re->sp) >= 'a' && lc(*re->sp) <= 'f')
-	       || (*re->sp >= '0' && *re->sp <= '9'))) {
+	int n = hex_num(&re->sp);
+	if (n < 0)
 		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "expected a number");
-		return -1;
-	}
-
-	while ((lc(*re->sp) >= 'a' && lc(*re->sp) <= 'f')
-	       || (*re->sp >= '0' && *re->sp <= '9'))
-	{
-		char c = lc(*re->sp);
-		n *= 16;
-		n += (c >= 'a' && c <= 'f') ? c - 'a' + 10 : c - '0';
-		next_char(re);
-	}
-
 	return n;
 }
 
 static int
 parse_oct_num(struct ktre *re)
 {
-	int n = 0;
-
-	if (!(*re->sp >= '0' && *re->sp <= '7')) {
+	int n = oct_num(&re->sp);
+	if (!(*re->sp >= '0' && *re->sp <= '7'))
 		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "expected a number");
-		return -1;
-	}
-
-	while (*re->sp >= '0' && *re->sp <= '7') {
-		n *= 8;
-		n += *re->sp - '0';
-		next_char(re);
-	}
-
 	return n;
 }
 
@@ -2064,10 +2076,75 @@ ktre_exec(struct ktre *re, const char *subject, int ***vec)
 #endif
 	if (re->err) {
 		KTRE_FREE(re->err_str);
-		re->err = 0;
+		re->err = KTRE_ERROR_NO_ERROR;
 	}
 
 	return run(re, subject, vec);
+}
+
+char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
+{
+#ifdef KTRE_DEBUG
+	DBG("\nsubject: %s", subject);
+#endif
+	int **vec = NULL;
+	if (!run(re, subject, &vec) || re->err) {
+		return NULL;
+	}
+
+	char *ret = KTRE_MALLOC(512);
+	*ret = 0;
+	int idx = 0;
+
+	for (int i = 0; i < re->num_matches; i++) {
+		if (i > 0) {
+			int diff = vec[i][0] - (vec[i - 1][0] + vec[i - 1][1]);
+			ret = KTRE_REALLOC(ret, (idx + diff + 1) * sizeof *ret);
+			strncpy(ret + idx, subject + vec[i - 1][0] + vec[i - 1][1], diff);
+			idx += diff;
+		} else {
+			idx = vec[i][0];
+			ret = KTRE_REALLOC(ret, (idx + 1) * sizeof *ret);
+			strncpy(ret, subject, idx);
+		}
+
+		ret[idx] = 0;
+
+		char *group = NULL;
+		int j = 0;
+
+		const char *r = replacement;
+
+		while (*r) {
+			if (*r == '\\') {
+				r++;
+				int n = dec_num(&r);
+
+				group = KTRE_REALLOC(group, (j + vec[i][n * 2 + 1] + 1) * sizeof *group);
+				strncpy(group + j, subject + vec[i][n * 2], vec[i][n * 2 + 1]);
+				j += vec[i][n * 2 + 1];
+			} else {
+				group = KTRE_REALLOC(group, (j + 1) * sizeof *group);
+				group[j++] = *r;
+				r++;
+			}
+		}
+
+		group[j] = 0;
+
+		ret = KTRE_REALLOC(ret, (idx + j + 1) * sizeof *ret);
+		strcpy(ret + idx, group);
+		ret[idx + j] = 0;
+		idx += j;
+	}
+
+	int diff = vec[re->num_matches - 1][0] + vec[re->num_matches - 1][1];
+	ret = KTRE_REALLOC(ret, (idx + diff + 1) * sizeof *ret);
+	strncpy(ret + idx, subject + diff, strlen(subject) - diff);
+	idx += strlen(subject) - diff;
+	ret[idx] = 0;
+
+	return ret;
 }
 #endif /* ifdef KTRE_IMPLEMENTATION */
 #endif /* ifndef KTRE_H */
