@@ -209,39 +209,38 @@ void ktre_free(struct ktre *re);
 #define WORD "_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 #define DIGIT "0123456789"
 
+#include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
 #ifdef KTRE_DEBUG
 #include <stdio.h>
 #include <assert.h>
 
 static void print_node(struct node *n);
-
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
-#define DBGF(str)							\
-	do {								\
-		for (int _i = 0; _i < (int)strlen(str); _i++) { \
-			if ((strchr(WHITESPACE, str[_i]) || str[_i] == '\\') && str[_i] != ' ') { \
-				fputc('\\', stderr);			\
-				switch (str[_i]) {			\
-				case '\t': fputc('t', stderr); break;	\
-				case '\r': fputc('r', stderr); break;	\
-				case '\n': fputc('n', stderr); break;	\
-				case '\v': fputc('v', stderr); break;	\
-				case '\f': fputc('f', stderr); break;	\
-				case '\\': fputc('\\',stderr); break;	\
-				default: fputc(str[_i], stderr);	\
-				}					\
-			} else {					\
-				fputc(str[_i], stderr);			\
-			}						\
-		}							\
-	} while (0);
-#endif
-
-#include <stdbool.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <setjmp.h>
+static void
+dbgf(const char *str)
+{
+	for (int i = 0; i < (int)strlen(str); i++) {
+		if ((strchr(WHITESPACE, str[i]) || str[i] == '\\') && str[i] != ' ') {
+			fputc('\\', stderr);
+			switch (str[i]) {
+			case '\t': fputc('t', stderr); break;
+			case '\r': fputc('r', stderr); break;
+			case '\n': fputc('n', stderr); break;
+			case '\v': fputc('v', stderr); break;
+			case '\f': fputc('f', stderr); break;
+			case '\\': fputc('\\',stderr); break;
+			default: fputc(str[i], stderr);
+			}
+		} else {
+			fputc(str[i], stderr);
+		}
+	}
+}
+#endif /* KTRE_DEBUG */
 
 static int
 add_group(struct ktre *re)
@@ -1099,8 +1098,8 @@ print_node(struct node *n)
 	case NODE_CHAR:      DBG("(char '%c')", n->c);                        break;
 	case NODE_WB:        DBG("(word boundary)");                          break;
 	case NODE_BACKREF:   DBG("(backreference to %d)", n->c);              break;
-	case NODE_CLASS:     DBG("(class '"); DBGF(n->class); DBG("')");      break;
-	case NODE_STR:       DBG("(string '"); DBGF(n->class); DBG("')");     break;
+	case NODE_CLASS:     DBG("(class '"); dbgf(n->class); DBG("')");      break;
+	case NODE_STR:       DBG("(string '"); dbgf(n->class); DBG("')");     break;
 	case NODE_NOT:       DBG("(not '%s')", n->class);                     break;
 	case NODE_BOL:       DBG("(bol)");                                    break;
 	case NODE_EOL:       DBG("(eol)");                                    break;
@@ -1468,9 +1467,9 @@ ktre_compile(const char *pat, int opt)
 		DBG("\n%3d: [%3d] ", i, re->c[i].loc);
 
 		switch (re->c[i].op) {
-		case INSTR_CLASS: DBG("CLASS   '"); DBGF(re->c[i].class); DBG("'");   break;
-		case INSTR_STR:   DBG("STR     '"); DBGF(re->c[i].class); DBG("'");   break;
-		case INSTR_TSTR:  DBG("TSTR    '"); DBGF(re->c[i].class); DBG("'");   break;
+		case INSTR_CLASS: DBG("CLASS   '"); dbgf(re->c[i].class); DBG("'");   break;
+		case INSTR_STR:   DBG("STR     '"); dbgf(re->c[i].class); DBG("'");   break;
+		case INSTR_TSTR:  DBG("TSTR    '"); dbgf(re->c[i].class); DBG("'");   break;
 		case INSTR_SPLIT:     DBG("SPLIT    %d, %d", re->c[i].a, re->c[i].b); break;
 		case INSTR_NOT:       DBG("NOT     '%s'", re->c[i].class);            break;
 		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].a);                break;
