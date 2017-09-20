@@ -179,3 +179,15 @@ user!host PART PRIVMSG before re after
 EXPECT_OUTPUT
 no match.
 END_CASE
+
+# test 12
+BEGIN_TEST
+(foo|bar)(?1)
+END_TEST
+
+BEGIN_CASE
+foobar
+EXPECT_OUTPUT
+foobar
+foo
+END_CASE

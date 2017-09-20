@@ -80,7 +80,7 @@
  * 		for (int i = 0; i < re->loc; i++) fputc(' ', stderr);
  * 		fputc('^', stderr);
  * 	} else {
- * 		fprintf(f, "no match.\n");
+ * 		fprintf(f, "\nno match.");
  * 	}
  * }
  *
@@ -116,16 +116,9 @@
 /* error codes */
 enum ktre_error {
 	KTRE_ERROR_NO_ERROR,
-	KTRE_ERROR_UNMATCHED_PAREN,
-	KTRE_ERROR_UNTERMINATED_CLASS,
 	KTRE_ERROR_STACK_OVERFLOW,
-	KTRE_ERROR_INVALID_MODE_MODIFIER,
-	KTRE_ERROR_INVALID_RANGE,
-	KTRE_ERROR_INVALID_BACKREFERENCE,
 	KTRE_ERROR_CALL_OVERFLOW,
-	KTRE_ERROR_SYNTAX_ERROR,
-	KTRE_ERROR_EMPTY_CLASS,
-	KTRE_ERROR_UNEXPECTED_TOKEN
+	KTRE_ERROR_SYNTAX_ERROR
 };
 
 /* options */
@@ -429,10 +422,11 @@ free_node(struct node *n)
 	KTRE_FREE(n);
 }
 
-#define NEXT                           \
-	do {                           \
-		if (*re->sp) re->sp++; \
-	} while (0)
+static void
+next_char(struct ktre *re)
+{
+	if (*re->sp) re->sp++;
+}
 
 #define MAX_ERROR_LEN 256 /* some arbitrary limit */
 
@@ -505,7 +499,7 @@ parse_number(struct ktre *re)
 	int n = 0;
 
 	if (!isdigit(*re->sp)) {
-		error(re, KTRE_ERROR_UNEXPECTED_TOKEN, re->sp - re->pat, "expected a number");
+		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "expected a number");
 		return -1;
 	}
 
@@ -516,6 +510,169 @@ parse_number(struct ktre *re)
 	}
 
 	return n;
+}
+
+static struct node *
+parse_special_group(struct ktre *re)
+{
+	struct node *left = new_node();
+	left->loc = re->sp - re->pat;
+
+	if (*re->sp == '#') { /* comments */
+		next_char(re);
+
+		while (*re->sp && *re->sp != ')') re->sp++;
+
+		left->type = NODE_NONE;
+	} else if (re->sp[0] == '<' && re->sp[1] == '=') { /* positive lookbehind */
+		re->sp += 2;
+
+		left->type = NODE_PLB;
+		left->a = parse(re);
+	} else if (*re->sp == ':') { /* uncaptured group */
+		next_char(re);
+
+		free_node(left);
+		left = parse(re);
+	} else if (*re->sp == '<' && re->sp[1] == '!') { /* negative lookbehind */
+		re->sp += 2;
+
+		left->type = NODE_NLB;
+		left->a = parse(re);
+	} else if (*re->sp == '>') {
+		next_char(re);
+
+		left->type = NODE_ATOM;
+		left->a = parse(re);
+	} else if (isdigit(*re->sp)) { /* subroutine call */
+		int len = 0, a = -1;
+
+		while (re->sp[len] && re->sp[len] != ')') len++;
+		if (re->sp[len] != ')') {
+			error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp + len - re->pat - 1, "unmatched '('");
+			free_node(left->a); left->a = NULL;
+			free_node(left);
+			return NULL;
+		}
+
+		len--;
+
+		for (int i = len; i >= 0; i--) {
+			if (!isdigit(re->sp[i])) {
+				error(re, KTRE_ERROR_SYNTAX_ERROR, re->pat - re->sp + i,
+				      "non-digits and negative numbers are forbidden in subroutine calls");
+				free_node(left);
+				return NULL;
+			}
+
+			if (i == len) a = re->sp[i] - '0';
+			else {
+				int d = re->sp[i] - '0';
+				for (int j = 0; j < len - i; j++) {
+					d *= 10;
+				}
+				a += d;
+			}
+		}
+
+		left->type = NODE_CALL;
+		left->c = a;
+
+		if (a <= re->gp) {
+			re->group[a].is_called = true;
+		}
+
+		re->sp += len + 1;
+	} else if (*re->sp == '=') {
+		next_char(re);
+
+		left->type = NODE_PLA;
+		left->a = parse(re);
+	} else if (*re->sp == '!') {
+		next_char(re);
+
+		left->type = NODE_NLA;
+		left->a = parse(re);
+	} else { /* mode modifiers */
+		left->type = NODE_NONE;
+		bool neg = false, off = false;
+		int opt;
+
+		while (*re->sp && *re->sp != ')') {
+			opt = 0;
+			switch (*re->sp) {
+			case 'i': opt |=  KTRE_INSENSITIVE;             break;
+			case 'c': opt |=  KTRE_INSENSITIVE; off = true; break;
+			case 'x': opt |=  KTRE_EXTENDED;                break;
+			case 't': opt |=  KTRE_EXTENDED;    off = true; break;
+			case '-': neg = true; next_char(re); continue;
+			default:
+				error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "invalid mode modifier");
+				free_node(left);
+				return NULL;
+			}
+
+			if (off || neg) re->popt &= ~opt;
+			else re->popt |= opt;
+
+			struct node *tmp = new_node();
+			tmp->loc = re->sp - re->pat;
+			tmp->type = NODE_SEQUENCE;
+			tmp->a = left;
+			tmp->b = new_node();
+			tmp->b->loc = re->sp - re->pat;
+			tmp->b->type = off || neg ? NODE_OPT_OFF : NODE_OPT_ON;
+			tmp->b->c = opt;
+			left = tmp;
+
+			off = false;
+			re->sp++;
+		}
+	}
+
+	if (*re->sp != ')') {
+		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "unmatched '('");
+		free_node(left->a);
+		left->a = NULL;
+		free_node(left);
+		return NULL;
+	}
+
+	return left;
+}
+
+static struct node *
+parse_group(struct ktre *re)
+{
+	struct node *left = new_node();
+	left->loc = re->sp - re->pat;
+	next_char(re);
+
+	if (!strncmp(re->sp, "?R)", 3)) {
+		re->sp += 2;
+		left->type = NODE_RECURSE;
+		re->group[0].is_called = true;
+	} else if (*re->sp == '?') {
+		next_char(re);
+		free_node(left);
+		left = parse_special_group(re);
+	} else {
+		left->gi = add_group(re);
+		re->group[left->gi].is_called = false;
+		left->type = NODE_GROUP;
+		left->a = parse(re);
+
+		if (*re->sp != ')') {
+			error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat - 1, "unmatched '('");
+			free_node(left->a); left->a = NULL;
+			free_node(left);
+			return NULL;
+		}
+	}
+
+	next_char(re);
+
+	return left;
 }
 
 static struct node *
@@ -530,40 +687,40 @@ again:
 	/* parse a primary */
 	switch (*re->sp) {
 	case '\\': /* escape sequences */
-		NEXT;
+		next_char(re);
 
 		switch (*re->sp) {
 		case 's':
 			left->type = NODE_SPACE;
-			NEXT;
+			next_char(re);
 			break;
 
 		case 'S':
 			left->type = NODE_NOT;
 			left->class = strclone(WHITESPACE);
-			NEXT;
+			next_char(re);
 			break;
 
 		case 'd':
 			left->type = NODE_DIGIT;
-			NEXT;
+			next_char(re);
 			break;
 
 		case 'D':
 			left->type = NODE_NOT;
 			left->class = strclone(DIGIT);
-			NEXT;
+			next_char(re);
 			break;
 
 		case 'w':
 			left->type = NODE_WORD;
-			NEXT;
+			next_char(re);
 			break;
 
 		case 'W':
 			left->type = NODE_NOT;
 			left->class = strclone(WORD);
-			NEXT;
+			next_char(re);
 			break;
 
 		case '0': case '1': case '2': case '3': case '4':
@@ -573,40 +730,40 @@ again:
 			if (isdigit(re->sp[1])) {
 				left->c *= 10;
 				left->c += re->sp[1] - '0';
-				NEXT;
+				next_char(re);
 			}
-			NEXT;
+			next_char(re);
 			break;
 
 		case 'K':
 			left->type = NODE_SET_START;
-			NEXT;
+			next_char(re);
 			break;
 
 		case 'b':
 			left->type = NODE_WB;
-			NEXT;
+			next_char(re);
 			break;
 
 		case 'n':
 			left->type = NODE_CHAR;
 			left->c = '\n';
-			NEXT;
+			next_char(re);
 			break;
 
 		default:
 			left->type = NODE_CHAR;
 			left->c = *re->sp;
-			NEXT;
+			next_char(re);
 		}
 		break;
 
 	case '[': { /* character classes */
 		int loc = re->sp - re->pat;
-		NEXT;
+		next_char(re);
 
 		if (*re->sp == '^') {
-			NEXT;
+			next_char(re);
 			left->type = NODE_NOT;
 		} else {
 			left->type = NODE_CLASS;
@@ -625,7 +782,7 @@ again:
 				}
 				re->sp += 3;
 			} else if (*re->sp == '\\') {
-				NEXT;
+				next_char(re);
 
 				switch (*re->sp) {
 				case 's':
@@ -656,227 +813,48 @@ again:
 		}
 
 		if (*re->sp != ']') {
-			error(re, KTRE_ERROR_UNTERMINATED_CLASS, loc, "unterminated character class");
+			error(re, KTRE_ERROR_SYNTAX_ERROR, loc, "unterminated character class");
 			free_node(left);
 			return NULL;
 		}
 
 		if (!class) {
-			error(re, KTRE_ERROR_EMPTY_CLASS, loc, "empty character class");
+			error(re, KTRE_ERROR_SYNTAX_ERROR, loc, "empty character class");
 			free_node(left);
 			return NULL;
 		}
 
 		left->class = class;
-		NEXT;
+		next_char(re);
 	} break;
 
 	case '(':
-		NEXT;
-
-		if (*re->sp == '?' && re->sp[1] == '#') { /* comments */
-			while (*re->sp && *re->sp != ')') re->sp++;
-
-			if (*re->sp != ')') {
-				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
-				free_node(left->a);
-				left->a = NULL;
-				free_node(left);
-				return NULL;
-			}
-
-			left->type = NODE_NONE;
-		} else if (!strncmp(re->sp, "?R)", 3)) {
-			re->sp += 2;
-			left->type = NODE_RECURSE;
-			re->group[0].is_called = true;
-		} else if (*re->sp == '?' && re->sp[1] == '<' && re->sp[2] == '=') { /* positive lookbehind */
-			left->type = NODE_PLB;
-			re->sp += 3;
-			left->a = parse(re);
-
-			if (*re->sp != ')') {
-				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
-				free_node(left->a); left->a = NULL;
-				free_node(left);
-				return NULL;
-			}
-		} else if (*re->sp == '?' && re->sp[1] == ':') { /* uncaptured group */
-			re->sp += 2;
-			free_node(left);
-			left = parse(re);
-
-			if (*re->sp != ')') {
-				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
-				free_node(left->a); left->a = NULL;
-				free_node(left);
-				return NULL;
-			}
-		} else if (*re->sp == '?' && re->sp[1] == '<' && re->sp[2] == '!') { /* positive lookbehind */
-			left->type = NODE_NLB;
-			re->sp += 3;
-			left->a = parse(re);
-
-			if (*re->sp != ')') {
-				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
-				free_node(left->a); left->a = NULL;
-				free_node(left);
-				return NULL;
-			}
-		} else if (*re->sp == '?' && re->sp[1] == '>') {
-			re->sp += 2;
-			left->type = NODE_ATOM;
-			left->a = parse(re);
-
-			if (*re->sp != ')') {
-				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
-				free_node(left->a); left->a = NULL;
-				free_node(left);
-				return NULL;
-			}
-		} else if (*re->sp == '?' && isdigit(re->sp[1])) { /* subroutine call */
-			NEXT;
-			int len = 0, a = -1;
-
-			while (re->sp[len] && re->sp[len] != ')') len++;
-			if (re->sp[len] != ')') {
-				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp + len - re->pat - 1, "unmatched '('");
-				free_node(left->a); left->a = NULL;
-				free_node(left);
-				return NULL;
-			}
-
-			len--;
-
-			for (int i = len; i >= 0; i--) {
-				if (!isdigit(re->sp[i])) {
-					error(re, KTRE_ERROR_INVALID_RANGE, re->pat - re->sp + i,
-					      "non-digits and negative numbers are forbidden in subroutine calls");
-					free_node(left);
-					return NULL;
-				}
-
-				if (i == len) a = re->sp[i] - '0';
-				else {
-					int d = re->sp[i] - '0';
-					for (int j = 0; j < len - i; j++) {
-						d *= 10;
-					}
-					a += d;
-				}
-			}
-
-			left->type = NODE_CALL;
-			left->c = a;
-
-			if (a <= re->gp) {
-				re->group[a].is_called = true;
-			}
-
-			re->sp += len + 1;
-		} else if (*re->sp == '?' && re->sp[1] == '=') {
-			left->type = NODE_PLA;
-			NEXT; NEXT;
-			left->a = parse(re);
-
-			if (*re->sp != ')') {
-				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
-				free_node(left->a); left->a = NULL;
-				free_node(left);
-				return NULL;
-			}
-		} else if (*re->sp == '?' && re->sp[1] == '!') {
-			left->type = NODE_NLA;
-			NEXT; NEXT;
-			left->a = parse(re);
-
-			if (*re->sp != ')') {
-				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
-				free_node(left->a); left->a = NULL;
-				free_node(left);
-				return NULL;
-			}
-		} else if (*re->sp == '?') { /* mode modifiers */
-			NEXT;
-			left->type = NODE_NONE;
-			bool neg = false, off = false;
-			int opt;
-
-			while (*re->sp && *re->sp != ')') {
-				opt = 0;
-				switch (*re->sp) {
-				case 'i': opt |=  KTRE_INSENSITIVE;             break;
-				case 'c': opt |=  KTRE_INSENSITIVE; off = true; break;
-				case 'x': opt |=  KTRE_EXTENDED;                break;
-				case 't': opt |=  KTRE_EXTENDED;    off = true; break;
-				case '-': neg = true; NEXT; continue;
-				default:
-					error(re, KTRE_ERROR_INVALID_MODE_MODIFIER, re->sp - re->pat, "invalid mode modifier");
-					free_node(left);
-					return NULL;
-				}
-
-				if (off || neg) re->popt &= ~opt;
-				else re->popt |= opt;
-
-				struct node *tmp = new_node();
-				tmp->loc = re->sp - re->pat;
-				tmp->type = NODE_SEQUENCE;
-				tmp->a = left;
-				tmp->b = new_node();
-				tmp->b->loc = re->sp - re->pat;
-				tmp->b->type = off || neg ? NODE_OPT_OFF : NODE_OPT_ON;
-				tmp->b->c = opt;
-				left = tmp;
-
-				off = false;
-				re->sp++;
-			}
-
-			if (*re->sp != ')') {
-				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat, "unmatched '('");
-				free_node(left->a); left->a = NULL;
-				free_node(left);
-				return NULL;
-			}
-		} else {
-			left->gi = add_group(re);
-			re->group[left->gi].is_called = false;
-			left->type = NODE_GROUP;
-			left->a = parse(re);
-
-			if (*re->sp != ')') {
-				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat - 1, "unmatched '('");
-				free_node(left->a); left->a = NULL;
-				free_node(left);
-				return NULL;
-			}
-		}
-
-		NEXT;
+		free_node(left);
+		left = parse_group(re);
 		break;
+
 	case '.':
-		NEXT;
+		next_char(re);
 		left->type = NODE_ANY;
 		break;
 
 	case '^':
-		NEXT;
+		next_char(re);
 		left->type = NODE_BOL;
 		break;
 
 	case '$':
-		NEXT;
+		next_char(re);
 		left->type = NODE_EOL;
 		break;
 
 	case '#': /* extended mode comments */
 		if (re->popt & KTRE_EXTENDED) {
-			while (*re->sp && *re->sp != '\n') { NEXT; }
+			while (*re->sp && *re->sp != '\n') { next_char(re); }
 		} else {
 			left->type = NODE_CHAR;
 			left->c = *re->sp;
-			NEXT;
+			next_char(re);
 		}
 		break;
 
@@ -884,30 +862,30 @@ again:
 		/* ignore whitespace if we're in extended mode */
 		if (re->popt & KTRE_EXTENDED && strchr(WHITESPACE, *re->sp)) {
 			while (*re->sp && strchr(WHITESPACE, *re->sp))
-				NEXT;
+				next_char(re);
 			goto again;
 		}
 
 		left->type = NODE_CHAR;
 		left->c = *re->sp;
-		NEXT;
+		next_char(re);
 	}
 
 	while (*re->sp && (*re->sp == '*' || *re->sp == '+' || *re->sp == '?' || *re->sp == '{')) {
 		struct node *n = new_node();
 
 		switch (*re->sp) {
-		case '*': n->type = NODE_ASTERISK; NEXT; break;
-		case '?': n->type = NODE_QUESTION; NEXT; break;
-		case '+': n->type = NODE_PLUS;     NEXT; break;
+		case '*': n->type = NODE_ASTERISK; next_char(re); break;
+		case '?': n->type = NODE_QUESTION; next_char(re); break;
+		case '+': n->type = NODE_PLUS;     next_char(re); break;
 		case '{': { /* counted repetition */
 			n->type = NODE_REP; n->c = -1; n->d = 0;
 
-			NEXT;
+			next_char(re);
 			n->c = parse_number(re);
 
 			if (*re->sp == ',') {
-				NEXT;
+				next_char(re);
 				if (isdigit(*re->sp))
 					n->d = parse_number(re);
 				else
@@ -915,13 +893,13 @@ again:
 			}
 
 			if (*re->sp != '}') {
-				error(re, KTRE_ERROR_UNMATCHED_PAREN, re->sp - re->pat - 1, "unmatched '{'");
+				error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat - 1, "unmatched '{'");
 				free_node(n);
 				free_node(left);
 				return NULL;
 			}
 
-			NEXT;
+			next_char(re);
 		} break;
 		}
 
@@ -1030,7 +1008,7 @@ parse(struct ktre *re)
 	struct node *n = term(re);
 
 	if (*re->sp && *re->sp == '|') {
-		NEXT;
+		next_char(re);
 
 		struct node *m = new_node();
 		m->type = NODE_OR;
@@ -1211,7 +1189,7 @@ compile(struct ktre *re, struct node *n, bool rev)
 
 	case NODE_CALL:
 		if (n->c <= 0 || n->c >= re->num_groups) {
-			error(re, KTRE_ERROR_INVALID_BACKREFERENCE, n->loc, "subroutine number is invalid or calls a group that does not yet exist");
+			error(re, KTRE_ERROR_SYNTAX_ERROR, n->loc, "subroutine number is invalid or calls a group that does not yet exist");
 			return;
 		}
 
@@ -1271,12 +1249,12 @@ compile(struct ktre *re, struct node *n, bool rev)
 
 	case NODE_BACKREF:
 		if (n->c <= 0 || n->c >= re->num_groups) {
-			error(re, KTRE_ERROR_INVALID_BACKREFERENCE, n->loc, "backreference number is invalid or references a group that does not yet exist");
+			error(re, KTRE_ERROR_SYNTAX_ERROR, n->loc, "backreference number is invalid or references a group that does not yet exist");
 			return;
 		}
 
 		if (!re->group[n->c].is_compiled) {
-			error(re, KTRE_ERROR_INVALID_BACKREFERENCE, n->loc, "backreferences may not reference the group they occur in");
+			error(re, KTRE_ERROR_SYNTAX_ERROR, n->loc, "backreferences may not reference the group they occur in");
 			return;
 		}
 
