@@ -34,11 +34,13 @@ main(int argc, char *argv[])
 
 	if (re->err) {
 		fprintf(f, "syntax error.\n");
+		fclose(f);
 		return EXIT_FAILURE;
 	}
 
 	do_regex(re, subject, f);
 	ktre_free(re);
+	fclose(f);
 
 	return EXIT_SUCCESS;
 }

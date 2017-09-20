@@ -52,14 +52,6 @@
  *     whitespace character in free-spaced mode, you must escape it or
  *     put it into a character class.
  *
- * The API consists of only three functions: ktre_compile(),
- * ktre_exec(), and ktre_free(). The prototypes for these functions
- * are:
- *
- * struct ktre *ktre_compile(const char *pat, int opt);
- * _Bool ktre_exec(struct ktre *re, const char *subject, int **vec);
- * void ktre_free(struct ktre *re);
- *
  * Here's a simple demo that runs a regex on a subject from the
  * commandline options:
  *
@@ -71,33 +63,24 @@
  * #include "ktre.h"
  *
  * static inline void
- * do_regex(struct ktre *re, const char *regex, const char *subject)
+ * do_regex(struct ktre *re, const char *regex, const char *subject, FILE *f)
  * {
- * 	int *vec = NULL;
- * 	fprintf(stderr, "\nsubject: %s", subject);
+ * 	int **vec = NULL;
  *
- * 	if (re->err) { // failed to compile
- * 		fprintf(stderr, "\nregex failed to compile with error code %d: %s\n", re->err, re->err_str);
+ * 	if (ktre_exec(re, subject, &vec)) {
+ * 		for (int i = 0; i < re->num_matches; i++) {
+ * 			fprintf(f, "\nmatch %d: `%.*s`", i + 1, vec[i][1], subject + vec[i][0]);
+ * 			for (int j = 1; j < re->num_groups; j++) {
+ * 				fprintf(f, "\ngroup %d: `%.*s`", j, vec[i][j * 2 + 1], subject + vec[i][j * 2]);
+ * 			}
+ * 		}
+ * 	} else if (re->err) {
+ * 		fprintf(f, "\nfailed at runtime with error code %d: %s\n", re->err, re->err_str);
  * 		fprintf(stderr, "\t%s\n\t", regex);
  * 		for (int i = 0; i < re->loc; i++) fputc(' ', stderr);
- * 		fprintf(stderr, "^\n");
- * 	} else if (ktre_exec(re, subject, &vec)) { // ran and succeeded
- * 		fprintf(stderr, "\nmatched: '%.*s'", vec[1], subject + vec[0]);
- *
- * 		for (int i = 1; i < re->num_groups; i++) {
- * 			if (vec[i * 2 + 1] && (int)strlen(subject) != vec[i * 2])
- * 				fprintf(stderr, "\ngroup %d: '%.*s'", i, vec[i * 2 + 1], subject + vec[i * 2]);
- * 		}
- *
- * 		fputc('\n', stderr);
- * 	} else if (re->err) { // ran, but failed with an error
- * 		fprintf(stderr, "\nregex failed at runtime with error code %d: %s\n", re->err, re->err_str);
- *
- * 		fprintf(stderr, "\t%s\n\t", regex);
- * 		for (int i = 0; i < re->loc; i++) putchar(' ');
- * 		fprintf(stderr, "^\n");
- * 	} else { // ran, but failed
- * 		fprintf(stderr, "\ndid not match!\n");
+ * 		fputc('^', stderr);
+ * 	} else {
+ * 		fprintf(f, "no match.\n");
  * 	}
  * }
  *
@@ -105,14 +88,22 @@
  * main(int argc, char *argv[])
  * {
  * 	if (argc != 3) {
- * 		fprintf(stderr, "Usage: ktre [subject] [pattern]\n");
- * 		exit(EXIT_FAILURE);
- *
+ * 		fprintf(stderr, "Usage: subject regex");
+ * 		return EXIT_FAILURE;
  * 	}
  *
  * 	char *subject = argv[1], *regex = argv[2];
- * 	struct ktre *re = ktre_compile(regex, KTRE_UNANCHORED);
- * 	do_regex(re, regex, subject);
+ * 	struct ktre *re = ktre_compile(regex, KTRE_UNANCHORED | KTRE_GLOBAL);
+ *
+ * 	if (re->err) {
+ * 		fprintf(stderr, "\nfailed to compile with error code %d: %s\n", re->err, re->err_str);
+ * 		fprintf(stderr, "\t%s\n\t", regex);
+ * 		for (int i = 0; i < re->loc; i++) fputc(' ', stderr);
+ * 		fputc('^', stderr);
+ * 		return EXIT_FAILURE;
+ * 	}
+ *
+ * 	do_regex(re, regex, subject, stderr);
  * 	ktre_free(re);
  *
  * 	return EXIT_SUCCESS;
@@ -1817,7 +1808,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 				re->vec = *vec;
 
-				if (opt & KTRE_GLOBAL == 0) {
+				if ((opt & KTRE_GLOBAL) == 0) {
 					KTRE_FREE(subject_lc);
 					return true;
 				} else {
@@ -2037,6 +2028,9 @@ ktre_free(struct ktre *re)
 _Bool
 ktre_exec(struct ktre *re, const char *subject, int ***vec)
 {
+#ifdef KTRE_DEBUG
+	DBG("\nsubject: %s", subject);
+#endif
 	if (re->err) {
 		KTRE_FREE(re->err_str);
 		re->err = 0;
