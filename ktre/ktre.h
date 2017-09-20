@@ -91,6 +91,7 @@
  *
  * 	if ((ret = ktre_filter(re, subject, replacement))) {
  * 		fprintf(f, "\nmatched: %s", ret);
+ * 		free(ret);
  * 	} else if (re->err) {
  * 		fprintf(f, "\nfailed at runtime with error code %d: %s\n", re->err, re->err_str);
  * 		fprintf(stderr, "\t%s\n\t", regex);
@@ -2145,7 +2146,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 				strncpy(group + j, subject + vec[i][n * 2], vec[i][n * 2 + 1]);
 				j += vec[i][n * 2 + 1];
 			} else {
-				group = KTRE_REALLOC(group, (j + 1) * sizeof *group);
+				group = KTRE_REALLOC(group, (j + 2) * sizeof *group);
 				group[j++] = *r;
 				r++;
 			}
@@ -2157,6 +2158,8 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 		strcpy(ret + idx, group);
 		ret[idx + j] = 0;
 		idx += j;
+
+		KTRE_FREE(group);
 	}
 
 	int diff = vec[re->num_matches - 1][0] + vec[re->num_matches - 1][1];
