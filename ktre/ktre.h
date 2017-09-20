@@ -90,7 +90,7 @@
  * 	char *ret = NULL;
  *
  * 	if ((ret = ktre_filter(re, subject, replacement))) {
- * 		fprintf(f, "\nmatched: %s", ret);
+ * 		fprintf(f, "\nmatched: %s\n", ret);
  * 		free(ret);
  * 	} else if (re->err) {
  * 		fprintf(f, "\nfailed at runtime with error code %d: %s\n", re->err, re->err_str);
@@ -2142,6 +2142,13 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 				r++;
 				int n = dec_num(&r);
 
+				if (n < 0 || n >= re->num_groups) {
+					KTRE_FREE(group);
+					KTRE_FREE(ret);
+					error(re, KTRE_ERROR_SYNTAX_ERROR, 0, "backreference references a group that does not exist");
+					return NULL;
+				}
+
 				group = KTRE_REALLOC(group, (j + vec[i][n * 2 + 1] + 2) * sizeof *group);
 				strncpy(group + j, subject + vec[i][n * 2], vec[i][n * 2 + 1]);
 				j += vec[i][n * 2 + 1];
@@ -2163,7 +2170,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 	}
 
 	int diff = vec[re->num_matches - 1][0] + vec[re->num_matches - 1][1];
-	ret = KTRE_REALLOC(ret, (idx + diff + 1) * sizeof *ret);
+	ret = KTRE_REALLOC(ret, (idx + diff + 2) * sizeof *ret);
 	strncpy(ret + idx, subject + diff, strlen(subject) - diff);
 	idx += strlen(subject) - diff;
 	ret[idx] = 0;
