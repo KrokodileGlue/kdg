@@ -76,12 +76,14 @@
  * 		}
  * 	} else if (re->err) {
  * 		fprintf(f, "\nfailed at runtime with error code %d: %s\n", re->err, re->err_str);
- * 		fprintf(stderr, "\t%s\n\t", regex);
- * 		for (int i = 0; i < re->loc; i++) fputc(' ', stderr);
- * 		fputc('^', stderr);
+ * 		fprintf(f, "\t%s\n\t", regex);
+ * 		for (int i = 0; i < re->loc; i++) fputc(' ', f);
+ * 		fputc('^', f);
  * 	} else {
  * 		fprintf(f, "\nno match.");
  * 	}
+ *
+ * 	fputc('\n', f);
  * }
  *
  * static inline void
@@ -90,27 +92,29 @@
  * 	char *ret = NULL;
  *
  * 	if ((ret = ktre_filter(re, subject, replacement))) {
- * 		fprintf(f, "\nmatched: %s\n", ret);
+ * 		fprintf(f, "\nmatched: %s", ret);
  * 		free(ret);
  * 	} else if (re->err) {
  * 		fprintf(f, "\nfailed at runtime with error code %d: %s\n", re->err, re->err_str);
- * 		fprintf(stderr, "\t%s\n\t", regex);
- * 		for (int i = 0; i < re->loc; i++) fputc(' ', stderr);
- * 		fputc('^', stderr);
+ * 		fprintf(f, "\t%s\n\t", regex);
+ * 		for (int i = 0; i < re->loc; i++) fputc(' ', f);
+ * 		fputc('^', f);
  * 	} else {
  * 		fprintf(f, "\nno match.");
  * 	}
+ *
+ * 	fputc('\n', f);
  * }
  *
  * int
  * main(int argc, char *argv[])
  * {
  * 	if (argc < 3 || argc > 4) {
- * 		fprintf(stderr, "Usage: regex subject [replacement]");
+ * 		fprintf(stderr, "Usage: subject regex [replacement]");
  * 		return EXIT_FAILURE;
  * 	}
  *
- * 	char *regex = argv[1], *subject = argv[2], *replacement = NULL;
+ * 	char *subject = argv[1], *regex = argv[2], *replacement = NULL;
  * 	if (argc == 4) replacement = argv[3];
  *
  * 	struct ktre *re = ktre_compile(regex, KTRE_UNANCHORED | KTRE_GLOBAL);
@@ -2159,14 +2163,16 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 			}
 		}
 
-		group[j] = 0;
+		if (*r) {
+			group[j] = 0;
 
-		ret = KTRE_REALLOC(ret, (idx + j + 1) * sizeof *ret);
-		strcpy(ret + idx, group);
-		ret[idx + j] = 0;
-		idx += j;
+			ret = KTRE_REALLOC(ret, (idx + j + 1) * sizeof *ret);
+			strcpy(ret + idx, group);
+			ret[idx + j] = 0;
+			idx += j;
 
-		KTRE_FREE(group);
+			KTRE_FREE(group);
+		}
 	}
 
 	int diff = vec[re->num_matches - 1][0] + vec[re->num_matches - 1][1];
