@@ -2194,7 +2194,14 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 
 int **ktre_getvec(struct ktre *re)
 {
+	int **vec = KTRE_MALLOC(re->num_matches  * sizeof re->vec[0]);
 
+	for (int i = 0; i < re->num_matches; i++) {
+		vec[i] = KTRE_MALLOC(re->num_groups * 2 * sizeof re->vec[0][0]);
+		memcpy(vec[i], re->vec[i], re->num_groups * 2 * sizeof re->vec[0][0]);
+	}
+
+	return vec;
 }
 #endif /* ifdef KTRE_IMPLEMENTATION */
 #endif /* ifndef KTRE_H */
