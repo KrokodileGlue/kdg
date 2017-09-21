@@ -143,6 +143,12 @@
 extern "C" {
 #endif
 
+/* manually disable warnings and errors about "unsafe" functions on
+ * the Microsoft platform. */
+#ifdef _MSC_VER
+#pragma warning(disable:4996)
+#endif
+
 /* error codes */
 enum ktre_error {
 	KTRE_ERROR_NO_ERROR,
@@ -357,6 +363,8 @@ ktre__malloc(struct ktre *re, size_t n, const char *file, int line)
 static void *
 ktre__realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line)
 {
+	if (!ptr) return ktre__malloc(re, n, file, line);
+
 	n += sizeof (struct ktre_malloc_info);
 	struct ktre_malloc_info *mi = (struct ktre_malloc_info *)ptr - 1;
 	int diff = n - mi->size;
