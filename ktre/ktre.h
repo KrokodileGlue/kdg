@@ -899,15 +899,11 @@ parse_group(struct ktre *re)
 }
 
 static struct node *
-factor(struct ktre *re)
+parse_primary(struct ktre *re)
 {
-	if (!*re->sp) return NULL;
-
 	struct node *left = new_node(re);
-	left->loc = re->sp - re->pat;
 
 again:
-	/* parse a primary */
 	switch (*re->sp) {
 	case '\\': /* escape sequences */
 		next_char(re);
@@ -1106,6 +1102,16 @@ again:
 		left->c = *re->sp;
 		next_char(re);
 	}
+
+	return left;
+}
+
+static struct node *
+factor(struct ktre *re)
+{
+	if (!*re->sp) return NULL;
+
+	struct node *left = parse_primary(re);
 
 	while (*re->sp && (*re->sp == '*' || *re->sp == '+' || *re->sp == '?' || *re->sp == '{')) {
 		struct node *n = new_node(re);
