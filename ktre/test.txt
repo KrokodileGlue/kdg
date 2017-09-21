@@ -191,3 +191,15 @@ EXPECT_OUTPUT
 foobar
 foo
 END_CASE
+
+# test 12
+BEGIN_TEST
+[aeiouy]{2}
+END_TEST
+
+BEGIN_CASE
+ou OU
+EXPECT_OUTPUT
+ou
+OU
+END_CASE

@@ -28,7 +28,7 @@ main(int argc, char *argv[])
 	if (argc < 3) return 0;
 
 	char *subject = argv[1], *regex = argv[2];
-	struct ktre *re = ktre_compile(regex, KTRE_UNANCHORED | KTRE_GLOBAL);
+	struct ktre *re = ktre_compile(regex, KTRE_UNANCHORED | KTRE_GLOBAL | KTRE_INSENSITIVE);
 
 	FILE *f = fopen("output.txt", "w");
 

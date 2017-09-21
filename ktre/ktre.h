@@ -209,6 +209,7 @@ struct ktre {
 struct ktre *ktre_compile(const char *pat, int opt);
 _Bool ktre_exec(struct ktre *re, const char *subject, int ***vec);
 char *ktre_filter(struct ktre *re, const char *subject, const char *replacement);
+int **ktre_getvec(struct ktre *re);
 void ktre_free(struct ktre *re);
 
 #ifdef KTRE_IMPLEMENTATION
@@ -894,12 +895,13 @@ again:
 					re->sp++;
 				}
 			} else {
-				if (re->popt & KTRE_INSENSITIVE) {
-					class = class_add_char(class, *re->sp);
-					if (*re->sp >= 'A' && *re->sp <= 'Z')
-						class = class_add_char(class, lc(*re->sp));
+				class = class_add_char(class, *re->sp);
+
+				if (re->popt & KTRE_INSENSITIVE
+				    && *re->sp >= 'A' && *re->sp <= 'Z') {
+					class = class_add_char(class, lc(*re->sp));
 				}
-				else class = class_add_char(class, *re->sp);
+
 				re->sp++;
 			}
 		}
@@ -1479,13 +1481,12 @@ ktre_compile(const char *pat, int opt)
 		case KTRE_INSENSITIVE: DBG("\n\tINSENSITIVE"); break;
 		case KTRE_UNANCHORED:  DBG("\n\tUNANCHORED");  break;
 		case KTRE_EXTENDED:    DBG("\n\tEXTENDED");    break;
-		case KTRE_GLOBAL:      DBG("\n\tGLOBAL");    break;
+		case KTRE_GLOBAL:      DBG("\n\tGLOBAL");      break;
 		default: continue;
 		}
 	}
 #endif
 
-	re->num_prog = 1;
 	re->n = new_node();
 	re->n->loc = 0;
 	re->n->type = NODE_GROUP;
@@ -1774,7 +1775,14 @@ run(struct ktre *re, const char *subject, int ***vec)
 		case INSTR_CLASS:
 			THREAD[TP].ip++;
 
-			if (strchr(re->c[ip].class, subject[sp]) && subject[sp] && sp >= 0)
+			if (!(subject[sp] && sp >= 0)) {
+				--TP;
+				continue;
+			}
+
+			if (strchr(re->c[ip].class, subject[sp]))
+				THREAD[TP].sp++;
+			else if (opt & KTRE_INSENSITIVE && strchr(re->c[ip].class, subject_lc[sp]))
 				THREAD[TP].sp++;
 			else
 				--TP;
@@ -1845,7 +1853,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 		case INSTR_CHAR:
 			THREAD[TP].ip++;
 
-			if (sp >= 0 && (opt & KTRE_INSENSITIVE && lc(subject[sp]) == lc(re->c[ip].c))
+			if ((sp >= 0 && ((opt & KTRE_INSENSITIVE) && lc(subject[sp]) == lc(re->c[ip].c)))
 			    || subject[sp] == re->c[ip].c)
 				if (rev) THREAD[TP].sp--; else THREAD[TP].sp++;
 			else
@@ -2182,6 +2190,11 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 	ret[idx] = 0;
 
 	return ret;
+}
+
+int **ktre_getvec(struct ktre *re)
+{
+
 }
 #endif /* ifdef KTRE_IMPLEMENTATION */
 #endif /* ifndef KTRE_H */
