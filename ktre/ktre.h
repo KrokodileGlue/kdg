@@ -139,12 +139,18 @@
 #ifndef KTRE_H
 #define KTRE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* error codes */
 enum ktre_error {
 	KTRE_ERROR_NO_ERROR,
 	KTRE_ERROR_STACK_OVERFLOW,
 	KTRE_ERROR_CALL_OVERFLOW,
-	KTRE_ERROR_SYNTAX_ERROR
+	KTRE_ERROR_SYNTAX_ERROR,
+	KTRE_ERROR_OUT_OF_MEMORY,
+	KTRE_ERROR_TOO_MANY_GROUPS
 };
 
 /* options */
@@ -159,37 +165,69 @@ enum {
 #define KTRE_MAX_GROUPS 100
 #define KTRE_MAX_THREAD 200
 #define KTRE_MAX_CALL_DEPTH 100
+#define KTRE_MEM_CAP 1000000
+
+struct ktre_info {
+	int ba, mba; /* bytes allocated and max bytes allocated */
+	int num_allocations, num_alloc, num_free;
+	int leaked_bytes;
+	int num_nodes_allocated;
+
+	int thread_alloc;
+	int instr_alloc;
+};
+
+struct ktre_malloc_info {
+#ifdef KTRE_DEBUG
+	const char *file;
+	int line;
+#endif
+	int size;
+	struct ktre_malloc_info *prev, *next;
+};
 
 struct ktre {
 	/* ===== public fields ===== */
-	int num_groups;
 	int num_matches;
+	int num_groups;
 	int opt;
-	/* string containing an error message in the case
-	 * of failure during parsing or compilation */
+
+	/*
+	 * String containing an error message in the case of failure
+	 * during parsing or compilation.
+	 */
 	char *err_str;
 	enum ktre_error err; /* error status code */
-	_Bool failed; /* whether or not this regex compiled successfully */
-	/* the location of any error that occurred, as an index
-	 * in the last subject the regex was run on */
+
+	/*
+	 * The location of any error that occurred, as an index in the
+	 * last subject the regex was run on.
+	 */
 	int loc;
 
 	/* ===== private fields ===== */
 	struct instr *c; /* code */
 	int ip;          /* instruction pointer */
-	int instr_alloc; /* the number of instructions that have been allocated so far */
-	int num_prog;    /* the number of progress instructions */
-	char const *pat;
-	char const *sp;  /* pointer to the character currently being parsed */
-	struct node *n;
+	int num_prog;    /* number of progress instructions */
+	char const *pat; /* pattern that's currently begin compiled */
+	char const *sp;  /* to the character currently being parsed */
 	int popt;        /* the options, as seen by the parser */
+	int gp;          /* group pointer */
+	struct node *n;  /* the head node of the ast */
 
 	struct group {
 		int address;
+
+		/*
+		 * These boolean flags indicate whether this groups
+		 * has been compiled or called as a subroutine,
+		 * respectively. The is_called field is flexible; it's
+		 * used whenever a group must be called as a
+		 * subroutine, which a counted repetition may do.
+		 */
 		_Bool is_compiled;
-		_Bool is_called; /* whether this group is ever called as a subroutine */
-	} *group;
-	int gp;
+		_Bool is_called;
+	} group[KTRE_MAX_GROUPS];
 
 	/* runtime */
 	struct thread {
@@ -198,19 +236,23 @@ struct ktre {
 		_Bool die, rev;
 	} *t;
 
-	/* The number of threads that have been allocated. This
-	 * persists between executions. */
-	int thread_alloc;
 	int tp, max_tp;
-
 	int **vec;
+
+	struct ktre_info info;
+	struct ktre_malloc_info *minfo;
 };
 
+/* API prototypes */
 struct ktre *ktre_compile(const char *pat, int opt);
 _Bool ktre_exec(struct ktre *re, const char *subject, int ***vec);
 char *ktre_filter(struct ktre *re, const char *subject, const char *replacement);
 int **ktre_getvec(struct ktre *re);
 void ktre_free(struct ktre *re);
+
+#ifdef __cplusplus
+}
+#endif
 
 #ifdef KTRE_IMPLEMENTATION
 #include <stdbool.h>
@@ -218,22 +260,9 @@ void ktre_free(struct ktre *re);
 #include <string.h>
 #include <ctype.h>
 
-/* memory functions */
-#ifndef KTRE_MALLOC
-#define KTRE_MALLOC  malloc
-#endif
-
-#ifndef KTRE_REALLOC
-#define KTRE_REALLOC realloc
-#endif
-
-#ifndef KTRE_FREE
-#define KTRE_FREE    free
-#endif
-
 #define WHITESPACE " \t\r\n\v\f"
-#define WORD "_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-#define DIGIT "0123456789"
+#define DIGIT      "0123456789"
+#define WORD       "_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 #ifdef KTRE_DEBUG
 #include <stdio.h>
@@ -263,10 +292,122 @@ dbgf(const char *str)
 }
 #endif /* KTRE_DEBUG */
 
+static void error(struct ktre *re, enum ktre_error err, int loc, char *fmt, ...);
+
+/* memory functions */
+#ifndef KTRE_MALLOC
+#define KTRE_MALLOC  malloc
+#define KTRE_REALLOC realloc
+#define KTRE_FREE    free
+#endif
+
+/*
+ * These memory functions must always be passed a pointer to the first
+ * byte of an allocated block; passing a pointer to any other byte in
+ * the block will cause it to incorrectly parse the block data and
+ * will probably result in a segfault later on down the line.
+ * So something like:
+ *     char *a = ktre__malloc(5);
+ *     a++;
+ *     ktre__free(a);
+ * would be incorrect.
+ */
+
+static void *ktre__malloc (struct ktre *re,            size_t n, const char *file, int line);
+static void *ktre__realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line);
+static void  ktre__free   (struct ktre *re, void *ptr,           const char *file, int line);
+
+static void *
+ktre__malloc(struct ktre *re, size_t n, const char *file, int line)
+{
+	n += sizeof (struct ktre_malloc_info);
+
+	if (re->info.ba + n > KTRE_MEM_CAP) {
+		error(re, KTRE_ERROR_OUT_OF_MEMORY, 0, NULL);
+		return NULL;
+	}
+
+	struct ktre_malloc_info *mi = KTRE_MALLOC(n);
+
+	if (!mi) {
+		error(re, KTRE_ERROR_OUT_OF_MEMORY, 0, NULL);
+		return NULL;
+
+	}
+
+	re->info.num_alloc++;
+	re->info.ba += n;
+
+#ifdef KTRE_DEBUG
+	mi->file = file;
+	mi->line = line;
+#endif
+	mi->next = re->minfo;
+
+	if (re->minfo)
+		mi->next->prev = mi;
+
+	mi->prev = NULL;
+	mi->size = (int)n;
+	re->minfo = mi;
+
+	return mi + 1;
+}
+
+static void *
+ktre__realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line)
+{
+	n += sizeof (struct ktre_malloc_info);
+	struct ktre_malloc_info *mi = (struct ktre_malloc_info *)ptr - 1;
+	int diff = n - mi->size;
+
+	/*
+	 * We don't need to grow the block, so just return early.
+	 */
+	if (diff <= 0) return ptr;
+
+	if (re->info.ba + diff > KTRE_MEM_CAP) {
+		error(re, KTRE_ERROR_OUT_OF_MEMORY, 0, NULL);
+		return NULL;
+	}
+
+	void *p = ktre__malloc(re, n, file, line);
+
+	if (p) {
+		memcpy(p, ptr, mi->size);
+		ktre__free(re, ptr, file, line);
+	}
+
+	return p;
+}
+
+static void
+ktre__free(struct ktre *re, void *ptr, const char *file, int line)
+{
+	re->info.num_free++;
+
+	if (ptr) {
+		struct ktre_malloc_info *mi = (struct ktre_malloc_info *)ptr - 1;
+		KTRE_FREE(mi);
+	}
+}
+
+#define ktre__malloc(re, n)       ktre__malloc (re, n,      __FILE__, __LINE__)
+#define ktre__realloc(re, ptr, n) ktre__realloc(re, ptr, n, __FILE__, __LINE__)
+#define ktre__free(re, ptr)       ktre__free   (re, ptr,    __FILE__, __LINE__)
+
 static int
 add_group(struct ktre *re)
 {
-	re->group = KTRE_REALLOC(re->group, sizeof re->group[0] * (re->gp + 1));
+	if (re->gp >= KTRE_MAX_GROUPS) {
+		error(re,
+		      KTRE_ERROR_TOO_MANY_GROUPS,
+		      re->sp - re->pat,
+		      "regex contains too many groups");
+
+		return -1;
+	}
+
 	re->group[re->gp].is_compiled = false;
 	re->group[re->gp].address = -1;
 	re->group[re->gp].is_called = false;
@@ -324,19 +465,19 @@ struct instr {
 static void
 grow_code(struct ktre *re, int n)
 {
-	if (!re->instr_alloc) {
-		re->instr_alloc = 25;
-		re->c = KTRE_MALLOC(sizeof re->c[0] * re->instr_alloc);
+	if (!re->info.instr_alloc) {
+		re->info.instr_alloc = 25;
+		re->c = ktre__malloc(re, sizeof re->c[0] * re->info.instr_alloc);
 	}
 
-	if (re->ip + n >= re->instr_alloc) {
-		if (re->ip + n >= re->instr_alloc * 2) {
-			re->instr_alloc = re->ip + n;
+	if (re->ip + n >= re->info.instr_alloc) {
+		if (re->ip + n >= re->info.instr_alloc * 2) {
+			re->info.instr_alloc = re->ip + n;
 		} else {
-			re->instr_alloc *= 2;
+			re->info.instr_alloc *= 2;
 		}
 
-		re->c = KTRE_REALLOC(re->c, sizeof re->c[0] * re->instr_alloc);
+		re->c = ktre__realloc(re, re->c, sizeof re->c[0] * re->info.instr_alloc);
 	}
 }
 
@@ -427,27 +568,27 @@ struct node {
 };
 
 static void
-free_node(struct node *n)
+free_node(struct ktre *re, struct node *n)
 {
 	/* sometimes parse errors can produce NULL nodes */
 	if (!n) return;
 
 	switch (n->type) {
 	case NODE_SEQUENCE: case NODE_OR:
-		free_node(n->a);
-		free_node(n->b);
+		free_node(re, n->a);
+		free_node(re, n->b);
 		break;
 	case NODE_QUESTION: case NODE_REP:   case NODE_ASTERISK:
 	case NODE_PLUS:     case NODE_GROUP: case NODE_ATOM:
 	case NODE_PLA:      case NODE_NLA:   case NODE_PLB:
 	case NODE_NLB:
-		free_node(n->a);
+		free_node(re, n->a);
 		break;
-	case NODE_CLASS: case NODE_STR: KTRE_FREE(n->class); break;
+	case NODE_CLASS: case NODE_STR: ktre__free(re, n->class); break;
 	default: break;
 	}
 
-	KTRE_FREE(n);
+	ktre__free(re, n);
 }
 
 static void
@@ -462,11 +603,12 @@ next_char(struct ktre *re)
 static void
 error(struct ktre *re, enum ktre_error err, int loc, char *fmt, ...)
 {
-	re->failed = true;
 	re->err = err;
-	re->err_str = KTRE_MALLOC(MAX_ERROR_LEN);
 	re->loc = loc;
 
+	if (!fmt) return;
+
+	re->err_str = ktre__malloc(re, MAX_ERROR_LEN);
 	va_list args;
 	va_start(args, fmt);
 	vsnprintf(re->err_str, MAX_ERROR_LEN, fmt, args);
@@ -486,36 +628,36 @@ lc(char c)
 }
 
 static char *
-class_add_char(char *class, char c)
+class_add_char(struct ktre *re, char *class, char c)
 {
 	size_t len = class ? strlen(class) : 0;
-	class = KTRE_REALLOC(class, len + 2);
+	class = ktre__realloc(re, class, len + 2);
 	class[len] = c;
 	class[len + 1] = 0;
 	return class;
 }
 
 static char *
-class_add_str(char *class, const char *c)
+class_add_str(struct ktre *re, char *class, const char *c)
 {
 	size_t len = class ? strlen(class) : 0;
-	class = KTRE_REALLOC(class, len + strlen(c) + 1);
+	class = ktre__realloc(re, class, len + strlen(c) + 1);
 	strcpy(class + len, c);
 	return class;
 }
 
 static char *
-strclone(const char *str)
+strclone(struct ktre *re, const char *str)
 {
-	char *ret = KTRE_MALLOC(strlen(str) + 1);
+	char *ret = ktre__malloc(re, strlen(str) + 1);
 	strcpy(ret, str);
 	return ret;
 }
 
 static struct node *
-new_node()
+new_node(struct ktre *re)
 {
-	struct node *n = KTRE_MALLOC(sizeof *n);
+	struct node *n = ktre__malloc(re, sizeof *n);
 	memset(n, 0, sizeof *n);
 	n->loc = -1;
 	return n;
@@ -596,7 +738,7 @@ parse_oct_num(struct ktre *re)
 static struct node *
 parse_special_group(struct ktre *re)
 {
-	struct node *left = new_node();
+	struct node *left = new_node(re);
 	left->loc = re->sp - re->pat;
 
 	if (*re->sp == '#') { /* comments */
@@ -613,7 +755,7 @@ parse_special_group(struct ktre *re)
 	} else if (*re->sp == ':') { /* uncaptured group */
 		next_char(re);
 
-		free_node(left);
+		free_node(re, left);
 		left = parse(re);
 	} else if (*re->sp == '<' && re->sp[1] == '!') { /* negative lookbehind */
 		re->sp += 2;
@@ -631,8 +773,8 @@ parse_special_group(struct ktre *re)
 		while (re->sp[len] && re->sp[len] != ')') len++;
 		if (re->sp[len] != ')') {
 			error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp + len - re->pat - 1, "unmatched '('");
-			free_node(left->a); left->a = NULL;
-			free_node(left);
+			free_node(re, left->a); left->a = NULL;
+			free_node(re, left);
 			return NULL;
 		}
 
@@ -642,7 +784,7 @@ parse_special_group(struct ktre *re)
 			if (!isdigit(re->sp[i])) {
 				error(re, KTRE_ERROR_SYNTAX_ERROR, re->pat - re->sp + i,
 				      "non-digits and negative numbers are forbidden in subroutine calls");
-				free_node(left);
+				free_node(re, left);
 				return NULL;
 			}
 
@@ -689,18 +831,18 @@ parse_special_group(struct ktre *re)
 			case '-': neg = true; next_char(re); continue;
 			default:
 				error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "invalid mode modifier");
-				free_node(left);
+				free_node(re, left);
 				return NULL;
 			}
 
 			if (off || neg) re->popt &= ~opt;
 			else re->popt |= opt;
 
-			struct node *tmp = new_node();
+			struct node *tmp = new_node(re);
 			tmp->loc = re->sp - re->pat;
 			tmp->type = NODE_SEQUENCE;
 			tmp->a = left;
-			tmp->b = new_node();
+			tmp->b = new_node(re);
 			tmp->b->loc = re->sp - re->pat;
 			tmp->b->type = off || neg ? NODE_OPT_OFF : NODE_OPT_ON;
 			tmp->b->c = opt;
@@ -713,9 +855,9 @@ parse_special_group(struct ktre *re)
 
 	if (*re->sp != ')') {
 		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "unmatched '('");
-		free_node(left->a);
+		free_node(re, left->a);
 		left->a = NULL;
-		free_node(left);
+		free_node(re, left);
 		return NULL;
 	}
 
@@ -725,7 +867,7 @@ parse_special_group(struct ktre *re)
 static struct node *
 parse_group(struct ktre *re)
 {
-	struct node *left = new_node();
+	struct node *left = new_node(re);
 	left->loc = re->sp - re->pat;
 	next_char(re);
 
@@ -735,7 +877,7 @@ parse_group(struct ktre *re)
 		re->group[0].is_called = true;
 	} else if (*re->sp == '?') {
 		next_char(re);
-		free_node(left);
+		free_node(re, left);
 		left = parse_special_group(re);
 	} else {
 		left->gi = add_group(re);
@@ -745,8 +887,8 @@ parse_group(struct ktre *re)
 
 		if (*re->sp != ')') {
 			error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat - 1, "unmatched '('");
-			free_node(left->a); left->a = NULL;
-			free_node(left);
+			free_node(re, left->a); left->a = NULL;
+			free_node(re, left);
 			return NULL;
 		}
 	}
@@ -761,7 +903,7 @@ factor(struct ktre *re)
 {
 	if (!*re->sp) return NULL;
 
-	struct node *left = new_node();
+	struct node *left = new_node(re);
 	left->loc = re->sp - re->pat;
 
 again:
@@ -778,7 +920,7 @@ again:
 
 		case 'S':
 			left->type = NODE_NOT;
-			left->class = strclone(WHITESPACE);
+			left->class = strclone(re, WHITESPACE);
 			next_char(re);
 			break;
 
@@ -789,7 +931,7 @@ again:
 
 		case 'D':
 			left->type = NODE_NOT;
-			left->class = strclone(DIGIT);
+			left->class = strclone(re, DIGIT);
 			next_char(re);
 			break;
 
@@ -800,7 +942,7 @@ again:
 
 		case 'W':
 			left->type = NODE_NOT;
-			left->class = strclone(WORD);
+			left->class = strclone(re, WORD);
 			next_char(re);
 			break;
 
@@ -866,11 +1008,11 @@ again:
 		while (*re->sp && *re->sp != ']') {
 			if (re->sp[1] == '-' && re->sp[2] != ']') {
 				for (int i = re->sp[0]; i <= re->sp[2]; i++) {
-					class = class_add_char(class, i);
+					class = class_add_char(re, class, i);
 
 					if (re->popt & KTRE_INSENSITIVE) {
 						if (i >= 'A' && i <= 'Z')
-							class = class_add_char(class, lc(i));
+							class = class_add_char(re, class, lc(i));
 					}
 				}
 				re->sp += 3;
@@ -879,27 +1021,27 @@ again:
 
 				switch (*re->sp) {
 				case 's':
-					class = class_add_str(class, WHITESPACE);
+					class = class_add_str(re, class, WHITESPACE);
 					re->sp++;
 					break;
 				case 'd':
-					class = class_add_str(class, DIGIT);
+					class = class_add_str(re, class, DIGIT);
 					re->sp++;
 					break;
 				case 'w':
-					class = class_add_str(class, WORD);
+					class = class_add_str(re, class, WORD);
 					re->sp++;
 					break;
 				case 'n':
-					class = class_add_char(class, '\n');
+					class = class_add_char(re, class, '\n');
 					re->sp++;
 				}
 			} else {
-				class = class_add_char(class, *re->sp);
+				class = class_add_char(re, class, *re->sp);
 
 				if (re->popt & KTRE_INSENSITIVE
 				    && *re->sp >= 'A' && *re->sp <= 'Z') {
-					class = class_add_char(class, lc(*re->sp));
+					class = class_add_char(re, class, lc(*re->sp));
 				}
 
 				re->sp++;
@@ -908,13 +1050,13 @@ again:
 
 		if (*re->sp != ']') {
 			error(re, KTRE_ERROR_SYNTAX_ERROR, loc, "unterminated character class");
-			free_node(left);
+			free_node(re, left);
 			return NULL;
 		}
 
 		if (!class) {
 			error(re, KTRE_ERROR_SYNTAX_ERROR, loc, "empty character class");
-			free_node(left);
+			free_node(re, left);
 			return NULL;
 		}
 
@@ -923,7 +1065,7 @@ again:
 	} break;
 
 	case '(':
-		free_node(left);
+		free_node(re, left);
 		left = parse_group(re);
 		break;
 
@@ -966,7 +1108,7 @@ again:
 	}
 
 	while (*re->sp && (*re->sp == '*' || *re->sp == '+' || *re->sp == '?' || *re->sp == '{')) {
-		struct node *n = new_node();
+		struct node *n = new_node(re);
 
 		switch (*re->sp) {
 		case '*': n->type = NODE_ASTERISK; next_char(re); break;
@@ -988,8 +1130,8 @@ again:
 
 			if (*re->sp != '}') {
 				error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat - 1, "unmatched '{'");
-				free_node(n);
-				free_node(left);
+				free_node(re, n);
+				free_node(re, left);
 				return NULL;
 			}
 
@@ -1014,7 +1156,7 @@ again:
 static struct node *
 term(struct ktre *re)
 {
-	struct node *left = new_node();
+	struct node *left = new_node(re);
 	left->type = NODE_NONE;
 	left->loc = re->sp - re->pat;
 
@@ -1022,20 +1164,20 @@ term(struct ktre *re)
 		struct node *right = factor(re);
 
 		if (re->err) {
-			free_node(left);
-			free_node(right);
+			free_node(re, left);
+			free_node(re, right);
 			return NULL;
 		}
 
 		if (left->type == NODE_NONE) {
-			KTRE_FREE(left);
+			ktre__free(re, left);
 			left = right;
 		} else {
 			if ((left->type == NODE_CHAR || left->type == NODE_STR) && right->type == NODE_CHAR) {
 				if (left->type == NODE_CHAR) {
 					char a = left->c;
 					left->type = NODE_STR;
-					left->class = KTRE_MALLOC(3);
+					left->class = ktre__malloc(re, 3);
 
 					if (re->popt & KTRE_INSENSITIVE) {
 						left->class[0] = lc(a);
@@ -1046,22 +1188,22 @@ term(struct ktre *re)
 					}
 
 					left->class[2] = 0;
-					free_node(right);
+					free_node(re, right);
 				} else {
 					if (re->popt & KTRE_INSENSITIVE) {
-						left->class = class_add_char(left->class, lc(right->c));
+						left->class = class_add_char(re, left->class, lc(right->c));
 					} else {
-						left->class = class_add_char(left->class, right->c);
+						left->class = class_add_char(re, left->class, right->c);
 					}
 
-					free_node(right);
+					free_node(re, right);
 				}
 			} else if (right->type == NODE_CHAR && left->type == NODE_SEQUENCE
 				   && (left->b->type == NODE_CHAR || left->b->type == NODE_STR)) {
 				if (left->b->type == NODE_CHAR) {
 					char a = left->b->c;
 					left->b->type = NODE_STR;
-					left->b->class = KTRE_MALLOC(3);
+					left->b->class = ktre__malloc(re, 3);
 
 					if (re->popt & KTRE_INSENSITIVE) {
 						left->b->class[0] = lc(a);
@@ -1072,18 +1214,18 @@ term(struct ktre *re)
 					}
 
 					left->b->class[2] = 0;
-					free_node(right);
+					free_node(re, right);
 				} else {
 					if (re->popt & KTRE_INSENSITIVE) {
-						left->b->class = class_add_char(left->b->class, lc(right->c));
+						left->b->class = class_add_char(re, left->b->class, lc(right->c));
 					} else {
-						left->b->class = class_add_char(left->b->class, right->c);
+						left->b->class = class_add_char(re, left->b->class, right->c);
 					}
 
-					free_node(right);
+					free_node(re, right);
 				}
 			} else {
-				struct node *tmp = new_node();
+				struct node *tmp = new_node(re);
 				tmp->loc = re->sp - re->pat;
 				tmp->a = left;
 				tmp->b = right;
@@ -1104,14 +1246,14 @@ parse(struct ktre *re)
 	if (*re->sp && *re->sp == '|') {
 		next_char(re);
 
-		struct node *m = new_node();
+		struct node *m = new_node(re);
 		m->type = NODE_OR;
 		m->a = n;
 		m->b = parse(re);
 		m->loc = re->sp - re->pat;
 
 		if (re->err) {
-			free_node(m->b);
+			free_node(re, m->b);
 			m->b = NULL;
 			return m;
 		}
@@ -1365,7 +1507,7 @@ compile(struct ktre *re, struct node *n, bool rev)
 				emit_c(re, INSTR_CALL, re->group[n->a->gi].address + 1, n->loc);
 			} else {
 				if (n->a->type == NODE_CHAR) {
-					char *str = KTRE_MALLOC(n->c + 1);
+					char *str = ktre__malloc(re, n->c + 1);
 					for (int i = 0; i < n->c; i++) str[i] = n->a->c;
 					str[n->c] = 0;
 					emit_class(re, INSTR_TSTR, str, n->loc);
@@ -1466,13 +1608,6 @@ ktre_compile(const char *pat, int opt)
 	struct ktre *re = KTRE_MALLOC(sizeof *re);
 	memset(re, 0, sizeof *re);
 
-	re->pat = pat;
-	re->opt = opt;
-	re->sp = pat;
-	re->popt = opt;
-	re->max_tp = -1;
-	re->err_str = "no error";
-
 #ifdef KTRE_DEBUG
 	DBG("regexpr: %s", pat);
 	if (opt) DBG("\noptions:");
@@ -1487,26 +1622,30 @@ ktre_compile(const char *pat, int opt)
 	}
 #endif
 
-	re->n = new_node();
+	re->pat = pat;
+	re->opt = opt;
+	re->sp = pat;
+	re->popt = opt;
+	re->max_tp = -1;
+	re->err_str = "no error";
+	re->n = new_node(re);
 	re->n->loc = 0;
 	re->n->type = NODE_GROUP;
 	re->n->gi = add_group(re);
 	re->group[0].is_compiled = false;
 	re->group[0].is_called = false;
-
 	re->n->a = NULL;
 	struct node *n = parse(re);
 	re->n->a = n;
 
-	if (re->failed) {
-		free_node(re->n);
+	if (re->err) {
+		free_node(re, re->n);
 		re->n = NULL;
 		return re;
 	}
 
 	if (*re->sp) {
 		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "invalid regex syntax; unmatched righthand delimiter");
-		re->failed = true;
 		return re;
 	}
 
@@ -1522,7 +1661,7 @@ ktre_compile(const char *pat, int opt)
 	}
 
 	compile(re, re->n, false);
-	if (re->failed)
+	if (re->err)
 		return re;
 
 	emit(re, INSTR_MATCH, re->sp - re->pat);
@@ -1590,49 +1729,49 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int e)
 {
 	++TP;
 
-	if (TP >= re->thread_alloc - 1) {
-		if (re->thread_alloc * 2 >= KTRE_MAX_THREAD) {
-			re->thread_alloc = KTRE_MAX_THREAD;
+	if (TP >= re->info.thread_alloc - 1) {
+		if (re->info.thread_alloc * 2 >= KTRE_MAX_THREAD) {
+			re->info.thread_alloc = KTRE_MAX_THREAD;
 
 			/* account for the case where we're about to
 			 * bump up against the thread limit. */
 			TP = TP >= KTRE_MAX_THREAD ? KTRE_MAX_THREAD - 1 : TP;
 		} else
-			re->thread_alloc *= 2;
+			re->info.thread_alloc *= 2;
 
-		re->t = KTRE_REALLOC(re->t, re->thread_alloc * sizeof THREAD[0]);
-		memset(&THREAD[TP], 0, (re->thread_alloc - TP) * sizeof THREAD[0]);
+		re->t = ktre__realloc(re, re->t, re->info.thread_alloc * sizeof THREAD[0]);
+		memset(&THREAD[TP], 0, (re->info.thread_alloc - TP) * sizeof THREAD[0]);
 	}
 
 	if (!THREAD[TP].vec) {
-		THREAD[TP].vec = KTRE_MALLOC(re->num_groups * 2 * sizeof THREAD[TP].vec[0]);
+		THREAD[TP].vec = ktre__malloc(re, re->num_groups * 2 * sizeof THREAD[TP].vec[0]);
 		memset(THREAD[TP].vec, 0,    re->num_groups * 2 * sizeof THREAD[TP].vec[0]);
 	}
 
-	if (!THREAD[TP].prog) {
-		THREAD[TP].prog = KTRE_MALLOC(re->num_prog * sizeof THREAD[TP].prog[0]);
+	if (!THREAD[TP].prog && re->num_prog) {
+		THREAD[TP].prog = ktre__malloc(re, re->num_prog * sizeof THREAD[TP].prog[0]);
 		memset(THREAD[TP].prog, -1,   re->num_prog * sizeof THREAD[TP].prog[0]);
 	}
 
 	if (!THREAD[TP].frame) {
-		THREAD[TP].frame = KTRE_MALLOC((fp + 1) * sizeof THREAD[TP].frame[0]);
+		THREAD[TP].frame = ktre__malloc(re, (fp + 1) * sizeof THREAD[TP].frame[0]);
 		memset(THREAD[TP].frame, -1,   (fp + 1) * sizeof THREAD[TP].frame[0]);
 	} else if (THREAD[TP].fp < fp) {
-		THREAD[TP].frame = KTRE_REALLOC(THREAD[TP].frame, (fp + 1) * sizeof THREAD[TP].frame[0]);
+		THREAD[TP].frame = ktre__realloc(re, THREAD[TP].frame, (fp + 1) * sizeof THREAD[TP].frame[0]);
 	}
 
 	if (!THREAD[TP].las) {
-		THREAD[TP].las = KTRE_MALLOC((la + 1) * sizeof THREAD[TP].las[0]);
+		THREAD[TP].las = ktre__malloc(re, (la + 1) * sizeof THREAD[TP].las[0]);
 		memset(THREAD[TP].las, -1,   (la + 1) * sizeof THREAD[TP].las[0]);
 	} else if (THREAD[TP].la < la) {
-		THREAD[TP].las = KTRE_REALLOC(THREAD[TP].las, (la + 1) * sizeof THREAD[TP].las[0]);
+		THREAD[TP].las = ktre__realloc(re, THREAD[TP].las, (la + 1) * sizeof THREAD[TP].las[0]);
 	}
 
 	if (!THREAD[TP].exception) {
-		THREAD[TP].exception = KTRE_MALLOC((e + 1) * sizeof THREAD[TP].exception[0]);
+		THREAD[TP].exception = ktre__malloc(re, (e + 1) * sizeof THREAD[TP].exception[0]);
 		memset(THREAD[TP].exception, -1,   (e + 1) * sizeof THREAD[TP].exception[0]);
 	} else if (THREAD[TP].e < e) {
-		THREAD[TP].exception = KTRE_REALLOC(THREAD[TP].exception, (e + 1) * sizeof THREAD[TP].exception[0]);
+		THREAD[TP].exception = ktre__realloc(re, THREAD[TP].exception, (e + 1) * sizeof THREAD[TP].exception[0]);
 	}
 
 	THREAD[TP].e   = e;
@@ -1678,10 +1817,10 @@ run(struct ktre *re, const char *subject, int ***vec)
 {
 	if (*vec) {
 		for (int i = 0; i < re->num_matches; i++) {
-			KTRE_FREE((*vec)[i]);
+			ktre__free(re, (*vec)[i]);
 		}
 
-		KTRE_FREE(*vec);
+		ktre__free(re, *vec);
 	}
 
 	*vec = NULL;
@@ -1689,13 +1828,13 @@ run(struct ktre *re, const char *subject, int ***vec)
 	re->num_matches = 0;
 	TP = -1;
 
-	if (!re->thread_alloc) {
-		re->thread_alloc = 25;
-		re->t = KTRE_MALLOC(re->thread_alloc * sizeof THREAD[0]);
-		memset(re->t, 0, re->thread_alloc * sizeof THREAD[0]);
+	if (!re->info.thread_alloc) {
+		re->info.thread_alloc = 25;
+		re->t = ktre__malloc(re, re->info.thread_alloc * sizeof THREAD[0]);
+		memset(re->t, 0, re->info.thread_alloc * sizeof THREAD[0]);
 	}
 
-	char *subject_lc = KTRE_MALLOC(strlen(subject) + 1);
+	char *subject_lc = ktre__malloc(re, strlen(subject) + 1);
 	for (int i = 0; i <= (int)strlen(subject); i++)
 		subject_lc[i] = lc(subject[i]);
 
@@ -1876,8 +2015,8 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 		case INSTR_MATCH:
 			if ((opt & KTRE_UNANCHORED) != 0 || (sp >= 0 && !subject[sp])) {
-				*vec = KTRE_REALLOC(*vec, (re->num_matches + 1) * sizeof *vec);
-				(*vec)[re->num_matches] = KTRE_MALLOC(re->num_groups * 2 * sizeof *vec[0]);
+				*vec = ktre__realloc(re, *vec, (re->num_matches + 1) * sizeof *vec);
+				(*vec)[re->num_matches] = ktre__malloc(re, re->num_groups * 2 * sizeof *vec[0]);
 
 				memcpy((*vec)[re->num_matches++],
 				       THREAD[TP].vec,
@@ -1886,7 +2025,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 				re->vec = *vec;
 
 				if ((opt & KTRE_GLOBAL) == 0) {
-					KTRE_FREE(subject_lc);
+					ktre__free(re, subject_lc);
 					return true;
 				} else {
 					TP = 0;
@@ -1894,7 +2033,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 					THREAD[TP].sp = sp;
 
 					if (re->num_matches - 1 && sp == (*vec)[0][0] + (*vec)[0][1]) {
-						KTRE_FREE(subject_lc);
+						ktre__free(re, subject_lc);
 						return true;
 					}
 
@@ -1935,7 +2074,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 		case INSTR_CALL:
 			THREAD[TP].ip = re->c[ip].c;
-			THREAD[TP].frame = KTRE_REALLOC(THREAD[TP].frame, (fp + 1) * sizeof THREAD[TP].frame[0]);
+			THREAD[TP].frame = ktre__realloc(re, THREAD[TP].frame, (fp + 1) * sizeof THREAD[TP].frame[0]);
 			THREAD[TP].frame[THREAD[TP].fp++] = ip + 1;
 			break;
 
@@ -1980,7 +2119,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 		case INSTR_TRY:
 			THREAD[TP].ip++;
-			THREAD[TP].exception = KTRE_REALLOC(THREAD[TP].exception, (e + 1) * sizeof THREAD[TP].exception[0]);
+			THREAD[TP].exception = ktre__realloc(re, THREAD[TP].exception, (e + 1) * sizeof THREAD[TP].exception[0]);
 			THREAD[TP].exception[THREAD[TP].e++] = TP;
 			break;
 
@@ -2042,19 +2181,19 @@ run(struct ktre *re, const char *subject, int ***vec)
 			DBG("\nunimplemented instruction %d\n", re->c[ip].op);
 			assert(false);
 #endif
-			KTRE_FREE(subject_lc);
+			ktre__free(re, subject_lc);
 			return false;
 		}
 
 		if (TP >= KTRE_MAX_THREAD - 1) {
 			error(re, KTRE_ERROR_STACK_OVERFLOW, loc, "regex exceeded the maximum number of executable threads");
-			KTRE_FREE(subject_lc);
+			ktre__free(re, subject_lc);
 			return false;
 		}
 
 		if (fp >= KTRE_MAX_CALL_DEPTH - 1) {
 			error(re, KTRE_ERROR_CALL_OVERFLOW, loc, "regex exceeded the maximum depth for subroutine calls");
-			KTRE_FREE(subject_lc);
+			ktre__free(re, subject_lc);
 			return false;
 		}
 
@@ -2063,43 +2202,44 @@ run(struct ktre *re, const char *subject, int ***vec)
 #endif
 	}
 
-	KTRE_FREE(subject_lc);
+	ktre__free(re, subject_lc);
 	return !!re->num_matches;
 }
 
 void
 ktre_free(struct ktre *re)
 {
-	free_node(re->n);
+	free_node(re, re->n);
+	if (re->err && re->err_str)
+		ktre__free(re, re->err_str);
 
 	for (int i = 0; i < re->ip; i++) {
 		if (re->c[i].op == INSTR_TSTR)
-			KTRE_FREE(re->c[i].class);
+			ktre__free(re, re->c[i].class);
 	}
 
-	KTRE_FREE(re->c);
-	if (re->err) KTRE_FREE(re->err_str);
-	KTRE_FREE(re->group);
+	ktre__free(re, re->c);
+	ktre__free(re, re->group);
 
 	for (int i = 0; i <= re->max_tp; i++) {
-		KTRE_FREE(THREAD[i].vec);
-		KTRE_FREE(THREAD[i].prog);
-		KTRE_FREE(THREAD[i].frame);
-		KTRE_FREE(THREAD[i].las);
-		KTRE_FREE(THREAD[i].exception);
+		ktre__free(re, THREAD[i].vec);
+		ktre__free(re, THREAD[i].prog);
+		ktre__free(re, THREAD[i].frame);
+		ktre__free(re, THREAD[i].las);
+		ktre__free(re, THREAD[i].exception);
 	}
 
 	if (re->vec) {
 		for (int i = 0; i < re->num_matches; i++) {
-			KTRE_FREE((re->vec)[i]);
+			ktre__free(re, (re->vec)[i]);
 		}
 
-		KTRE_FREE(re->vec);
+		ktre__free(re, re->vec);
 	}
 
 
-	KTRE_FREE(re->t);
-	KTRE_FREE(re);
+	ktre__free(re, re->t);
+	ktre__free(re, re);
 }
 
 _Bool
@@ -2109,7 +2249,7 @@ ktre_exec(struct ktre *re, const char *subject, int ***vec)
 	DBG("\nsubject: %s", subject);
 #endif
 	if (re->err) {
-		KTRE_FREE(re->err_str);
+		ktre__free(re, re->err_str);
 		re->err = KTRE_ERROR_NO_ERROR;
 	}
 
@@ -2126,19 +2266,19 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 		return NULL;
 	}
 
-	char *ret = KTRE_MALLOC(512);
+	char *ret = ktre__malloc(re, 512);
 	*ret = 0;
 	int idx = 0;
 
 	for (int i = 0; i < re->num_matches; i++) {
 		if (i > 0) {
 			int diff = vec[i][0] - (vec[i - 1][0] + vec[i - 1][1]);
-			ret = KTRE_REALLOC(ret, (idx + diff + 1) * sizeof *ret);
+			ret = ktre__realloc(re, ret, (idx + diff + 1) * sizeof *ret);
 			strncpy(ret + idx, subject + vec[i - 1][0] + vec[i - 1][1], diff);
 			idx += diff;
 		} else {
 			idx = vec[i][0];
-			ret = KTRE_REALLOC(ret, (idx + 1) * sizeof *ret);
+			ret = ktre__realloc(re, ret, (idx + 1) * sizeof *ret);
 			strncpy(ret, subject, idx);
 		}
 
@@ -2155,17 +2295,17 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 				int n = dec_num(&r);
 
 				if (n < 0 || n >= re->num_groups) {
-					KTRE_FREE(group);
-					KTRE_FREE(ret);
+					ktre__free(re, group);
+					ktre__free(re, ret);
 					error(re, KTRE_ERROR_SYNTAX_ERROR, 0, "backreference references a group that does not exist");
 					return NULL;
 				}
 
-				group = KTRE_REALLOC(group, (j + vec[i][n * 2 + 1] + 2) * sizeof *group);
+				group = ktre__realloc(re, group, (j + vec[i][n * 2 + 1] + 2) * sizeof *group);
 				strncpy(group + j, subject + vec[i][n * 2], vec[i][n * 2 + 1]);
 				j += vec[i][n * 2 + 1];
 			} else {
-				group = KTRE_REALLOC(group, (j + 2) * sizeof *group);
+				group = ktre__realloc(re, group, (j + 2) * sizeof *group);
 				group[j++] = *r;
 				r++;
 			}
@@ -2174,17 +2314,17 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 		if (group) {
 			group[j] = 0;
 
-			ret = KTRE_REALLOC(ret, (idx + j + 1) * sizeof *ret);
+			ret = ktre__realloc(re, ret, (idx + j + 1) * sizeof *ret);
 			strcpy(ret + idx, group);
 			ret[idx + j] = 0;
 			idx += j;
 
-			KTRE_FREE(group);
+			ktre__free(re, group);
 		}
 	}
 
 	int diff = vec[re->num_matches - 1][0] + vec[re->num_matches - 1][1];
-	ret = KTRE_REALLOC(ret, (idx + diff + 2) * sizeof *ret);
+	ret = ktre__realloc(re, ret, (idx + diff + 2) * sizeof *ret);
 	strncpy(ret + idx, subject + diff, strlen(subject) - diff);
 	idx += strlen(subject) - diff;
 	ret[idx] = 0;
@@ -2194,10 +2334,10 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 
 int **ktre_getvec(struct ktre *re)
 {
-	int **vec = KTRE_MALLOC(re->num_matches  * sizeof re->vec[0]);
+	int **vec = ktre__malloc(re, re->num_matches  * sizeof re->vec[0]);
 
 	for (int i = 0; i < re->num_matches; i++) {
-		vec[i] = KTRE_MALLOC(re->num_groups * 2 * sizeof re->vec[0][0]);
+		vec[i] = ktre__malloc(re, re->num_groups * 2 * sizeof re->vec[0][0]);
 		memcpy(vec[i], re->vec[i], re->num_groups * 2 * sizeof re->vec[0][0]);
 	}
 
