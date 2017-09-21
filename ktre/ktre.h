@@ -149,6 +149,12 @@ extern "C" {
 #pragma warning(disable:4996)
 #endif
 
+#if defined(_MSC_VER) && defined(KTRE_DEBUG)
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
+#include <crtdbg.h>
+#endif
+
 /* error codes */
 enum ktre_error {
 	KTRE_ERROR_NO_ERROR,
@@ -2251,9 +2257,12 @@ ktre_free(struct ktre *re)
 		ktre__free(re, re->vec);
 	}
 
-
 	ktre__free(re, re->t);
 	ktre__free(re, re);
+
+#if defined(_MSC_VER) && defined(KTRE_DEBUG)
+	_CrtDumpMemoryLeaks();
+#endif
 }
 
 _Bool
