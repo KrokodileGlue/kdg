@@ -1009,9 +1009,11 @@ parse_character_class(struct ktre *re)
 
 		a = parse_character_class_character(re);
 		range = (*re->sp && *re->sp == '-' && re->sp[1] != ']');
+
 		if (range) {
 			next_char(re);
 			b = parse_character_class_character(re);
+
 			for (int i = a; i <= b; i++)
 				class_add_char(re, &class, i);
 		} else {
@@ -1046,6 +1048,7 @@ static struct node *
 parse_primary(struct ktre *re)
 {
 	struct node *left = new_node(re);
+	int loc = re->sp - re->pat;
 
 	if (*re->sp == ')') {
 		free_node(re, left);
@@ -1058,6 +1061,51 @@ again:
 		next_char(re);
 
 		switch (*re->sp) {
+		case '0': /* octal escape sequences */
+			next_char(re);
+			left->type = NODE_CHAR;
+			left->c = parse_oct_num(re);
+			break;
+
+		case 'x': /* hexadecimal escape sequences */
+			next_char(re);
+			left->type = NODE_CHAR;
+			left->c = parse_hex_num(re);
+			break;
+
+		case 'g':
+			next_char(re); /* skip over the `g` */
+
+			if (*re->sp != '{') {
+				left->type = NODE_CHAR;
+				left->c = *re->sp;
+				break;
+			}
+
+			next_char(re); /* skip over the `{` */
+
+			bool neg = (*re->sp == '-');
+			bool pos = (*re->sp == '+');
+			if (neg || pos)
+				next_char(re); /* skip over the sign */
+
+			int a = parse_dec_num(re);
+
+			if (neg) a = re->gp - a;
+			if (pos) a = re->gp + a;
+
+			if (*re->sp != '}') {
+				error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat - 1, "unmatched '{'");
+				free_node(re, left);
+				return NULL;
+			}
+
+			next_char(re); /* skip over the `}` */
+
+			left->type = NODE_BACKREF;
+			left->c = a;
+			break;
+
 		case 's':
 			left->type = NODE_SPACE;
 			next_char(re);
@@ -1091,23 +1139,23 @@ again:
 			next_char(re);
 			break;
 
-		case '0': /* octal escape sequences */
-			next_char(re);
-			left->type = NODE_CHAR;
-			left->c = parse_oct_num(re);
-			break;
-
-		case '1': case '2': case '3': case '4':
-		case '5': case '6': case '7': case '8': case '9':
-			left->type = NODE_BACKREF;
-			left->c = *re->sp - '0';
-			if (isdigit(re->sp[1])) {
-				left->c *= 10;
-				left->c += re->sp[1] - '0';
+		case '-':
+		case '+': case '1': case '2': case '3': case '4':
+		case '5': case '6': case '7': case '8': case '9': {
+			bool neg = (*re->sp == '-');
+			bool pos = (*re->sp == '+');
+			if (neg || pos)
+				/* skip over the sign */
 				next_char(re);
-			}
-			next_char(re);
-			break;
+
+			int a = parse_dec_num(re);
+
+			if (neg) a = re->gp - a;
+			if (pos) a = re->gp + a;
+
+			left->type = NODE_BACKREF;
+			left->c = a;
+		} break;
 
 		case 'K':
 			left->type = NODE_SET_START;
@@ -1123,12 +1171,6 @@ again:
 			left->type = NODE_CHAR;
 			left->c = '\n';
 			next_char(re);
-			break;
-
-		case 'x': /* hexadecimal escape sequences */
-			next_char(re);
-			left->type = NODE_CHAR;
-			left->c = parse_hex_num(re);
 			break;
 
 		default:
@@ -1187,7 +1229,7 @@ again:
 		next_char(re);
 	}
 
-	if (left) left->loc = re->sp - re->pat;
+	if (left) left->loc = loc;
 	return left;
 }
 
