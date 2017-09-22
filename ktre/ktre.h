@@ -388,7 +388,7 @@ ktre__realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line)
 	void *p = ktre__malloc(re, n, file, line);
 
 	if (p) {
-		memcpy(p, ptr, mi->size);
+		memcpy(p, ptr, n - sizeof (struct ktre_malloc_info));
 		ktre__free(re, ptr, file, line);
 	}
 
@@ -402,6 +402,7 @@ ktre__free(struct ktre *re, void *ptr, const char *file, int line)
 
 	if (ptr) {
 		struct ktre_malloc_info *mi = (struct ktre_malloc_info *)ptr - 1;
+		re->info.ba -= mi->size;
 		KTRE_FREE(mi);
 	}
 }
@@ -2357,10 +2358,10 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 
 int **ktre_getvec(struct ktre *re)
 {
-	int **vec = ktre__malloc(re, re->num_matches  * sizeof re->vec[0]);
+	int **vec = KTRE_MALLOC(re->num_matches  * sizeof re->vec[0]);
 
 	for (int i = 0; i < re->num_matches; i++) {
-		vec[i] = ktre__malloc(re, re->num_groups * 2 * sizeof re->vec[0][0]);
+		vec[i] = KTRE_MALLOC(re->num_groups * 2 * sizeof re->vec[0][0]);
 		memcpy(vec[i], re->vec[i], re->num_groups * 2 * sizeof re->vec[0][0]);
 	}
 
