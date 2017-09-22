@@ -181,10 +181,8 @@ enum {
 
 struct ktre_info {
 	int ba, mba; /* bytes allocated and max bytes allocated */
-	int bf;
+	int bf;      /* bytes freed */
 	int num_allocations, num_alloc, num_free;
-	int leaked_bytes;
-	int num_nodes_allocated;
 
 	int thread_alloc;
 	int instr_alloc;
@@ -256,13 +254,16 @@ struct ktre {
 
 	struct ktre_info info;
 	struct ktre_minfo *minfo;
+
+	_Bool copied;
 };
 
 /* API prototypes */
 struct ktre *ktre_compile(const char *pat, int opt);
+struct ktre *ktre_copy(struct ktre *re);
 _Bool ktre_exec(struct ktre *re, const char *subject, int ***vec);
 char *ktre_filter(struct ktre *re, const char *subject, const char *replacement);
-int **ktre_getvec(struct ktre *re);
+int **ktre_getvec(const struct ktre *re);
 struct ktre_info ktre_free(struct ktre *re);
 
 #ifdef __cplusplus
@@ -1794,6 +1795,15 @@ ktre_compile(const char *pat, int opt)
 	return re;
 }
 
+struct ktre *ktre_copy(struct ktre *re)
+{
+	struct ktre *ret = KTRE_MALLOC(sizeof *ret);
+	memset(ret, 0, sizeof *ret);
+	ret->c = re->c;
+	re->copied = true;
+	return ret;
+}
+
 #define TP (re->tp)
 #define THREAD (re->t)
 
@@ -2290,6 +2300,9 @@ run(struct ktre *re, const char *subject, int ***vec)
 struct ktre_info
 ktre_free(struct ktre *re)
 {
+	if (re->copied)
+		return re->info;
+
 	free_node(re, re->n);
 	if (re->err && re->err_str)
 		ktre__free(re, re->err_str);
@@ -2456,7 +2469,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 	return a;
 }
 
-int **ktre_getvec(struct ktre *re)
+int **ktre_getvec(const struct ktre *re)
 {
 	int **vec = KTRE_MALLOC(re->num_matches  * sizeof re->vec[0]);
 
