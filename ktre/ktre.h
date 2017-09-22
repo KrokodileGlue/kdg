@@ -181,6 +181,7 @@ enum {
 
 struct ktre_info {
 	int ba, mba; /* bytes allocated and max bytes allocated */
+	int bf;
 	int num_allocations, num_alloc, num_free;
 	int leaked_bytes;
 	int num_nodes_allocated;
@@ -189,13 +190,13 @@ struct ktre_info {
 	int instr_alloc;
 };
 
-struct ktre_malloc_info {
+struct ktre_minfo {
 #ifdef KTRE_DEBUG
 	const char *file;
 	int line;
 #endif
 	int size;
-	struct ktre_malloc_info *prev, *next;
+	struct ktre_minfo *prev, *next;
 };
 
 struct ktre {
@@ -252,7 +253,7 @@ struct ktre {
 	int **vec;
 
 	struct ktre_info info;
-	struct ktre_malloc_info *minfo;
+	struct ktre_minfo *minfo;
 };
 
 /* API prototypes */
@@ -309,7 +310,6 @@ static void error(struct ktre *re, enum ktre_error err, int loc, char *fmt, ...)
 /* memory functions */
 #ifndef KTRE_MALLOC
 #define KTRE_MALLOC  malloc
-#define KTRE_REALLOC realloc
 #define KTRE_FREE    free
 #endif
 
@@ -332,15 +332,16 @@ static void  ktre__free   (struct ktre *re, void *ptr,           const char *fil
 static void *
 ktre__malloc(struct ktre *re, size_t n, const char *file, int line)
 {
-	if (re->info.ba + n > KTRE_MEM_CAP) {
+	if (re->info.ba + n + sizeof (struct ktre) > KTRE_MEM_CAP) {
 		error(re, KTRE_ERROR_OUT_OF_MEMORY, 0, NULL);
 #ifdef KTRE_DEBUG
-		DBG("\nrunning out of memory at %d bytes:\n\trequest for %zd bytes at line %d", re->info.ba, n, line);
+		DBG("\nrunning out of memory at %d bytes:\n\trequest for %zd bytes at %s:%d",
+		    re->info.ba, n, file, line);
 #endif
 		return NULL;
 	}
 
-	struct ktre_malloc_info *mi = KTRE_MALLOC(n + sizeof (struct ktre_malloc_info));
+	struct ktre_minfo *mi = KTRE_MALLOC(n + sizeof (struct ktre_minfo));
 
 	if (!mi) {
 		error(re, KTRE_ERROR_OUT_OF_MEMORY, 0, NULL);
@@ -348,8 +349,8 @@ ktre__malloc(struct ktre *re, size_t n, const char *file, int line)
 	}
 
 	re->info.num_alloc++;
-	re->info.ba += n + sizeof (struct ktre_malloc_info);
-	re->info.mba += n + sizeof (struct ktre_malloc_info);
+	re->info.ba += n + sizeof (struct ktre_minfo);
+	re->info.mba += n + sizeof (struct ktre_minfo);
 
 #ifdef KTRE_DEBUG
 	mi->file = file;
@@ -372,7 +373,7 @@ ktre__realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line)
 {
 	if (!ptr) return ktre__malloc(re, n, file, line);
 
-	struct ktre_malloc_info *mi = (struct ktre_malloc_info *)ptr - 1;
+	struct ktre_minfo *mi = (struct ktre_minfo *)ptr - 1;
 	int diff = n - mi->size;
 
 	/*
@@ -400,8 +401,9 @@ ktre__free(struct ktre *re, void *ptr, const char *file, int line)
 {
 	if (!ptr) return;
 
-	struct ktre_malloc_info *mi = (struct ktre_malloc_info *)ptr - 1;
-	re->info.ba -= mi->size + sizeof (struct ktre_malloc_info);
+	struct ktre_minfo *mi = (struct ktre_minfo *)ptr - 1;
+	re->info.ba -= mi->size + sizeof (struct ktre_minfo);
+	re->info.bf += mi->size + sizeof (struct ktre_minfo);
 	re->info.num_free++;
 
 	if (!mi->prev) {
@@ -2305,14 +2307,14 @@ ktre_free(struct ktre *re)
 #endif
 
 #ifdef KTRE_DEBUG
-	DBG("\nfinished with %d allocations, %d frees and %d bytes allocated.",
-	    info.num_alloc, info.num_free, info.mba);
+	DBG("\nfinished with %d allocations, %d frees, %zd bytes allocated, and %d bytes freed.",
+	    info.num_alloc, info.num_free, info.mba + sizeof (struct ktre), info.bf);
 
 	if (info.ba) {
 		DBG("\nthere were %d leaked bytes from %d unmatched allocations.",
 		    info.ba, info.num_alloc - info.num_free);
 
-		struct ktre_malloc_info *mi = re->minfo;
+		struct ktre_minfo *mi = re->minfo;
 		int i = 0;
 
 		while (mi) {
