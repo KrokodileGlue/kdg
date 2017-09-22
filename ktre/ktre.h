@@ -1540,6 +1540,9 @@ compile(struct ktre *re, struct node *n, bool rev)
 			} else {
 				if (n->a->type == NODE_CHAR) {
 					char *str = ktre__malloc(re, n->c + 1);
+
+					if (!str) return;
+
 					for (int i = 0; i < n->c; i++) str[i] = n->a->c;
 					str[n->c] = 0;
 					emit_class(re, INSTR_TSTR, str, n->loc);
@@ -2307,11 +2310,12 @@ ktre_free(struct ktre *re)
 #endif
 
 #ifdef KTRE_DEBUG
-	DBG("\nfinished with %d allocations, %d frees, %zd bytes allocated, and %d bytes freed.",
-	    info.num_alloc, info.num_free, info.mba + sizeof (struct ktre), info.bf);
+	DBG("\nFinished with %d allocations, %d frees, and %zd bytes allocated",
+	    info.num_alloc, info.num_free,
+	    info.mba + sizeof (struct ktre));
 
 	if (info.ba) {
-		DBG("\nthere were %d leaked bytes from %d unmatched allocations.",
+		DBG("\nThere were %d leaked bytes from %d unmatched allocations.",
 		    info.ba, info.num_alloc - info.num_free);
 
 		struct ktre_minfo *mi = re->minfo;
