@@ -260,7 +260,7 @@ struct ktre *ktre_compile(const char *pat, int opt);
 _Bool ktre_exec(struct ktre *re, const char *subject, int ***vec);
 char *ktre_filter(struct ktre *re, const char *subject, const char *replacement);
 int **ktre_getvec(struct ktre *re);
-void ktre_free(struct ktre *re);
+struct ktre_info ktre_free(struct ktre *re);
 
 #ifdef __cplusplus
 }
@@ -349,6 +349,9 @@ ktre__malloc(struct ktre *re, size_t n, const char *file, int line)
 
 	re->info.num_alloc++;
 	re->info.ba += n;
+	re->info.mba = re->info.ba > re->info.mba
+		? re->info.ba
+		: re->info.mba;
 
 #ifdef KTRE_DEBUG
 	mi->file = file;
@@ -2227,7 +2230,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 	return !!re->num_matches;
 }
 
-void
+struct ktre_info
 ktre_free(struct ktre *re)
 {
 	free_node(re, re->n);
@@ -2258,11 +2261,18 @@ ktre_free(struct ktre *re)
 	}
 
 	ktre__free(re, re->t);
+	struct ktre_info info = re->info;
 	KTRE_FREE(re);
 
 #if defined(_MSC_VER) && defined(KTRE_DEBUG)
 	_CrtDumpMemoryLeaks();
 #endif
+
+#ifdef KTRE_DEBUG
+	DBG("\n%d allocations, %d frees with %d bytes allocated.", info.num_alloc, info.num_free, info.mba);
+#endif
+
+	return info;
 }
 
 _Bool
