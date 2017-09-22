@@ -1796,7 +1796,7 @@ print_finish(struct ktre *re, const char *subject, const char *regex, bool ret, 
 }
 #else
 #define print_compile_error(x) ;
-#define print_finish(x) ;
+#define print_finish(re,subject,regex,ret,vec,replaced) ;
 #endif
 
 struct ktre *
@@ -2503,9 +2503,8 @@ ktre_free(struct ktre *re)
 _Bool
 ktre_exec(struct ktre *re, const char *subject, int ***vec)
 {
-#ifdef KTRE_DEBUG
 	DBG("\nsubject: %s", subject);
-#endif
+
 	if (re->err) {
 		if (re->err_str)
 			ktre__free(re, re->err_str);
@@ -2513,10 +2512,7 @@ ktre_exec(struct ktre *re, const char *subject, int ***vec)
 	}
 
 	_Bool ret = run(re, subject, vec);
-
-#ifdef KTRE_DEBUG
 	print_finish(re, subject, re->pat, ret, *vec, NULL);
-#endif
 
 	return ret;
 }
@@ -2527,9 +2523,7 @@ _Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec)
 
 	if (!re->err) {
 		bool ret = run(re, subject, vec);
-#ifdef KTRE_DEBUG
 		print_finish(re, subject, pat, ret, *vec, NULL);
-#endif
 		ktre_free(re);
 		return ret;
 	}
@@ -2554,9 +2548,7 @@ char *ktre_replace(const char *subject, const char *pat, const char *replacement
 
 char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 {
-#ifdef KTRE_DEBUG
 	DBG("\nsubject: %s", subject);
-#endif
 	int **vec = NULL;
 	if (!run(re, subject, &vec) || re->err) {
 		return NULL;
@@ -2628,10 +2620,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 	char *a = KTRE_MALLOC(strlen(ret) + 1);
 	strcpy(a, ret);
 	ktre__free(re, ret);
-
-#ifdef KTRE_DEBUG
 	print_finish(re, subject, re->pat, ret, vec, a);
-#endif
 
 	return a;
 }
