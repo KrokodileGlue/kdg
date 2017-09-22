@@ -161,10 +161,8 @@ struct ktre_info {
 };
 
 struct ktre_minfo {
-#ifdef KTRE_DEBUG
 	const char *file;
 	int line;
-#endif
 	int size;
 	struct ktre_minfo *prev, *next;
 };
@@ -327,10 +325,8 @@ ktre__malloc(struct ktre *re, size_t n, const char *file, int line)
 	re->info.ba += n + sizeof (struct ktre_minfo);
 	re->info.mba += n + sizeof (struct ktre_minfo);
 
-#ifdef KTRE_DEBUG
 	mi->file = file;
 	mi->line = line;
-#endif
 	mi->next = re->minfo;
 
 	if (re->minfo)
