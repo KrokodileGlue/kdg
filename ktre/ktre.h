@@ -2396,7 +2396,9 @@ _Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec)
 	struct ktre *re = ktre_compile(pat, opt);
 
 	if (!re->err) {
-		return run(re, subject, vec);
+		bool ret = run(re, subject, vec);
+		ktre_free(re);
+		return ret;
 	}
 
 	ktre_free(re);
