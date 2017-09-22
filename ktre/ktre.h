@@ -387,7 +387,6 @@ ktre__realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line)
 	void *p = ktre__malloc(re, n, file, line);
 
 	if (p) {
-		DBG("\nGOT HERE");
 		memcpy(p, ptr, n > mi->size ? mi->size : n);
 		ktre__free(re, ptr, file, line);
 	}
