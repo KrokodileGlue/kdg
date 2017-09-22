@@ -63,74 +63,41 @@
  * #include "ktre.h"
  *
  * static inline void
- * do_regex(struct ktre *re, const char *regex, const char *subject, FILE *f)
+ * do_regex(struct ktre *re, const char *subject)
  * {
  * 	int **vec = NULL;
- *
- * 	if (ktre_exec(re, subject, &vec)) {
- * 		for (int i = 0; i < re->num_matches; i++) {
- * 			fprintf(f, "\nmatch %d: `%.*s`", i + 1, vec[i][1], subject + vec[i][0]);
- * 			for (int j = 1; j < re->num_groups; j++) {
- * 				fprintf(f, "\ngroup %d: `%.*s`", j, vec[i][j * 2 + 1], subject + vec[i][j * 2]);
- * 			}
- * 		}
- * 	} else if (re->err) {
- * 		fprintf(f, "\nfailed at runtime with error code %d: %s\n", re->err, re->err_str);
- * 		fprintf(f, "\t%s\n\t", regex);
- * 		for (int i = 0; i < re->loc; i++) fputc(' ', f);
- * 		fputc('^', f);
- * 	} else {
- * 		fprintf(f, "\nno match.");
- * 	}
- *
- * 	fputc('\n', f);
+ * 	ktre_exec(re, subject, &vec);
  * }
  *
  * static inline void
- * do_replace(struct ktre *re, const char *regex, const char *subject, const char *replacement, FILE *f)
+ * do_replace(struct ktre *re, const char *subject, const char *replacement)
  * {
- * 	char *ret = NULL;
- *
- * 	if ((ret = ktre_filter(re, subject, replacement))) {
- * 		fprintf(f, "\nmatched: %s", ret);
- * 		free(ret);
- * 	} else if (re->err) {
- * 		fprintf(f, "\nfailed at runtime with error code %d: %s\n", re->err, re->err_str);
- * 		fprintf(f, "\t%s\n\t", regex);
- * 		for (int i = 0; i < re->loc; i++) fputc(' ', f);
- * 		fputc('^', f);
- * 	} else {
- * 		fprintf(f, "\nno match.");
- * 	}
- *
- * 	fputc('\n', f);
+ * 	free(ktre_filter(re, subject, replacement));
  * }
  *
  * int
  * main(int argc, char *argv[])
  * {
  * 	if (argc < 3 || argc > 4) {
- * 		fprintf(stderr, "Usage: subject regex [replacement]\n");
+ * 		fprintf(stderr, "Usage: regex subject [replacement]");
  * 		return EXIT_FAILURE;
  * 	}
  *
- * 	char *subject = argv[1], *regex = argv[2], *replacement = NULL;
- * 	if (argc == 4) replacement = argv[3];
+ * 	char *subject = argv[1],
+ * 		*regex = argv[2],
+ * 		*replacement = (argc == 4) ? argv[3] : NULL;
  *
  * 	struct ktre *re = ktre_compile(regex, KTRE_UNANCHORED | KTRE_GLOBAL);
  *
- * 	if (re->err) {
- * 		fprintf(stderr, "\nfailed to compile with error code %d: %s\n", re->err, re->err_str);
- * 		fprintf(stderr, "\t%s\n\t", regex);
- * 		for (int i = 0; i < re->loc; i++) fputc(' ', stderr);
- * 		fputc('^', stderr);
- * 		return EXIT_FAILURE;
+ * 	if (!re->err) {
+ * 		if (replacement)
+ * 			do_replace(re, subject, replacement);
+ * 		else
+ * 			do_regex(re, subject);
  * 	}
  *
- * 	if (replacement) do_replace(re, regex, subject, replacement, stderr);
- * 	else             do_regex(re, regex, subject, stderr);
- *
  * 	ktre_free(re);
+ * 	fputc('\n', stderr);
  *
  * 	return EXIT_SUCCESS;
  * }
@@ -1658,6 +1625,33 @@ print_compile_error(struct ktre *re)
 		DBG(" ");
 	DBG("^");
 }
+
+static void
+print_finish(struct ktre *re, const char *subject, const char *regex, bool ret, int **vec, const char *replaced)
+{
+	if (ret) {
+		for (int i = 0; i < re->num_matches; i++) {
+			DBG("\nmatch %d: `%.*s`", i + 1, vec[i][1], subject + vec[i][0]);
+
+			for (int j = 1; j < re->num_groups; j++) {
+				if (vec[i][j * 2 + 1] && vec[i][j * 2] != (int)strlen(subject))
+					DBG("\ngroup %d: `%.*s`", j, vec[i][j * 2 + 1], subject + vec[i][j * 2]);
+			}
+		}
+
+		if (replaced) {
+			DBG("\nreplace: `%s`", replaced);
+		}
+	} else if (re->err) {
+		DBG("\nfailed at runtime with error code %d: %s\n",
+		        re->err, re->err_str ? re->err_str : "no error message");
+		DBG("\t%s\n\t", regex);
+		for (int i = 0; i < re->loc; i++) DBG(" ");
+		DBG("^");
+	} else {
+		DBG("\nno match.");
+	}
+}
 #endif
 
 struct ktre *
@@ -2388,7 +2382,13 @@ ktre_exec(struct ktre *re, const char *subject, int ***vec)
 		re->err = KTRE_ERROR_NO_ERROR;
 	}
 
-	return run(re, subject, vec);
+	_Bool ret = run(re, subject, vec);
+
+#ifdef KTRE_DEBUG
+	print_finish(re, subject, re->pat, ret, *vec, NULL);
+#endif
+
+	return ret;
 }
 
 _Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec)
@@ -2397,6 +2397,9 @@ _Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec)
 
 	if (!re->err) {
 		bool ret = run(re, subject, vec);
+#ifdef KTRE_DEBUG
+		print_finish(re, subject, pat, ret, *vec, NULL);
+#endif
 		ktre_free(re);
 		return ret;
 	}
@@ -2496,12 +2499,16 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 	strcpy(a, ret);
 	ktre__free(re, ret);
 
+#ifdef KTRE_DEBUG
+	print_finish(re, subject, re->pat, ret, vec, a);
+#endif
+
 	return a;
 }
 
 int **ktre_getvec(const struct ktre *re)
 {
-	int **vec = KTRE_MALLOC(re->num_matches  * sizeof re->vec[0]);
+	int **vec = KTRE_MALLOC(re->num_matches * sizeof re->vec[0]);
 
 	for (int i = 0; i < re->num_matches; i++) {
 		vec[i] = KTRE_MALLOC(re->num_groups * 2 * sizeof re->vec[0][0]);
