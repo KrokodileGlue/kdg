@@ -425,8 +425,7 @@ struct instr {
 		INSTR_BACKREF,
 		INSTR_BOL,
 		INSTR_EOL,
-		INSTR_OPTON,
-		INSTR_OPTOFF,
+		INSTR_SETOPT,
 		INSTR_TRY,
 		INSTR_CATCH,
 		INSTR_SET_START,
@@ -538,28 +537,40 @@ struct node {
 		NODE_OR,
 		NODE_GROUP,
 		NODE_QUESTION,
-		NODE_ANY,	/* . matches anything */
-		NODE_CLASS,	/* a character class */
+		NODE_ANY,     /* matches anything */
+		NODE_CLASS,   /* character class */
+		NODE_NOT,     /* negated character class */
 		NODE_STR,
-		NODE_NOT,
-		NODE_BACKREF,	/* a backreference to an existing group */
+		NODE_BACKREF, /* backreference to an existing group */
 		NODE_BOL,
 		NODE_EOL,
-		NODE_OPTON,	/* turns some option off */
-		NODE_OPTOFF,	/* turns some option on */
+
+		/*
+		 * Sets the options for the current thread of
+		 * execution.
+		 */
+		NODE_SETOPT,
 		NODE_REP,	/* counted repetition */
-		NODE_ATOM,	/* atomic group */
-		NODE_SET_START, /* set the start position of the group capturing the entire match */
+		NODE_ATOM,	/* ctomic group */
+		NODE_SET_START, /* Set the start position of the group
+		                 * capturing the entire match. */
 		NODE_WB,	/* word boundary */
 		NODE_CALL,
 		NODE_PLA,	/* positive lookahead */
 		NODE_PLB,	/* positive lookbehind */
 		NODE_NLA,	/* negative lookahead */
 		NODE_NLB,	/* negative lookbehind */
-		NODE_RECURSE,	/* (?R) tries to match the entire regex again at the current point */
+
+		/*
+		 * Attempts to match the entire regex again at the
+		 * current point.
+		 */
+		NODE_RECURSE,
+
 		NODE_DIGIT,
 		NODE_SPACE,
 		NODE_WORD,
+
 		NODE_NONE
 	} type;
 
@@ -830,12 +841,17 @@ parse_special_group(struct ktre *re)
 		left->type = NODE_NLA;
 		left->a = parse(re);
 	} else { /* mode modifiers */
-		left->type = NODE_NONE;
+		left->type = NODE_SETOPT;
 		bool neg = false, off = false;
-		int opt;
+		int opt = re->opt;
 
-		while (*re->sp && *re->sp != ')') {
-			opt = 0;
+		/*
+		 * Preserve the original options in case these happen
+		 * to be inline modifiers and we have to restore them.
+		 */
+		int old = opt;
+
+		while (*re->sp && *re->sp != ')' && *re->sp != ':') {
 			switch (*re->sp) {
 			case 'i': opt |=  KTRE_INSENSITIVE;             break;
 			case 'c': opt |=  KTRE_INSENSITIVE; off = true; break;
@@ -848,21 +864,52 @@ parse_special_group(struct ktre *re)
 				return NULL;
 			}
 
-			if (off || neg) re->popt &= ~opt;
-			else re->popt |= opt;
-
-			struct node *tmp = new_node(re);
-			tmp->loc = re->sp - re->pat;
-			tmp->type = NODE_SEQUENCE;
-			tmp->a = left;
-			tmp->b = new_node(re);
-			tmp->b->loc = re->sp - re->pat;
-			tmp->b->type = off || neg ? NODE_OPTOFF : NODE_OPTON;
-			tmp->b->c = opt;
-			left = tmp;
+			if (off || neg) opt &= ~opt;
+			else opt |= opt;
 
 			off = false;
 			re->sp++;
+		}
+
+		re->popt = opt;
+		left->c = opt;
+
+		if (*re->sp == ':') {
+			next_char(re);
+
+			/*
+			 * These are inline mode modifiers: to handle
+			 * these, we'll have to put a SETOPT
+			 * instruction at the beginning of the group,
+			 * and another SETOPT at the end to undo what
+			 * was done by the first.
+			 *
+			 * Because the only way we have of stringing
+			 * nodes together is by creating SEQUENCE
+			 * nodes, the code here is a little ugly.
+			 */
+
+			struct node *tmp = new_node(re);
+			struct node *tmp2 = new_node(re);
+			struct node *tmp3 = new_node(re);
+
+			tmp->type = NODE_SEQUENCE;
+			tmp2->type = NODE_SEQUENCE;
+			tmp3->type = NODE_SETOPT;
+
+ 			tmp->loc = left->loc;
+			tmp2->loc = left->loc;
+			tmp3->loc = left->loc;
+
+			tmp3->c = old;
+
+			tmp2->a = parse(re);
+			tmp2->b = tmp3;
+
+			tmp->a = left;
+			tmp->b = tmp2;
+
+			left = tmp;
 		}
 	}
 
@@ -1361,8 +1408,7 @@ print_node(struct node *n)
 	case NODE_EOL:       DBG("(eol)");                                    break;
 	case NODE_RECURSE:   DBG("(recurse)");                                break;
 	case NODE_SET_START: DBG("(set_start)");                              break;
-	case NODE_OPTON:     DBG("(opton %d)", n->c);                         break;
-	case NODE_OPTOFF:    DBG("(optoff %d)", n->c);                        break;
+	case NODE_SETOPT:    DBG("(setopt %d)", n->c);                        break;
 	case NODE_CALL:      DBG("(call %d)", n->c);                          break;
 	case NODE_SEQUENCE:  N2 ("(sequence)");                               break;
 	case NODE_OR:        N2 ("(or)");                                     break;
@@ -1617,8 +1663,7 @@ compile(struct ktre *re, struct node *n, bool rev)
 	case NODE_CLASS:     emit_class(re, INSTR_CLASS,  n->class, n->loc); break;
 	case NODE_STR:       emit_class(re, INSTR_STR,    n->class, n->loc); break;
 	case NODE_NOT:       emit_class(re, INSTR_NOT,    n->class, n->loc); break;
-	case NODE_OPTON:     emit_c    (re, INSTR_OPTON,  n->c,     n->loc); break;
-	case NODE_OPTOFF:    emit_c    (re, INSTR_OPTOFF, n->c,     n->loc); break;
+	case NODE_SETOPT:    emit_c    (re, INSTR_SETOPT, n->c,     n->loc); break;
 	case NODE_CHAR:      emit_c    (re, INSTR_CHAR,   n->c,     n->loc); break;
 	case NODE_BOL:       emit      (re, INSTR_BOL,              n->loc); break;
 	case NODE_EOL:       emit      (re, INSTR_EOL,              n->loc); break;
@@ -1780,8 +1825,7 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].a);                 break;
 		case INSTR_SAVE:      DBG("SAVE     %d",  re->c[i].a);                 break;
 		case INSTR_JMP:       DBG("JMP      %d",  re->c[i].a);                 break;
-		case INSTR_OPTON:     DBG("OPTON    %d",  re->c[i].a);                 break;
-		case INSTR_OPTOFF:    DBG("OPTOFF   %d",  re->c[i].a);                 break;
+		case INSTR_SETOPT:    DBG("SETOPT   %d",  re->c[i].a);                 break;
 		case INSTR_BACKREF:   DBG("BACKREF  %d",  re->c[i].a);                 break;
 		case INSTR_CALL:      DBG("CALL     %d",  re->c[i].a);                 break;
 		case INSTR_PROG:      DBG("PROG     %d",  re->c[i].a);                 break;
@@ -2169,14 +2213,9 @@ run(struct ktre *re, const char *subject, int ***vec)
 			THREAD[TP].ip = re->c[ip].c;
 			break;
 
-		case INSTR_OPTON:
+		case INSTR_SETOPT:
 			THREAD[TP].ip++;
-			THREAD[TP].opt |= re->c[ip].c;
-			break;
-
-		case INSTR_OPTOFF:
-			THREAD[TP].ip++;
-			THREAD[TP].opt &= ~re->c[ip].c;
+			THREAD[TP].opt = re->c[ip].c;
 			break;
 
 		case INSTR_SET_START:
