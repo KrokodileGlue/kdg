@@ -2585,7 +2585,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 	*ret = 0;
 	int idx = 0;
 	bool upper = false, lower = false;
-	bool upperchar = false, lowerchar = true;
+	bool upperchar = false, lowerchar = false;
 
 	for (int i = 0; i < re->num_matches; i++) {
 		if (i > 0) {
@@ -2654,8 +2654,8 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 			} else {
 				group = ktre__realloc(re, group, (j + 2) * sizeof *group);
 				group[j] = *r;
-				if (upperchar) group[j] = uc(*r);
-				if (lowerchar) group[j] = lc(*r);
+				if (upperchar || upper) group[j] = uc(*r);
+				if (lowerchar || lower) group[j] = lc(*r);
 				j++;
 				r++;
 				lowerchar = upperchar = false;
