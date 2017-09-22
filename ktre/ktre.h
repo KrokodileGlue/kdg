@@ -357,7 +357,7 @@ ktre__malloc(struct ktre *re, size_t n, const char *file, int line)
 	mi->next = re->minfo;
 
 	if (re->minfo)
-		mi->next->prev = mi;
+		re->minfo->prev = mi;
 
 	mi->prev = NULL;
 	mi->size = (int)n;
@@ -397,12 +397,22 @@ ktre__realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line)
 static void
 ktre__free(struct ktre *re, void *ptr, const char *file, int line)
 {
-	if (ptr) {
-		re->info.num_free++;
-		struct ktre_malloc_info *mi = (struct ktre_malloc_info *)ptr - 1;
-		re->info.ba -= mi->size;
-		KTRE_FREE(mi);
+	if (!ptr) return;
+
+	struct ktre_malloc_info *mi = (struct ktre_malloc_info *)ptr - 1;
+	re->info.ba -= mi->size + sizeof (struct ktre_malloc_info);
+	re->info.num_free++;
+
+	if (!mi->prev) {
+		re->minfo = mi->next;
+	} else {
+		mi->prev->next = mi->next;
 	}
+
+	if (mi->next)
+		mi->next->prev = mi->prev;
+
+	KTRE_FREE(mi);
 }
 
 #define ktre__malloc(re, n)       ktre__malloc (re, n,      __FILE__, __LINE__)
@@ -441,8 +451,8 @@ struct instr {
 		INSTR_BACKREF,
 		INSTR_BOL,
 		INSTR_EOL,
-		INSTR_OPT_ON,
-		INSTR_OPT_OFF,
+		INSTR_OPTON,
+		INSTR_OPTOFF,
 		INSTR_TRY,
 		INSTR_CATCH,
 		INSTR_SET_START,
@@ -554,8 +564,8 @@ struct node {
 		NODE_BACKREF,	/* a backreference to an existing group */
 		NODE_BOL,
 		NODE_EOL,
-		NODE_OPT_ON,	/* turns some option off */
-		NODE_OPT_OFF,	/* turns some option on */
+		NODE_OPTON,	/* turns some option off */
+		NODE_OPTOFF,	/* turns some option on */
 		NODE_REP,	/* counted repetition */
 		NODE_ATOM,	/* atomic group */
 		NODE_SET_START, /* set the start position of the group capturing the entire match */
@@ -616,6 +626,8 @@ next_char(struct ktre *re)
 static void
 error(struct ktre *re, enum ktre_error err, int loc, char *fmt, ...)
 {
+	if (re->err) return;
+
 	re->err = err;
 	re->loc = loc;
 
@@ -857,21 +869,13 @@ parse_special_group(struct ktre *re)
 			tmp->a = left;
 			tmp->b = new_node(re);
 			tmp->b->loc = re->sp - re->pat;
-			tmp->b->type = off || neg ? NODE_OPT_OFF : NODE_OPT_ON;
+			tmp->b->type = off || neg ? NODE_OPTOFF : NODE_OPTON;
 			tmp->b->c = opt;
 			left = tmp;
 
 			off = false;
 			re->sp++;
 		}
-	}
-
-	if (*re->sp != ')') {
-		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "unmatched '('");
-		free_node(re, left->a);
-		left->a = NULL;
-		free_node(re, left);
-		return NULL;
 	}
 
 	return left;
@@ -897,13 +901,14 @@ parse_group(struct ktre *re)
 		re->group[left->gi].is_called = false;
 		left->type = NODE_GROUP;
 		left->a = parse(re);
+	}
 
-		if (*re->sp != ')') {
-			error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat - 1, "unmatched '('");
-			free_node(re, left->a); left->a = NULL;
-			free_node(re, left);
-			return NULL;
-		}
+	if (*re->sp != ')' && !re->err) {
+		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "unmatched '('");
+		free_node(re, left->a);
+		left->a = NULL;
+		free_node(re, left);
+		return NULL;
 	}
 
 	next_char(re);
@@ -915,6 +920,11 @@ static struct node *
 parse_primary(struct ktre *re)
 {
 	struct node *left = new_node(re);
+
+	if (*re->sp == ')') {
+		free_node(re, left);
+		return NULL;
+	}
 
 again:
 	switch (*re->sp) {
@@ -1159,15 +1169,11 @@ factor(struct ktre *re)
 		}
 
 		n->a = left;
-
-		if (n->type == NODE_REP)
-			if (n->a->type == NODE_GROUP)
-				re->group[n->a->gi].is_called = true;
-
 		left = n;
 	}
 
-	left->loc = re->sp - re->pat - 1;
+	if (left)
+		left->loc = re->sp - re->pat - 1;
 
 	return left;
 }
@@ -1338,8 +1344,8 @@ print_node(struct node *n)
 	case NODE_EOL:       DBG("(eol)");                                    break;
 	case NODE_RECURSE:   DBG("(recurse)");                                break;
 	case NODE_SET_START: DBG("(set_start)");                              break;
-	case NODE_OPT_ON:    DBG("(opt on %d)", n->c);                        break;
-	case NODE_OPT_OFF:   DBG("(opt off %d)", n->c);                       break;
+	case NODE_OPTON:     DBG("(opton %d)", n->c);                         break;
+	case NODE_OPTOFF:    DBG("(optoff %d)", n->c);                        break;
 	case NODE_CALL:      DBG("(call %d)", n->c);                          break;
 	case NODE_SEQUENCE:  N2 ("(sequence)");                               break;
 	case NODE_OR:        N2 ("(or)");                                     break;
@@ -1453,7 +1459,9 @@ compile(struct ktre *re, struct node *n, bool rev)
 
 	case NODE_PLUS:
 		switch (n->a->type) {
-		case NODE_ASTERISK: case NODE_PLUS: case NODE_QUESTION:
+		case NODE_ASTERISK: /* fall through */
+		case NODE_PLUS:
+		case NODE_QUESTION:
 		case NODE_REP:
 			emit(re, INSTR_TRY, n->loc);
 			emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
@@ -1489,18 +1497,9 @@ compile(struct ktre *re, struct node *n, bool rev)
 		}
 		break;
 
-	case NODE_CLASS:     emit_class(re, INSTR_CLASS, n->class, n->loc); break;
-	case NODE_STR:       emit_class(re, INSTR_STR,   n->class, n->loc); break;
-	case NODE_NOT:       emit_class(re, INSTR_NOT, n->class, n->loc);   break;
-	case NODE_OPT_ON:    emit_c(re, INSTR_OPT_ON,  n->c, n->loc);       break;
-	case NODE_OPT_OFF:   emit_c(re, INSTR_OPT_OFF, n->c, n->loc);       break;
-	case NODE_CHAR:      emit_c(re, INSTR_CHAR,    n->c, n->loc);       break;
-	case NODE_BOL:       emit(re, INSTR_BOL, n->loc);                   break;
-	case NODE_EOL:       emit(re, INSTR_EOL, n->loc);                   break;
-	case NODE_ANY:       emit(re, INSTR_ANY, n->loc);                   break;
-	case NODE_SET_START: emit(re, INSTR_SET_START, n->loc);             break;
-	case NODE_WB:        emit(re, INSTR_WB, n->loc);                    break;
-	case NODE_NONE:                                                     break;
+	case NODE_RECURSE:
+		emit_c(re, INSTR_CALL, re->group[0].address + 1, n->loc);
+		break;
 
 	case NODE_BACKREF:
 		if (n->c <= 0 || n->c >= re->num_groups) {
@@ -1595,22 +1594,21 @@ compile(struct ktre *re, struct node *n, bool rev)
 		PATCH_C(a, re->ip);
 		break;
 
-
-	case NODE_RECURSE:
-		emit_c(re, INSTR_CALL, re->group[0].address + 1, n->loc);
-		break;
-
-	case NODE_DIGIT:
-		emit(re, INSTR_DIGIT, n->loc);
-		break;
-
-	case NODE_WORD:
-		emit(re, INSTR_WORD, n->loc);
-		break;
-
-	case NODE_SPACE:
-		emit(re, INSTR_SPACE, n->loc);
-		break;
+	case NODE_CLASS:     emit_class(re, INSTR_CLASS,  n->class, n->loc); break;
+	case NODE_STR:       emit_class(re, INSTR_STR,    n->class, n->loc); break;
+	case NODE_NOT:       emit_class(re, INSTR_NOT,    n->class, n->loc); break;
+	case NODE_OPTON:     emit_c    (re, INSTR_OPTON,  n->c,     n->loc); break;
+	case NODE_OPTOFF:    emit_c    (re, INSTR_OPTOFF, n->c,     n->loc); break;
+	case NODE_CHAR:      emit_c    (re, INSTR_CHAR,   n->c,     n->loc); break;
+	case NODE_BOL:       emit      (re, INSTR_BOL,              n->loc); break;
+	case NODE_EOL:       emit      (re, INSTR_EOL,              n->loc); break;
+	case NODE_ANY:       emit      (re, INSTR_ANY,              n->loc); break;
+	case NODE_SET_START: emit      (re, INSTR_SET_START,        n->loc); break;
+	case NODE_WB:        emit      (re, INSTR_WB,               n->loc); break;
+	case NODE_DIGIT:     emit      (re, INSTR_DIGIT,            n->loc); break;
+	case NODE_WORD:      emit      (re, INSTR_WORD,             n->loc); break;
+	case NODE_SPACE:     emit      (re, INSTR_SPACE,            n->loc); break;
+	case NODE_NONE:                                                      break;
 
 	default:
 #ifdef KTRE_DEBUG
@@ -1621,12 +1619,21 @@ compile(struct ktre *re, struct node *n, bool rev)
 	}
 }
 
+static void
+print_compile_error(struct ktre *re)
+{
+	DBG("\nfailed to compile with error code %d: %s\n", re->err, re->err_str);
+	DBG("\t%s\n\t", re->pat);
+	for (int i = 0; i < re->loc; i++)
+		DBG(" ");
+	DBG("^");
+}
+
 struct ktre *
 ktre_compile(const char *pat, int opt)
 {
 	struct ktre *re = KTRE_MALLOC(sizeof *re);
 	memset(re, 0, sizeof *re);
-	re->info.ba += sizeof (struct ktre);
 
 #ifdef KTRE_DEBUG
 	DBG("regexpr: %s", pat);
@@ -1642,30 +1649,32 @@ ktre_compile(const char *pat, int opt)
 	}
 #endif
 
-	re->pat = pat;
-	re->opt = opt;
-	re->sp = pat;
-	re->popt = opt;
-	re->max_tp = -1;
-	re->err_str = "no error";
-	re->n = new_node(re);
-	re->n->loc = 0;
-	re->n->type = NODE_GROUP;
-	re->n->gi = add_group(re);
+	re->pat                  = pat;
+	re->opt                  = opt;
+	re->sp                   = pat;
+	re->popt                 = opt;
+	re->max_tp               = -1;
+	re->err_str              = "no error";
+	re->n                    = new_node(re);
+	re->n->loc               = 0;
+	re->n->type              = NODE_GROUP;
+	re->n->gi                = add_group(re);
 	re->group[0].is_compiled = false;
-	re->group[0].is_called = false;
-	re->n->a = NULL;
-	struct node *n = parse(re);
-	re->n->a = n;
+	re->group[0].is_called   = false;
+	re->n->a                 = NULL;
+	struct node *n           = parse(re);
+	re->n->a                 = n;
 
 	if (re->err) {
 		free_node(re, re->n);
 		re->n = NULL;
+		print_compile_error(re);
 		return re;
 	}
 
 	if (*re->sp) {
 		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "invalid regex syntax; unmatched righthand delimiter");
+		print_compile_error(re);
 		return re;
 	}
 
@@ -1673,16 +1682,26 @@ ktre_compile(const char *pat, int opt)
 	print_node(re->n);
 #endif
 
-	/* just emit the bytecode for .*? */
 	if (re->opt & KTRE_UNANCHORED) {
+		/*
+		 * To implement unanchored matching (the default for
+		 * most engines) we could have the VM just try to
+		 * match the regex at every position in the string,
+		 * but that's inefficient. Instead, we'll just bake
+		 * the unanchored matching right into the bytecode by
+		 * manually emitting the instructions for `.*?`.
+		 */
 		emit_ab(re, INSTR_SPLIT, 3, 1, 0);
 		emit(re, INSTR_ANY, 0);
 		emit_ab(re, INSTR_SPLIT, 3, 1, 0);
 	}
 
 	compile(re, re->n, false);
-	if (re->err)
+
+	if (re->err) {
+		print_compile_error(re);
 		return re;
+	}
 
 	emit(re, INSTR_MATCH, re->sp - re->pat);
 
@@ -1705,8 +1724,8 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].a);                break;
 		case INSTR_SAVE:      DBG("SAVE     %d",  re->c[i].a);                break;
 		case INSTR_JMP:       DBG("JMP      %d",  re->c[i].a);                break;
-		case INSTR_OPT_ON:    DBG("OPTON    %d",  re->c[i].a);                break;
-		case INSTR_OPT_OFF:   DBG("OPTOFF   %d",  re->c[i].a);                break;
+		case INSTR_OPTON:    DBG("OPTON    %d",  re->c[i].a);                break;
+		case INSTR_OPTOFF:   DBG("OPTOFF   %d",  re->c[i].a);                break;
 		case INSTR_BACKREF:   DBG("BACKREF  %d",  re->c[i].a);                break;
 		case INSTR_CALL:      DBG("CALL     %d",  re->c[i].a);                break;
 		case INSTR_PROG:      DBG("PROG     %d",  re->c[i].a);                break;
@@ -2077,12 +2096,12 @@ run(struct ktre *re, const char *subject, int ***vec)
 			THREAD[TP].ip = re->c[ip].c;
 			break;
 
-		case INSTR_OPT_ON:
+		case INSTR_OPTON:
 			THREAD[TP].ip++;
 			THREAD[TP].opt |= re->c[ip].c;
 			break;
 
-		case INSTR_OPT_OFF:
+		case INSTR_OPTOFF:
 			THREAD[TP].ip++;
 			THREAD[TP].opt &= ~re->c[ip].c;
 			break;
@@ -2265,7 +2284,9 @@ ktre_free(struct ktre *re)
 #endif
 
 #ifdef KTRE_DEBUG
-	DBG("\n%d allocations, %d frees with %d bytes allocated.\n", info.num_alloc, info.num_free, info.mba);
+	DBG("\n%d allocations, %d frees with %d bytes allocated.", info.num_alloc, info.num_free, info.mba);
+	if (info.ba)
+		DBG("\nfinished with %d leaked bytes from %d unmatched allocations.", info.ba, info.num_alloc - info.num_free);
 #endif
 
 	return info;
@@ -2358,7 +2379,11 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 	idx += strlen(subject) - diff;
 	ret[idx] = 0;
 
-	return ret;
+	char *a = KTRE_MALLOC(strlen(ret) + 1);
+	strcpy(a, ret);
+	ktre__free(re, ret);
+
+	return a;
 }
 
 int **ktre_getvec(struct ktre *re)
