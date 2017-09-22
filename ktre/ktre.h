@@ -262,7 +262,9 @@ struct ktre {
 struct ktre *ktre_compile(const char *pat, int opt);
 struct ktre *ktre_copy(struct ktre *re);
 _Bool ktre_exec(struct ktre *re, const char *subject, int ***vec);
+_Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec);
 char *ktre_filter(struct ktre *re, const char *subject, const char *replacement);
+char *ktre_replace(const char *subject, const char *pat, const char *replacement, int opt, int ***vec);
 int **ktre_getvec(const struct ktre *re);
 struct ktre_info ktre_free(struct ktre *re);
 
@@ -2387,6 +2389,32 @@ ktre_exec(struct ktre *re, const char *subject, int ***vec)
 	}
 
 	return run(re, subject, vec);
+}
+
+_Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec)
+{
+	struct ktre *re = ktre_compile(pat, opt);
+
+	if (!re->err) {
+		return run(re, subject, vec);
+	}
+
+	ktre_free(re);
+	return false;
+}
+
+char *ktre_replace(const char *subject, const char *pat, const char *replacement, int opt, int ***vec)
+{
+	struct ktre *re = ktre_compile(pat, opt);
+
+	if (!re->err) {
+		char *ret = ktre_filter(re, subject, replacement);
+		ktre_free(re);
+		return ret;
+	}
+
+	ktre_free(re);
+	return NULL;
 }
 
 char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
