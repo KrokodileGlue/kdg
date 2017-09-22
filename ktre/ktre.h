@@ -24,6 +24,7 @@
 
 /*
  * KTRE: a tiny regex engine
+ *
  * KTRE supports character classes [a-zA-Z_], submatching and
  * backreferencing (cat|dog)\1, negated character classes [^a-zA-Z_],
  * a variety of escaped metacharacters (\w, \W, \d, \D, \s, \b), mode
@@ -110,8 +111,10 @@
 extern "C" {
 #endif
 
-/* manually disable warnings and errors about "unsafe" functions on
- * the Microsoft platform. */
+/*
+ * Manually disable warnings and errors about "unsafe" functions on
+ * Windows.
+ */
 #ifdef _MSC_VER
 #pragma warning(disable:4996)
 #endif
@@ -589,7 +592,9 @@ free_node(struct ktre *re, struct node *n)
 	case NODE_NLB:
 		free_node(re, n->a);
 		break;
-	case NODE_CLASS: case NODE_STR: ktre__free(re, n->class); break;
+	case NODE_CLASS: case NODE_NOT: case NODE_STR:
+		ktre__free(re, n->class);
+		break;
 	default: break;
 	}
 
@@ -637,23 +642,21 @@ lc(char c)
 	return c;
 }
 
-static char *
-class_add_char(struct ktre *re, char *class, char c)
+static void
+class_add_char(struct ktre *re, char **class, char c)
 {
-	size_t len = class ? strlen(class) : 0;
-	class = ktre__realloc(re, class, len + 2);
-	class[len] = c;
-	class[len + 1] = 0;
-	return class;
+	size_t len = *class ? strlen(*class) : 0;
+	*class = ktre__realloc(re, *class, len + 2);
+	(*class)[len] = c;
+	(*class)[len + 1] = 0;
 }
 
-static char *
-class_add_str(struct ktre *re, char *class, const char *c)
+static void
+class_add_str(struct ktre *re, char **class, const char *c)
 {
-	size_t len = class ? strlen(class) : 0;
-	class = ktre__realloc(re, class, len + strlen(c) + 1);
-	strcpy(class + len, c);
-	return class;
+	size_t len = *class ? strlen(*class) : 0;
+	*class = ktre__realloc(re, *class, len + strlen(c) + 1);
+	strcpy(*class + len, c);
 }
 
 static char *
@@ -905,6 +908,97 @@ parse_group(struct ktre *re)
 	return left;
 }
 
+static char
+parse_character_class_character(struct ktre *re)
+{
+	char a;
+
+	if (*re->sp == '\\') {
+		next_char(re);
+
+		switch (*re->sp) {
+		case 'x':
+			next_char(re);
+			a = parse_hex_num(re);
+			break;
+		case '0':
+			next_char(re);
+			a = parse_oct_num(re);
+			break;
+		default:
+			a = *re->sp;
+			next_char(re);
+			break;
+		}
+	} else if (*re->sp == ']') {
+#ifdef KTRE_DEBUG
+		assert(false);
+#endif
+		a = -1;
+	} else {
+		a = *re->sp;
+		next_char(re);
+	}
+
+	return a;
+}
+
+static struct node *
+parse_character_class(struct ktre *re)
+{
+	struct node *left = new_node(re);
+	left->loc         = re->sp - re->pat;
+	char *class       = NULL;
+
+	if (*re->sp == '^') {
+		next_char(re);
+		left->type = NODE_NOT;
+	} else {
+		left->type = NODE_CLASS;
+	}
+
+	/*
+	 * The main loop.
+	 */
+	while (*re->sp && *re->sp != ']') {
+		char a, b;
+		bool range = false;
+
+		a = parse_character_class_character(re);
+		range = (*re->sp && *re->sp == '-' && re->sp[1] != ']');
+		if (range) {
+			next_char(re);
+			b = parse_character_class_character(re);
+			for (int i = a; i <= b; i++)
+				class_add_char(re, &class, i);
+		} else {
+			class_add_char(re, &class, a);
+		}
+	}
+
+	if (*re->sp != ']') {
+		error(re, KTRE_ERROR_SYNTAX_ERROR, left->loc,
+		      "unterminated character class");
+		free_node(re, left);
+		return NULL;
+	}
+
+	if (!class) {
+		error(re, KTRE_ERROR_SYNTAX_ERROR, left->loc,
+		      "empty character class");
+		free_node(re, left);
+		return NULL;
+	}
+
+	left->class = class;
+
+	/*
+	 * Skip over the `]`.
+	 */
+	next_char(re);
+	return left;
+}
+
 static struct node *
 parse_primary(struct ktre *re)
 {
@@ -1002,74 +1096,9 @@ again:
 		break;
 
 	case '[': { /* character classes */
-		int loc = re->sp - re->pat;
+		free_node(re, left);
 		next_char(re);
-
-		if (*re->sp == '^') {
-			next_char(re);
-			left->type = NODE_NOT;
-		} else {
-			left->type = NODE_CLASS;
-		}
-
-		char *class = NULL;
-		while (*re->sp && *re->sp != ']') {
-			if (re->sp[1] == '-' && re->sp[2] != ']') {
-				for (int i = re->sp[0]; i <= re->sp[2]; i++) {
-					class = class_add_char(re, class, i);
-
-					if (re->popt & KTRE_INSENSITIVE) {
-						if (i >= 'A' && i <= 'Z')
-							class = class_add_char(re, class, lc(i));
-					}
-				}
-				re->sp += 3;
-			} else if (*re->sp == '\\') {
-				next_char(re);
-
-				switch (*re->sp) {
-				case 's':
-					class = class_add_str(re, class, WHITESPACE);
-					re->sp++;
-					break;
-				case 'd':
-					class = class_add_str(re, class, DIGIT);
-					re->sp++;
-					break;
-				case 'w':
-					class = class_add_str(re, class, WORD);
-					re->sp++;
-					break;
-				case 'n':
-					class = class_add_char(re, class, '\n');
-					re->sp++;
-				}
-			} else {
-				class = class_add_char(re, class, *re->sp);
-
-				if (re->popt & KTRE_INSENSITIVE
-				    && *re->sp >= 'A' && *re->sp <= 'Z') {
-					class = class_add_char(re, class, lc(*re->sp));
-				}
-
-				re->sp++;
-			}
-		}
-
-		if (*re->sp != ']') {
-			error(re, KTRE_ERROR_SYNTAX_ERROR, loc, "unterminated character class");
-			free_node(re, left);
-			return NULL;
-		}
-
-		if (!class) {
-			error(re, KTRE_ERROR_SYNTAX_ERROR, loc, "empty character class");
-			free_node(re, left);
-			return NULL;
-		}
-
-		left->class = class;
-		next_char(re);
+		left = parse_character_class(re);
 	} break;
 
 	case '(':
@@ -1207,9 +1236,9 @@ term(struct ktre *re)
 					free_node(re, right);
 				} else {
 					if (re->popt & KTRE_INSENSITIVE) {
-						left->class = class_add_char(re, left->class, lc(right->c));
+						class_add_char(re, &left->class, lc(right->c));
 					} else {
-						left->class = class_add_char(re, left->class, right->c);
+						class_add_char(re, &left->class, right->c);
 					}
 
 					free_node(re, right);
@@ -1234,9 +1263,9 @@ term(struct ktre *re)
 					free_node(re, right);
 				} else {
 					if (re->popt & KTRE_INSENSITIVE) {
-						left->b->class = class_add_char(re, left->b->class, lc(right->c));
+						class_add_char(re, &left->b->class, lc(right->c));
 					} else {
-						left->b->class = class_add_char(re, left->b->class, right->c);
+						class_add_char(re, &left->b->class, right->c);
 					}
 
 					free_node(re, right);
@@ -1750,7 +1779,7 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_CLASS: DBG("CLASS   '"); dbgf(re->c[i].class); DBG("'");    break;
 		case INSTR_STR:   DBG("STR     '"); dbgf(re->c[i].class); DBG("'");    break;
 		case INSTR_TSTR:  DBG("TSTR    '"); dbgf(re->c[i].class); DBG("'");    break;
-		case INSTR_BRANCH:    DBG("BRANCH    %d, %d", re->c[i].a, re->c[i].b); break;
+		case INSTR_BRANCH:    DBG("BRANCH   %d, %d", re->c[i].a, re->c[i].b); break;
 		case INSTR_NOT:       DBG("NOT     '%s'", re->c[i].class);             break;
 		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].a);                 break;
 		case INSTR_SAVE:      DBG("SAVE     %d",  re->c[i].a);                 break;
