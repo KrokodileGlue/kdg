@@ -652,6 +652,32 @@ lc(char c)
 	return c;
 }
 
+static inline char
+uc(char c)
+{
+	if (c >= 'a' && c <= 'z') {
+		c = (c - 'a') + 'A';
+	}
+
+	return c;
+}
+
+static inline void
+lc_str(char *s)
+{
+	for (int i = 0; i < strlen(s); i++) {
+		s[i] = lc(s[i]);
+	}
+}
+
+static inline void
+uc_str(char *s)
+{
+	for (int i = 0; i < strlen(s); i++) {
+		s[i] = uc(s[i]);
+	}
+}
+
 static void
 class_add_char(struct ktre *re, char **class, char c)
 {
@@ -2549,6 +2575,7 @@ char *ktre_replace(const char *subject, const char *pat, const char *replacement
 char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 {
 	DBG("\nsubject: %s", subject);
+
 	int **vec = NULL;
 	if (!run(re, subject, &vec) || re->err) {
 		return NULL;
@@ -2557,6 +2584,8 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 	char *ret = ktre__malloc(re, 512);
 	*ret = 0;
 	int idx = 0;
+	bool upper = false, lower = false;
+	bool upperchar = false, lowerchar = true;
 
 	for (int i = 0; i < re->num_matches; i++) {
 		if (i > 0) {
@@ -2580,22 +2609,55 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 		while (*r) {
 			if (*r == '\\') {
 				r++;
-				int n = dec_num(&r);
 
-				if (n < 0 || n >= re->num_groups) {
-					ktre__free(re, group);
-					ktre__free(re, ret);
-					error(re, KTRE_ERROR_SYNTAX_ERROR, 0, "backreference references a group that does not exist");
-					return NULL;
+				switch (*r) {
+				case 'U': upper = true; r++; break;
+				case 'L': lower = true; r++; break;
+				case 'E': lower = upper = false; r++; break;
+				case 'l': lowerchar = true; r++; break;
+				case 'u': upperchar = true; r++; break;
+
+				case '0': case '1': case '2': case '3':
+				case '4': case '5': case '6': case '7':
+				case '8': case '9':
+					int n = dec_num(&r);
+
+					if (n < 0 || n >= re->num_groups) {
+						ktre__free(re, group);
+						ktre__free(re, ret);
+						error(re, KTRE_ERROR_SYNTAX_ERROR, 0, "backreference references a group that does not exist");
+						return NULL;
+					}
+
+					group = ktre__realloc(re, group, (j + vec[i][n * 2 + 1] + 2) * sizeof *group);
+
+					for (int ch = 0; ch < vec[i][n * 2 + 1]; ch++) {
+						if (upperchar && ch == 0) {
+							group[j + ch] = uc(subject[vec[i][n * 2] + ch]);
+							continue;
+						}
+
+						if (lowerchar && ch == 0) {
+							group[j + ch] = lc(subject[vec[i][n * 2] + ch]);
+							continue;
+						}
+
+						if (upper)      group[j + ch] = uc(subject[vec[i][n * 2] + ch]);
+						else if (lower) group[j + ch] = lc(subject[vec[i][n * 2] + ch]);
+						else            group[j + ch] =    subject[vec[i][n * 2] + ch];
+					}
+
+					j += vec[i][n * 2 + 1];
+					break;
 				}
-
-				group = ktre__realloc(re, group, (j + vec[i][n * 2 + 1] + 2) * sizeof *group);
-				strncpy(group + j, subject + vec[i][n * 2], vec[i][n * 2 + 1]);
-				j += vec[i][n * 2 + 1];
 			} else {
 				group = ktre__realloc(re, group, (j + 2) * sizeof *group);
-				group[j++] = *r;
+				group[j] = *r;
+				if (upperchar) group[j] = uc(*r);
+				if (lowerchar) group[j] = lc(*r);
+				j++;
 				r++;
+				lowerchar = upperchar = false;
 			}
 		}
 
@@ -2613,7 +2675,23 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 
 	int diff = vec[re->num_matches - 1][0] + vec[re->num_matches - 1][1];
 	ret = ktre__realloc(re, ret, (idx + diff + 2) * sizeof *ret);
-	strncpy(ret + idx, subject + diff, strlen(subject) - diff);
+
+	for (int ch = 0; ch < strlen(subject) - diff; ch++) {
+		if (upperchar && ch == 0) {
+			ret[idx + ch] = uc(subject[diff + ch]);
+			continue;
+		}
+
+		if (lowerchar && ch == 0) {
+			ret[idx + ch] = lc(subject[diff + ch]);
+			continue;
+		}
+
+		if (upper)      ret[idx + ch] = uc(subject[diff + ch]);
+		else if (lower) ret[idx + ch] = lc(subject[diff + ch]);
+		else            ret[idx + ch] = subject[diff + ch];
+	}
+
 	idx += strlen(subject) - diff;
 	ret[idx] = 0;
 
