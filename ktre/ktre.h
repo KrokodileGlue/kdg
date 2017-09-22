@@ -1073,7 +1073,7 @@ again:
 			left->c = parse_hex_num(re);
 			break;
 
-		case 'g':
+		case 'g': {
 			next_char(re); /* skip over the `g` */
 
 			if (*re->sp != '{') {
@@ -1104,7 +1104,7 @@ again:
 
 			left->type = NODE_BACKREF;
 			left->c = a;
-			break;
+		} break;
 
 		case 's':
 			left->type = NODE_SPACE;
