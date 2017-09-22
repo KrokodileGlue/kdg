@@ -195,6 +195,7 @@ struct ktre {
 	int popt;        /* the options, as seen by the parser */
 	int gp;          /* group pointer */
 	struct node *n;  /* the head node of the ast */
+	_Bool literal;   /* whether to escape metacharacters or not */
 
 	struct group {
 		int address;
@@ -249,6 +250,7 @@ struct ktre_info ktre_free(struct ktre *re);
 #define WHITESPACE " \t\r\n\v\f"
 #define DIGIT      "0123456789"
 #define WORD       "_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+#define META       ".^$#[(\\" WHITESPACE
 
 #ifdef KTRE_DEBUG
 #include <stdio.h>
@@ -1049,6 +1051,7 @@ parse_primary(struct ktre *re)
 {
 	struct node *left = new_node(re);
 	int loc = re->sp - re->pat;
+	left->loc = loc;
 
 	if (*re->sp == ')') {
 		free_node(re, left);
@@ -1056,6 +1059,22 @@ parse_primary(struct ktre *re)
 	}
 
 again:
+	if (re->literal && strchr(META, *re->sp)) {
+		/*
+		 * Make an exception for \E.
+		 */
+		if (*re->sp == '\\' && re->sp[1] == 'E') {
+			re->literal = false;
+			re->sp += 2;
+			goto again;
+		}
+
+		left->type = NODE_CHAR;
+		left->c = *re->sp;
+		next_char(re);
+		return left;
+	}
+
 	switch (*re->sp) {
 	case '\\': /* escape sequences */
 		next_char(re);
@@ -1072,6 +1091,24 @@ again:
 			left->type = NODE_CHAR;
 			left->c = parse_hex_num(re);
 			break;
+
+		case '-': /* backreferences */
+		case '+': case '1': case '2': case '3': case '4':
+		case '5': case '6': case '7': case '8': case '9': {
+			bool neg = (*re->sp == '-');
+			bool pos = (*re->sp == '+');
+			if (neg || pos)
+				/* skip over the sign */
+				next_char(re);
+
+			int a = parse_dec_num(re);
+
+			if (neg) a = re->gp - a;
+			if (pos) a = re->gp + a;
+
+			left->type = NODE_BACKREF;
+			left->c = a;
+		} break;
 
 		case 'g': {
 			next_char(re); /* skip over the `g` */
@@ -1139,24 +1176,6 @@ again:
 			next_char(re);
 			break;
 
-		case '-':
-		case '+': case '1': case '2': case '3': case '4':
-		case '5': case '6': case '7': case '8': case '9': {
-			bool neg = (*re->sp == '-');
-			bool pos = (*re->sp == '+');
-			if (neg || pos)
-				/* skip over the sign */
-				next_char(re);
-
-			int a = parse_dec_num(re);
-
-			if (neg) a = re->gp - a;
-			if (pos) a = re->gp + a;
-
-			left->type = NODE_BACKREF;
-			left->c = a;
-		} break;
-
 		case 'K':
 			left->type = NODE_SET_START;
 			next_char(re);
@@ -1167,11 +1186,15 @@ again:
 			next_char(re);
 			break;
 
-		case 'n':
-			left->type = NODE_CHAR;
-			left->c = '\n';
+		case 'Q':
+			re->literal = true;
 			next_char(re);
-			break;
+			goto again;
+
+		case 'E':
+			re->literal = false;
+			next_char(re);
+			goto again;
 
 		default:
 			left->type = NODE_CHAR;
@@ -1219,9 +1242,13 @@ again:
 	default:
 		/* ignore whitespace if we're in extended mode */
 		if (re->popt & KTRE_EXTENDED && strchr(WHITESPACE, *re->sp)) {
-			while (*re->sp && strchr(WHITESPACE, *re->sp))
+			while (*re->sp && strchr(WHITESPACE, *re->sp)) {
 				next_char(re);
-			goto again;
+			}
+
+			if (*re->sp) {
+				goto again;
+			}
 		}
 
 		left->type = NODE_CHAR;
