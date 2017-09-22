@@ -334,6 +334,9 @@ ktre__malloc(struct ktre *re, size_t n, const char *file, int line)
 {
 	if (re->info.ba + n > KTRE_MEM_CAP) {
 		error(re, KTRE_ERROR_OUT_OF_MEMORY, 0, NULL);
+#ifdef KTRE_DEBUG
+		DBG("\nrunning out of memory at %d bytes:\n\trequest for %zd bytes at line %d", re->info.ba, n, line);
+#endif
 		return NULL;
 	}
 
@@ -346,9 +349,7 @@ ktre__malloc(struct ktre *re, size_t n, const char *file, int line)
 
 	re->info.num_alloc++;
 	re->info.ba += n + sizeof (struct ktre_malloc_info);
-	re->info.mba = re->info.ba > re->info.mba
-		? re->info.ba
-		: re->info.mba;
+	re->info.mba += n + sizeof (struct ktre_malloc_info);
 
 #ifdef KTRE_DEBUG
 	mi->file = file;
@@ -508,6 +509,8 @@ static void
 emit_ab(struct ktre *re, int instr, int a, int b, int loc)
 {
 	grow_code(re, 1);
+	if (!re->c) return;
+
 	re->c[re->ip].op = instr;
 
 	re->c[re->ip].a = a;
@@ -521,6 +524,8 @@ static void
 emit_c(struct ktre *re, int instr, int c, int loc)
 {
 	grow_code(re, 1);
+	if (!re->c) return;
+
 	re->c[re->ip].op = instr;
 	re->c[re->ip].c = c;
 	re->c[re->ip].loc = loc;
@@ -532,6 +537,8 @@ static void
 emit_class(struct ktre *re, int instr, char *class, int loc)
 {
 	grow_code(re, 1);
+	if (!re->c) return;
+
 	re->c[re->ip].op = instr;
 	re->c[re->ip].class = class;
 	re->c[re->ip].loc = loc;
@@ -543,6 +550,7 @@ static void
 emit(struct ktre *re, int instr, int loc)
 {
 	grow_code(re, 1);
+	if (!re->c) return;
 	re->c[re->ip].op = instr;
 	re->c[re->ip].loc = loc;
 	re->ip++;
@@ -631,7 +639,10 @@ error(struct ktre *re, enum ktre_error err, int loc, char *fmt, ...)
 	re->err = err;
 	re->loc = loc;
 
-	if (!fmt) return;
+	if (!fmt) {
+		re->err_str = NULL;
+		return;
+	}
 
 	re->err_str = ktre__malloc(re, MAX_ERROR_LEN);
 	va_list args;
@@ -1126,6 +1137,7 @@ again:
 		next_char(re);
 	}
 
+	if (left) left->loc = re->sp - re->pat;
 	return left;
 }
 
@@ -1370,9 +1382,9 @@ print_node(struct node *n)
 static void
 compile(struct ktre *re, struct node *n, bool rev)
 {
-#define PATCH_A(loc, _a) re->c[loc].a = _a
-#define PATCH_B(loc, _b) re->c[loc].b = _b
-#define PATCH_C(loc, _c) re->c[loc].c = _c
+#define PATCH_A(loc, _a) if (re->c) re->c[loc].a = _a
+#define PATCH_B(loc, _b) if (re->c) re->c[loc].b = _b
+#define PATCH_C(loc, _c) if (re->c) re->c[loc].c = _c
 	int a = -1, b = -1, old = -1;
 
 	switch (n->type) {
@@ -1623,7 +1635,8 @@ compile(struct ktre *re, struct node *n, bool rev)
 static void
 print_compile_error(struct ktre *re)
 {
-	DBG("\nfailed to compile with error code %d: %s\n", re->err, re->err_str);
+	DBG("\nfailed to compile with error code %d: %s\n",
+		        re->err, re->err_str ? re->err_str : "no error message");
 	DBG("\t%s\n\t", re->pat);
 	for (int i = 0; i < re->loc; i++)
 		DBG(" ");
@@ -1878,6 +1891,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 	if (!re->info.thread_alloc) {
 		re->info.thread_alloc = 25;
 		re->t = ktre__malloc(re, re->info.thread_alloc * sizeof THREAD[0]);
+		if (re->err) return false;
 		memset(re->t, 0, re->info.thread_alloc * sizeof THREAD[0]);
 	}
 
@@ -2285,17 +2299,31 @@ ktre_free(struct ktre *re)
 
 	ktre__free(re, re->t);
 	struct ktre_info info = re->info;
-	KTRE_FREE(re);
 
 #if defined(_MSC_VER) && defined(KTRE_DEBUG)
 	_CrtDumpMemoryLeaks();
 #endif
 
 #ifdef KTRE_DEBUG
-	DBG("\n%d allocations, %d frees with %d bytes allocated.", info.num_alloc, info.num_free, info.mba);
-	if (info.ba)
-		DBG("\nfinished with %d leaked bytes from %d unmatched allocations.", info.ba, info.num_alloc - info.num_free);
+	DBG("\nfinished with %d allocations, %d frees and %d bytes allocated.",
+	    info.num_alloc, info.num_free, info.mba);
+
+	if (info.ba) {
+		DBG("\nthere were %d leaked bytes from %d unmatched allocations.",
+		    info.ba, info.num_alloc - info.num_free);
+
+		struct ktre_malloc_info *mi = re->minfo;
+		int i = 0;
+
+		while (mi) {
+			DBG("\n\tleak %d: %d bytes at %s:%d",
+			    i + 1, mi->size, mi->file, mi->line);
+			mi = mi->next;
+			i++;
+		}
+	}
 #endif
+	KTRE_FREE(re);
 
 	return info;
 }
@@ -2307,7 +2335,8 @@ ktre_exec(struct ktre *re, const char *subject, int ***vec)
 	DBG("\nsubject: %s", subject);
 #endif
 	if (re->err) {
-		ktre__free(re, re->err_str);
+		if (re->err_str)
+			ktre__free(re, re->err_str);
 		re->err = KTRE_ERROR_NO_ERROR;
 	}
 
