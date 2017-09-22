@@ -188,6 +188,8 @@ struct ktre_info {
 
 	int thread_alloc;
 	int instr_alloc;
+	int parser_alloc;
+	int runtime_alloc;
 };
 
 struct ktre_minfo {
@@ -445,7 +447,7 @@ struct instr {
 		INSTR_MATCH,
 		INSTR_CHAR,
 		INSTR_JMP,
-		INSTR_SPLIT,
+		INSTR_BRANCH,
 		INSTR_ANY,
 		INSTR_CLASS,
 		INSTR_TSTR,
@@ -688,6 +690,8 @@ static char *
 strclone(struct ktre *re, const char *str)
 {
 	char *ret = ktre__malloc(re, strlen(str) + 1);
+	if (!ret) return NULL;
+	re->info.parser_alloc += strlen(str) + 1;
 	strcpy(ret, str);
 	return ret;
 }
@@ -696,6 +700,8 @@ static struct node *
 new_node(struct ktre *re)
 {
 	struct node *n = ktre__malloc(re, sizeof *n);
+	if (!n) return NULL;
+	re->info.parser_alloc += sizeof *n;
 	memset(n, 0, sizeof *n);
 	n->loc = -1;
 	return n;
@@ -1217,6 +1223,7 @@ term(struct ktre *re)
 					char a = left->c;
 					left->type = NODE_STR;
 					left->class = ktre__malloc(re, 3);
+					re->info.parser_alloc += 3;
 
 					if (re->popt & KTRE_INSENSITIVE) {
 						left->class[0] = lc(a);
@@ -1243,6 +1250,7 @@ term(struct ktre *re)
 					char a = left->b->c;
 					left->b->type = NODE_STR;
 					left->b->class = ktre__malloc(re, 3);
+					re->info.parser_alloc += 3;
 
 					if (re->popt & KTRE_INSENSITIVE) {
 						left->b->class[0] = lc(a);
@@ -1392,10 +1400,10 @@ compile(struct ktre *re, struct node *n, bool rev)
 	switch (n->type) {
 	case NODE_ASTERISK:
 		a = re->ip;
-		emit_ab(re, INSTR_SPLIT, re->ip + 1, -1, n->loc);
+		emit_ab(re, INSTR_BRANCH, re->ip + 1, -1, n->loc);
 		emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
 		compile(re, n->a, rev);
-		emit_ab(re, INSTR_SPLIT, a + 1, re->ip + 1, n->loc);
+		emit_ab(re, INSTR_BRANCH, a + 1, re->ip + 1, n->loc);
 		PATCH_B(a, re->ip);
 		break;
 
@@ -1403,28 +1411,28 @@ compile(struct ktre *re, struct node *n, bool rev)
 		switch (n->a->type) {
 		case NODE_ASTERISK:
 			a = re->ip;
-			emit_ab(re, INSTR_SPLIT, -1, re->ip + 1, n->loc);
+			emit_ab(re, INSTR_BRANCH, -1, re->ip + 1, n->loc);
 			emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
 			compile(re, n->a->a, rev);
-			emit_ab(re, INSTR_SPLIT, re->ip + 1, a + 1, n->loc);
+			emit_ab(re, INSTR_BRANCH, re->ip + 1, a + 1, n->loc);
 			PATCH_A(a, re->ip);
 			break;
 		case NODE_PLUS:
 			a = re->ip;
 			emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
 			compile(re, n->a->a, rev);
-			emit_ab(re, INSTR_SPLIT, re->ip + 1, a, n->loc);
+			emit_ab(re, INSTR_BRANCH, re->ip + 1, a, n->loc);
 			break;
 		case NODE_QUESTION:
 			a = re->ip;
-			emit_ab(re, INSTR_SPLIT, -1, re->ip + 1, n->loc);
+			emit_ab(re, INSTR_BRANCH, -1, re->ip + 1, n->loc);
 			emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
 			compile(re, n->a->a, rev);
 			PATCH_A(a, re->ip);
 			break;
 		default:
 			a = re->ip;
-			emit_ab(re, INSTR_SPLIT, re->ip + 1, -1, n->loc);
+			emit_ab(re, INSTR_BRANCH, re->ip + 1, -1, n->loc);
 			compile(re, n->a, rev);
 			PATCH_B(a, re->ip);
 		}
@@ -1486,13 +1494,13 @@ compile(struct ktre *re, struct node *n, bool rev)
 			a = re->ip;
 			emit_c(re, INSTR_PROG, re->num_prog++, n->loc);
 			compile(re, n->a, rev);
-			emit_ab(re, INSTR_SPLIT, a, re->ip + 1, n->loc);
+			emit_ab(re, INSTR_BRANCH, a, re->ip + 1, n->loc);
 		}
 		break;
 
 	case NODE_OR:
 		a = re->ip;
-		emit_ab(re, INSTR_SPLIT, re->ip + 1, -1, n->loc);
+		emit_ab(re, INSTR_BRANCH, re->ip + 1, -1, n->loc);
 		compile(re, n->a, rev);
 		b = re->ip;
 		emit_c(re, INSTR_JMP, -1, n->loc);
@@ -1540,8 +1548,8 @@ compile(struct ktre *re, struct node *n, bool rev)
 			} else {
 				if (n->a->type == NODE_CHAR) {
 					char *str = ktre__malloc(re, n->c + 1);
-
 					if (!str) return;
+					re->info.parser_alloc += n->c + 1;
 
 					for (int i = 0; i < n->c; i++) str[i] = n->a->c;
 					str[n->c] = 0;
@@ -1555,16 +1563,16 @@ compile(struct ktre *re, struct node *n, bool rev)
 			if (n->a->type == NODE_GROUP) {
 				/* basically just manually emit the
 				 * bytecode for * */
-				emit_ab(re, INSTR_SPLIT, re->ip + 1, re->ip + 2, n->loc);
+				emit_ab(re, INSTR_BRANCH, re->ip + 1, re->ip + 2, n->loc);
 				emit_c(re, INSTR_CALL, re->group[n->a->gi].address + 1, n->loc);
-				emit_ab(re, INSTR_SPLIT, re->ip - 1, re->ip + 1, n->loc);
+				emit_ab(re, INSTR_BRANCH, re->ip - 1, re->ip + 1, n->loc);
 			} else {
-				emit_ab(re, INSTR_SPLIT, a, re->ip + 1, n->loc);
+				emit_ab(re, INSTR_BRANCH, a, re->ip + 1, n->loc);
 			}
 		} else {
 			for (int i = 0; i < n->d - n->c; i++) {
 				a = re->ip;
-				emit_ab(re, INSTR_SPLIT, re->ip + 1, -1, n->loc);
+				emit_ab(re, INSTR_BRANCH, re->ip + 1, -1, n->loc);
 
 				if (n->a->type == NODE_GROUP) {
 					emit_c(re, INSTR_CALL, re->group[n->a->gi].address + 1, n->loc);
@@ -1715,9 +1723,9 @@ ktre_compile(const char *pat, int opt)
 		 * the unanchored matching right into the bytecode by
 		 * manually emitting the instructions for `.*?`.
 		 */
-		emit_ab(re, INSTR_SPLIT, 3, 1, 0);
+		emit_ab(re, INSTR_BRANCH, 3, 1, 0);
 		emit(re, INSTR_ANY, 0);
-		emit_ab(re, INSTR_SPLIT, 3, 1, 0);
+		emit_ab(re, INSTR_BRANCH, 3, 1, 0);
 	}
 
 	compile(re, re->n, false);
@@ -1742,39 +1750,39 @@ ktre_compile(const char *pat, int opt)
 		DBG("\n%3d: [%3d] ", i, re->c[i].loc);
 
 		switch (re->c[i].op) {
-		case INSTR_CLASS: DBG("CLASS   '"); dbgf(re->c[i].class); DBG("'");   break;
-		case INSTR_STR:   DBG("STR     '"); dbgf(re->c[i].class); DBG("'");   break;
-		case INSTR_TSTR:  DBG("TSTR    '"); dbgf(re->c[i].class); DBG("'");   break;
-		case INSTR_SPLIT:     DBG("SPLIT    %d, %d", re->c[i].a, re->c[i].b); break;
-		case INSTR_NOT:       DBG("NOT     '%s'", re->c[i].class);            break;
-		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].a);                break;
-		case INSTR_SAVE:      DBG("SAVE     %d",  re->c[i].a);                break;
-		case INSTR_JMP:       DBG("JMP      %d",  re->c[i].a);                break;
-		case INSTR_OPTON:    DBG("OPTON    %d",  re->c[i].a);                break;
-		case INSTR_OPTOFF:   DBG("OPTOFF   %d",  re->c[i].a);                break;
-		case INSTR_BACKREF:   DBG("BACKREF  %d",  re->c[i].a);                break;
-		case INSTR_CALL:      DBG("CALL     %d",  re->c[i].a);                break;
-		case INSTR_PROG:      DBG("PROG     %d",  re->c[i].a);                break;
-		case INSTR_SET_START: DBG("SET_START");                               break;
-		case INSTR_TRY:       DBG("TRY");                                     break;
-		case INSTR_CATCH:     DBG("CATCH");                                   break;
-		case INSTR_ANY:       DBG("ANY");                                     break;
-		case INSTR_DIGIT:     DBG("DIGIT");                                   break;
-		case INSTR_WORD:      DBG("WORD");                                    break;
-		case INSTR_SPACE:     DBG("SPACE");                                   break;
-		case INSTR_BOL:       DBG("BOL");                                     break;
-		case INSTR_EOL:       DBG("EOL");                                     break;
-		case INSTR_RET:       DBG("RET");                                     break;
-		case INSTR_WB:        DBG("WB");                                      break;
-		case INSTR_MATCH:     DBG("MATCH");                                   break;
-		case INSTR_PLA:       DBG("PLA");                                     break;
-		case INSTR_PLA_WIN:   DBG("PLA_WIN");                                 break;
-		case INSTR_NLA:       DBG("NLA      %d",  re->c[i].a);                break;
-		case INSTR_NLA_FAIL:  DBG("NLA_FAIL");                                break;
-		case INSTR_PLB:       DBG("PLB");                                     break;
-		case INSTR_PLB_WIN:   DBG("PLB_WIN");                                 break;
-		case INSTR_NLB:       DBG("NLB      %d",  re->c[i].a);                break;
-		case INSTR_NLB_FAIL:  DBG("NLB_FAIL");                                break;
+		case INSTR_CLASS: DBG("CLASS   '"); dbgf(re->c[i].class); DBG("'");    break;
+		case INSTR_STR:   DBG("STR     '"); dbgf(re->c[i].class); DBG("'");    break;
+		case INSTR_TSTR:  DBG("TSTR    '"); dbgf(re->c[i].class); DBG("'");    break;
+		case INSTR_BRANCH:    DBG("BRANCH    %d, %d", re->c[i].a, re->c[i].b); break;
+		case INSTR_NOT:       DBG("NOT     '%s'", re->c[i].class);             break;
+		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].a);                 break;
+		case INSTR_SAVE:      DBG("SAVE     %d",  re->c[i].a);                 break;
+		case INSTR_JMP:       DBG("JMP      %d",  re->c[i].a);                 break;
+		case INSTR_OPTON:     DBG("OPTON    %d",  re->c[i].a);                 break;
+		case INSTR_OPTOFF:    DBG("OPTOFF   %d",  re->c[i].a);                 break;
+		case INSTR_BACKREF:   DBG("BACKREF  %d",  re->c[i].a);                 break;
+		case INSTR_CALL:      DBG("CALL     %d",  re->c[i].a);                 break;
+		case INSTR_PROG:      DBG("PROG     %d",  re->c[i].a);                 break;
+		case INSTR_SET_START: DBG("SET_START");                                break;
+		case INSTR_TRY:       DBG("TRY");                                      break;
+		case INSTR_CATCH:     DBG("CATCH");                                    break;
+		case INSTR_ANY:       DBG("ANY");                                      break;
+		case INSTR_DIGIT:     DBG("DIGIT");                                    break;
+		case INSTR_WORD:      DBG("WORD");                                     break;
+		case INSTR_SPACE:     DBG("SPACE");                                    break;
+		case INSTR_BOL:       DBG("BOL");                                      break;
+		case INSTR_EOL:       DBG("EOL");                                      break;
+		case INSTR_RET:       DBG("RET");                                      break;
+		case INSTR_WB:        DBG("WB");                                       break;
+		case INSTR_MATCH:     DBG("MATCH");                                    break;
+		case INSTR_PLA:       DBG("PLA");                                      break;
+		case INSTR_PLA_WIN:   DBG("PLA_WIN");                                  break;
+		case INSTR_NLA:       DBG("NLA      %d",  re->c[i].a);                 break;
+		case INSTR_NLA_FAIL:  DBG("NLA_FAIL");                                 break;
+		case INSTR_PLB:       DBG("PLB");                                      break;
+		case INSTR_PLB_WIN:   DBG("PLB_WIN");                                  break;
+		case INSTR_NLB:       DBG("NLB      %d",  re->c[i].a);                 break;
+		case INSTR_NLB_FAIL:  DBG("NLB_FAIL");                                 break;
 
 		default:
  			DBG("\nunimplemented instruction printer %d\n", re->c[i].op);
@@ -1798,8 +1806,10 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int e)
 		if (re->info.thread_alloc * 2 >= KTRE_MAX_THREAD) {
 			re->info.thread_alloc = KTRE_MAX_THREAD;
 
-			/* account for the case where we're about to
-			 * bump up against the thread limit. */
+			/*
+			 * Account for the case where we're just about
+			 * to bump up against the thread limit.
+			 */
 			TP = TP >= KTRE_MAX_THREAD ? KTRE_MAX_THREAD - 1 : TP;
 		} else
 			re->info.thread_alloc *= 2;
@@ -1810,31 +1820,36 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int e)
 
 	if (!THREAD[TP].vec) {
 		THREAD[TP].vec = ktre__malloc(re, re->num_groups * 2 * sizeof THREAD[TP].vec[0]);
-		memset(THREAD[TP].vec, 0,    re->num_groups * 2 * sizeof THREAD[TP].vec[0]);
+		memset(THREAD[TP].vec, 0,         re->num_groups * 2 * sizeof THREAD[TP].vec[0]);
+		re->info.runtime_alloc +=         re->num_groups * 2 * sizeof THREAD[TP].vec[0];
 	}
 
 	if (!THREAD[TP].prog && re->num_prog) {
 		THREAD[TP].prog = ktre__malloc(re, re->num_prog * sizeof THREAD[TP].prog[0]);
-		memset(THREAD[TP].prog, -1,   re->num_prog * sizeof THREAD[TP].prog[0]);
+		memset(THREAD[TP].prog, -1,        re->num_prog * sizeof THREAD[TP].prog[0]);
+		re->info.runtime_alloc +=          re->num_prog * sizeof THREAD[TP].prog[0];
 	}
 
 	if (!THREAD[TP].frame) {
 		THREAD[TP].frame = ktre__malloc(re, (fp + 1) * sizeof THREAD[TP].frame[0]);
-		memset(THREAD[TP].frame, -1,   (fp + 1) * sizeof THREAD[TP].frame[0]);
+		memset(THREAD[TP].frame, -1,        (fp + 1) * sizeof THREAD[TP].frame[0]);
+		re->info.runtime_alloc +=           (fp + 1) * sizeof THREAD[TP].frame[0];
 	} else if (THREAD[TP].fp < fp) {
 		THREAD[TP].frame = ktre__realloc(re, THREAD[TP].frame, (fp + 1) * sizeof THREAD[TP].frame[0]);
 	}
 
 	if (!THREAD[TP].las) {
 		THREAD[TP].las = ktre__malloc(re, (la + 1) * sizeof THREAD[TP].las[0]);
-		memset(THREAD[TP].las, -1,   (la + 1) * sizeof THREAD[TP].las[0]);
+		memset(THREAD[TP].las, -1,        (la + 1) * sizeof THREAD[TP].las[0]);
+		re->info.runtime_alloc +=         (la + 1) * sizeof THREAD[TP].las[0];
 	} else if (THREAD[TP].la < la) {
 		THREAD[TP].las = ktre__realloc(re, THREAD[TP].las, (la + 1) * sizeof THREAD[TP].las[0]);
 	}
 
 	if (!THREAD[TP].exception) {
 		THREAD[TP].exception = ktre__malloc(re, (e + 1) * sizeof THREAD[TP].exception[0]);
-		memset(THREAD[TP].exception, -1,   (e + 1) * sizeof THREAD[TP].exception[0]);
+		memset(THREAD[TP].exception, -1,        (e + 1) * sizeof THREAD[TP].exception[0]);
+		re->info.runtime_alloc +=               (e + 1) * sizeof THREAD[TP].exception[0];
 	} else if (THREAD[TP].e < e) {
 		THREAD[TP].exception = ktre__realloc(re, THREAD[TP].exception, (e + 1) * sizeof THREAD[TP].exception[0]);
 	}
@@ -2074,7 +2089,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 				--TP;
 			break;
 
-		case INSTR_SPLIT:
+		case INSTR_BRANCH:
 			THREAD[TP].ip = re->c[ip].b;
 			new_thread(re, re->c[ip].a, sp, opt, fp, la, e);
 			break;
@@ -2310,21 +2325,33 @@ ktre_free(struct ktre *re)
 #endif
 
 #ifdef KTRE_DEBUG
-	DBG("\nFinished with %d allocations, %d frees, and %zd bytes allocated",
+	DBG("\nFinished with %d allocations, %d frees, and %zd bytes allocated.",
 	    info.num_alloc, info.num_free,
 	    info.mba + sizeof (struct ktre));
 
+	DBG("\n%5d bytes were allocated for the main structure.",
+	    sizeof (struct ktre));
+	DBG("\n%5d bytes were allocated for the bytecode.",
+	    info.instr_alloc * sizeof (struct instr));
+	DBG("\n%5d bytes were allocated for the runtime.",
+	    info.runtime_alloc + info.thread_alloc * sizeof (struct thread));
+	DBG("\n%5d bytes were allocated for the parser.",
+	    info.parser_alloc);
+
 	if (info.ba) {
 		DBG("\nThere were %d leaked bytes from %d unmatched allocations.",
-		    info.ba, info.num_alloc - info.num_free);
+		    info.ba - (info.num_alloc - info.num_free) * sizeof (struct ktre_minfo),
+		    info.num_alloc - info.num_free);
 
 		struct ktre_minfo *mi = re->minfo;
 		int i = 0;
 
+		while (mi->next) mi = mi->next;
+
 		while (mi) {
 			DBG("\n\tleak %d: %d bytes at %s:%d",
 			    i + 1, mi->size, mi->file, mi->line);
-			mi = mi->next;
+			mi = mi->prev;
 			i++;
 		}
 	}
