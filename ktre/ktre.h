@@ -332,23 +332,20 @@ static void  ktre__free   (struct ktre *re, void *ptr,           const char *fil
 static void *
 ktre__malloc(struct ktre *re, size_t n, const char *file, int line)
 {
-	n += sizeof (struct ktre_malloc_info);
-
 	if (re->info.ba + n > KTRE_MEM_CAP) {
 		error(re, KTRE_ERROR_OUT_OF_MEMORY, 0, NULL);
 		return NULL;
 	}
 
-	struct ktre_malloc_info *mi = KTRE_MALLOC(n);
+	struct ktre_malloc_info *mi = KTRE_MALLOC(n + sizeof (struct ktre_malloc_info));
 
 	if (!mi) {
 		error(re, KTRE_ERROR_OUT_OF_MEMORY, 0, NULL);
 		return NULL;
-
 	}
 
 	re->info.num_alloc++;
-	re->info.ba += n;
+	re->info.ba += n + sizeof (struct ktre_malloc_info);
 	re->info.mba = re->info.ba > re->info.mba
 		? re->info.ba
 		: re->info.mba;
@@ -374,7 +371,6 @@ ktre__realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line)
 {
 	if (!ptr) return ktre__malloc(re, n, file, line);
 
-	n += sizeof (struct ktre_malloc_info);
 	struct ktre_malloc_info *mi = (struct ktre_malloc_info *)ptr - 1;
 	int diff = n - mi->size;
 
@@ -391,7 +387,8 @@ ktre__realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line)
 	void *p = ktre__malloc(re, n, file, line);
 
 	if (p) {
-		memcpy(p, ptr, n - sizeof (struct ktre_malloc_info));
+		DBG("\nGOT HERE");
+		memcpy(p, ptr, n > mi->size ? mi->size : n);
 		ktre__free(re, ptr, file, line);
 	}
 
@@ -401,9 +398,8 @@ ktre__realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line)
 static void
 ktre__free(struct ktre *re, void *ptr, const char *file, int line)
 {
-	re->info.num_free++;
-
 	if (ptr) {
+		re->info.num_free++;
 		struct ktre_malloc_info *mi = (struct ktre_malloc_info *)ptr - 1;
 		re->info.ba -= mi->size;
 		KTRE_FREE(mi);
@@ -1631,6 +1627,7 @@ ktre_compile(const char *pat, int opt)
 {
 	struct ktre *re = KTRE_MALLOC(sizeof *re);
 	memset(re, 0, sizeof *re);
+	re->info.ba += sizeof (struct ktre);
 
 #ifdef KTRE_DEBUG
 	DBG("regexpr: %s", pat);
@@ -2269,7 +2266,7 @@ ktre_free(struct ktre *re)
 #endif
 
 #ifdef KTRE_DEBUG
-	DBG("\n%d allocations, %d frees with %d bytes allocated.", info.num_alloc, info.num_free, info.mba);
+	DBG("\n%d allocations, %d frees with %d bytes allocated.\n", info.num_alloc, info.num_free, info.mba);
 #endif
 
 	return info;
