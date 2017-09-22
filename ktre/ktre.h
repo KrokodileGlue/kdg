@@ -2240,7 +2240,6 @@ ktre_free(struct ktre *re)
 	}
 
 	ktre__free(re, re->c);
-	ktre__free(re, re->group);
 
 	for (int i = 0; i <= re->max_tp; i++) {
 		ktre__free(re, THREAD[i].vec);
@@ -2259,7 +2258,7 @@ ktre_free(struct ktre *re)
 	}
 
 	ktre__free(re, re->t);
-	ktre__free(re, re);
+	KTRE_FREE(re);
 
 #if defined(_MSC_VER) && defined(KTRE_DEBUG)
 	_CrtDumpMemoryLeaks();
