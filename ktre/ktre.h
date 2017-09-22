@@ -1619,6 +1619,7 @@ compile(struct ktre *re, struct node *n, bool rev)
 	}
 }
 
+#ifdef KTRE_DEBUG
 static void
 print_compile_error(struct ktre *re)
 {
@@ -1628,6 +1629,7 @@ print_compile_error(struct ktre *re)
 		DBG(" ");
 	DBG("^");
 }
+#endif
 
 struct ktre *
 ktre_compile(const char *pat, int opt)
@@ -1668,13 +1670,17 @@ ktre_compile(const char *pat, int opt)
 	if (re->err) {
 		free_node(re, re->n);
 		re->n = NULL;
+#ifdef KTRE_DEBUG
 		print_compile_error(re);
+#endif
 		return re;
 	}
 
 	if (*re->sp) {
 		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "invalid regex syntax; unmatched righthand delimiter");
+#ifdef KTRE_DEBUG
 		print_compile_error(re);
+#endif
 		return re;
 	}
 
@@ -1699,7 +1705,9 @@ ktre_compile(const char *pat, int opt)
 	compile(re, re->n, false);
 
 	if (re->err) {
+#ifdef KTRE_DEBUG
 		print_compile_error(re);
+#endif
 		return re;
 	}
 
