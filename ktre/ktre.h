@@ -278,6 +278,9 @@ dbgf(const char *str)
 		}
 	}
 }
+#else
+#define DBG(x, ...) ;
+#define dbgf(x) ;
 #endif /* KTRE_DEBUG */
 
 static void error(struct ktre *re, enum ktre_error err, int loc, char *fmt, ...);
@@ -309,10 +312,8 @@ ktre__malloc(struct ktre *re, size_t n, const char *file, int line)
 {
 	if (re->info.ba + n + sizeof (struct ktre) > KTRE_MEM_CAP) {
 		error(re, KTRE_ERROR_OUT_OF_MEMORY, 0, NULL);
-#ifdef KTRE_DEBUG
 		DBG("\nrunning out of memory at %d bytes:\n\trequest for %zd bytes at %s:%d",
 		    re->info.ba, n, file, line);
-#endif
 		return NULL;
 	}
 
@@ -1497,7 +1498,9 @@ print_node(struct node *n)
 		assert(false);
 	}
 }
-#endif
+#else
+#define print_node(x) ;
+#endif /* KTRE_DEBUG */
 
 static void
 compile(struct ktre *re, struct node *n, bool rev)
@@ -1745,8 +1748,8 @@ compile(struct ktre *re, struct node *n, bool rev)
 	case NODE_NONE:                                                      break;
 
 	default:
-#ifdef KTRE_DEBUG
 		DBG("\nunimplemented compiler for node of type %d\n", n->type);
+#ifdef KTRE_DEBUG
 		assert(false);
 #endif
 		break;
@@ -1791,6 +1794,9 @@ print_finish(struct ktre *re, const char *subject, const char *regex, bool ret, 
 		DBG("\nno match.");
 	}
 }
+#else
+#define print_compile_error(x) ;
+#define print_finish(x) ;
 #endif
 
 struct ktre *
@@ -1832,23 +1838,17 @@ ktre_compile(const char *pat, int opt)
 	if (re->err) {
 		free_node(re, re->n);
 		re->n = NULL;
-#ifdef KTRE_DEBUG
 		print_compile_error(re);
-#endif
 		return re;
 	}
 
 	if (*re->sp) {
-		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "invalid regex syntax; unmatched righthand delimiter");
-#ifdef KTRE_DEBUG
+		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "unmatched righthand delimiter");
 		print_compile_error(re);
-#endif
 		return re;
 	}
 
-#ifdef KTRE_DEBUG
 	print_node(re->n);
-#endif
 
 	if (re->opt & KTRE_UNANCHORED) {
 		/*
@@ -1867,16 +1867,13 @@ ktre_compile(const char *pat, int opt)
 	compile(re, re->n, false);
 
 	if (re->err) {
-#ifdef KTRE_DEBUG
 		print_compile_error(re);
-#endif
 		return re;
 	}
 
 	emit(re, INSTR_MATCH, re->sp - re->pat);
 
 #ifdef KTRE_DEBUG
-
 	for (int i = 0; i < re->ip; i++) {
 		for (int j = 0; j < re->num_groups; j++) {
 			if (re->group[j].address == i)
@@ -2397,11 +2394,11 @@ run(struct ktre *re, const char *subject, int ***vec)
 			break;
 
 		default:
-#ifdef KTRE_DEBUG
 			DBG("\nunimplemented instruction %d\n", re->c[ip].op);
+			ktre__free(re, subject_lc);
+#ifdef KTRE_DEBUG
 			assert(false);
 #endif
-			ktre__free(re, subject_lc);
 			return false;
 		}
 
