@@ -2648,6 +2648,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 					}
 
 					j += vec[i][n * 2 + 1];
+					upperchar = lowerchar = false;
 					break;
 				}
 			} else {
