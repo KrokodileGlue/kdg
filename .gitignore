@@ -31,7 +31,3 @@
 # Debug files
 *.dSYM/
 *.su
-
-# specific files
-ktre.c
-env.bat

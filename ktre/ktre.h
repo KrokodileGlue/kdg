@@ -1288,8 +1288,9 @@ again:
 			int loc = re->sp - re->pat;
 
 			if (*re->sp != '{' && !re->err) {
+				free_node(re, left);
 				error(re, KTRE_ERROR_SYNTAX_ERROR,
-				      loc, "incomplete token");
+				      loc, "expected '{'");
 
 				return NULL;
 			}
@@ -1298,6 +1299,7 @@ again:
 			class_add_char(re, &a, parse_oct_num(re));
 
 			if (*re->sp != '}' && !re->err) {
+				free_node(re, left);
 				error(re, KTRE_ERROR_SYNTAX_ERROR,
 				      loc, "unmatched '{'");
 
@@ -2739,8 +2741,14 @@ ktre_exec(struct ktre *re, const char *subject, int ***vec)
 		re->err = KTRE_ERROR_NO_ERROR;
 	}
 
-	_Bool ret = run(re, subject, vec);
-	print_finish(re, subject, re->pat, ret, *vec, NULL);
+	int **v = NULL;
+	_Bool ret = false;
+
+	if (vec) ret = run(re, subject, vec);
+	else ret = run(re, subject, &v);
+
+	if (vec) print_finish(re, subject, re->pat, ret, *vec, NULL);
+	else print_finish(re, subject, re->pat, ret, v, NULL);
 
 	return ret;
 }
