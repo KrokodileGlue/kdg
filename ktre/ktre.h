@@ -871,32 +871,39 @@ parse_special_group(struct ktre *re)
 		left->a = parse(re);
 	} else { /* mode modifiers */
 		left->type = NODE_SETOPT;
-		bool neg = false, off = false;
-		int opt = re->opt;
+		bool neg = false;
 
 		/*
-		 * Preserve the original options in case these happen
-		 * to be inline modifiers and we have to restore them.
+		 * Here we preserve the original options in case they
+		 * ever need to be restored.
 		 */
-		int old = opt;
+		int old = re->opt;
+		int opt = re->opt;
 
 		while (*re->sp && *re->sp != ')' && *re->sp != ':') {
+			bool off = false;
+			int  bit = 0;
+
 			switch (*re->sp) {
-			case 'i': opt |=  KTRE_INSENSITIVE;             break;
-			case 'c': opt |=  KTRE_INSENSITIVE; off = true; break;
-			case 'x': opt |=  KTRE_EXTENDED;                break;
-			case 't': opt |=  KTRE_EXTENDED;    off = true; break;
-			case '-': neg = true; next_char(re); continue;
+			case 'i': bit = KTRE_INSENSITIVE;             break;
+			case 'c': bit = KTRE_INSENSITIVE; off = true; break;
+			case 'x': bit = KTRE_EXTENDED;                break;
+			case 't': bit = KTRE_EXTENDED;    off = true; break;
+
+			case '-':
+				neg = true;
+				next_char(re);
+				continue;
+
 			default:
 				error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "invalid mode modifier");
 				free_node(re, left);
 				return NULL;
 			}
 
-			if (off || neg) opt &= ~opt;
-			else opt |= opt;
+			if (off || neg) opt &= ~bit;
+			else            opt |=  bit;
 
-			off = false;
 			re->sp++;
 		}
 
@@ -911,34 +918,37 @@ parse_special_group(struct ktre *re)
 			 * these, we'll have to put a SETOPT
 			 * instruction at the beginning of the group,
 			 * and another SETOPT at the end to undo what
-			 * was done by the first.
+			 * was done by the first. We also have to set
+			 * and restore the parser's options.
 			 *
 			 * Because the only way we have of stringing
 			 * nodes together is by creating SEQUENCE
 			 * nodes, the code here is a little ugly.
 			 */
 
-			struct node *tmp = new_node(re);
+			struct node *tmp1 = new_node(re);
 			struct node *tmp2 = new_node(re);
 			struct node *tmp3 = new_node(re);
 
-			tmp->type = NODE_SEQUENCE;
-			tmp2->type = NODE_SEQUENCE;
-			tmp3->type = NODE_SETOPT;
-
- 			tmp->loc = left->loc;
+			tmp1->loc = left->loc;
 			tmp2->loc = left->loc;
 			tmp3->loc = left->loc;
+
+			tmp1->type = NODE_SEQUENCE;
+			tmp2->type = NODE_SEQUENCE;
+			tmp3->type = NODE_SETOPT;
 
 			tmp3->c = old;
 
 			tmp2->a = parse(re);
 			tmp2->b = tmp3;
 
-			tmp->a = left;
-			tmp->b = tmp2;
+			tmp1->a = left;
+			tmp1->b = tmp2;
 
-			left = tmp;
+			left = tmp1;
+
+			re->opt = old;
 		}
 	}
 
