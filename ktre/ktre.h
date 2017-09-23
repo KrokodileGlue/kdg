@@ -250,7 +250,6 @@ struct ktre_info ktre_free(struct ktre *re);
 #define WHITESPACE " \t\r\n\v\f"
 #define DIGIT      "0123456789"
 #define WORD       "_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-#define META       ".^$#[(\\" WHITESPACE
 
 #ifdef KTRE_DEBUG
 #include <stdio.h>
@@ -719,9 +718,10 @@ new_node(struct ktre *re)
 static int
 dec_num(const char **s)
 {
-	int n = 0;
+	int n = -1;
 
 	while (**s && isdigit(**s)) {
+		if (n < 0) n = 0;
 		n = n * 10 + (**s - '0');
 		(*s)++;
 	}
@@ -732,12 +732,13 @@ dec_num(const char **s)
 static int
 hex_num(const char **s)
 {
-	int n = 0;
+	int n = -1;
 
 	while (**s
 	       && ((lc(**s) >= 'a' && lc(**s) <= 'f')
 	           || (**s >= '0' && **s <= '9')))
 	{
+		if (n < 0) n = 0;
 		char c = lc(**s);
 		n *= 16;
 		n += (c >= 'a' && c <= 'f') ? c - 'a' + 10 : c - '0';
@@ -750,9 +751,10 @@ hex_num(const char **s)
 static int
 oct_num(const char **s)
 {
-	int n = 0;
+	int n = -1;
 
 	while (**s >= '0' && **s <= '7') {
+		if (n < 0) n = 0;
 		n *= 8;
 		n += **s - '0';
 		(*s)++;
@@ -766,7 +768,8 @@ parse_dec_num(struct ktre *re)
 {
 	int n = dec_num(&re->sp);
 	if (n < 0)
-		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "expected a number");
+		error(re, KTRE_ERROR_SYNTAX_ERROR,
+		      re->sp - re->pat, "expected a number");
 	return n;
 }
 
@@ -775,7 +778,8 @@ parse_hex_num(struct ktre *re)
 {
 	int n = hex_num(&re->sp);
 	if (n < 0)
-		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "expected a number");
+		error(re, KTRE_ERROR_SYNTAX_ERROR,
+		      re->sp - re->pat, "expected a number");
 	return n;
 }
 
@@ -784,8 +788,100 @@ parse_oct_num(struct ktre *re)
 {
 	int n = oct_num(&re->sp);
 	if (!(*re->sp >= '0' && *re->sp <= '7'))
-		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "expected a number");
+		error(re, KTRE_ERROR_SYNTAX_ERROR,
+		      re->sp - re->pat, "expected a number");
 	return n;
+}
+
+static struct node *
+parse_mode_modifiers(struct ktre *re)
+{
+	struct node *left = new_node(re);
+	left->type = NODE_SETOPT;
+	bool neg = false;
+
+	/*
+	 * Here we preserve the original options in case they
+	 * ever need to be restored.
+	 */
+	int old = re->popt;
+	int opt = re->popt;
+
+	while (*re->sp && *re->sp != ')' && *re->sp != ':') {
+		bool off = false;
+		int  bit = 0;
+
+		switch (*re->sp) {
+		case 'c': off = true;
+		case 'i': bit = KTRE_INSENSITIVE; break;
+		case 't': off = true;
+		case 'x': bit = KTRE_EXTENDED;    break;
+
+		case '-':
+			neg = true;
+			next_char(re);
+			continue;
+
+		default:
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      re->sp - re->pat,
+			      "invalid mode modifier");
+
+			free_node(re, left);
+			return NULL;
+		}
+
+		if (off || neg) opt &= ~bit;
+		else            opt |=  bit;
+
+		re->sp++;
+	}
+
+	re->popt = opt;
+	left->c = opt;
+
+	if (*re->sp == ':') {
+		next_char(re);
+
+		/*
+		 * These are inline mode modifiers: to handle
+		 * these, we'll have to put a SETOPT
+		 * instruction at the beginning of the group,
+		 * and another SETOPT at the end to undo what
+		 * was done by the first. We also have to set
+		 * and restore the parser's options.
+		 *
+		 * Because the only way we have of stringing
+		 * nodes together is by creating SEQUENCE
+		 * nodes, the code here is a little ugly.
+		 */
+
+		struct node *tmp1 = new_node(re);
+		struct node *tmp2 = new_node(re);
+		struct node *tmp3 = new_node(re);
+
+		tmp1->loc = left->loc;
+		tmp2->loc = left->loc;
+		tmp3->loc = left->loc;
+
+		tmp1->type = NODE_SEQUENCE;
+		tmp2->type = NODE_SEQUENCE;
+		tmp3->type = NODE_SETOPT;
+
+		tmp3->c = old;
+
+		tmp2->a = parse(re);
+		tmp2->b = tmp3;
+
+		tmp1->a = left;
+		tmp1->b = tmp2;
+
+		left = tmp1;
+
+		re->popt = old;
+	}
+
+	return left;
 }
 
 static struct node *
@@ -793,163 +889,63 @@ parse_special_group(struct ktre *re)
 {
 	struct node *left = new_node(re);
 	left->loc = re->sp - re->pat;
+	re->sp++;
 
-	if (*re->sp == '#') { /* comments */
-		next_char(re);
-
-		while (*re->sp && *re->sp != ')') re->sp++;
-
+	switch (re->sp[-1]) {
+	case '#':
 		left->type = NODE_NONE;
-	} else if (re->sp[0] == '<' && re->sp[1] == '=') { /* positive lookbehind */
-		re->sp += 2;
+		while (*re->sp && *re->sp != ')') re->sp++;
+		break;
 
-		left->type = NODE_PLB;
-		left->a = parse(re);
-	} else if (*re->sp == ':') { /* uncaptured group */
-		next_char(re);
-
-		free_node(re, left);
-		left = parse(re);
-	} else if (*re->sp == '<' && re->sp[1] == '!') { /* negative lookbehind */
-		re->sp += 2;
-
-		left->type = NODE_NLB;
-		left->a = parse(re);
-	} else if (*re->sp == '>') {
-		next_char(re);
-
-		left->type = NODE_ATOM;
-		left->a = parse(re);
-	} else if (isdigit(*re->sp)) { /* subroutine call */
-		int len = 0, a = -1;
-
-		while (re->sp[len] && re->sp[len] != ')') len++;
-		if (re->sp[len] != ')') {
-			error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp + len - re->pat - 1, "unmatched '('");
-			free_node(re, left->a); left->a = NULL;
+	case '<':
+		if      (*re->sp == '=') left->type = NODE_PLB;
+		else if (*re->sp == '!') left->type = NODE_NLB;
+		else {
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      left->loc, "invalid group syntax");
 			free_node(re, left);
 			return NULL;
 		}
 
-		len--;
-
-		for (int i = len; i >= 0; i--) {
-			if (!isdigit(re->sp[i])) {
-				error(re, KTRE_ERROR_SYNTAX_ERROR, re->pat - re->sp + i,
-				      "non-digits and negative numbers are forbidden in subroutine calls");
-				free_node(re, left);
-				return NULL;
-			}
-
-			if (i == len) a = re->sp[i] - '0';
-			else {
-				int d = re->sp[i] - '0';
-				for (int j = 0; j < len - i; j++) {
-					d *= 10;
-				}
-				a += d;
-			}
-		}
-
-		left->type = NODE_CALL;
-		left->c = a;
-
-		if (a <= re->gp) {
-			re->group[a].is_called = true;
-		}
-
-		re->sp += len + 1;
-	} else if (*re->sp == '=') {
 		next_char(re);
+		left->a = parse(re);
+		break;
 
+	case ':':
+		free_node(re, left);
+		left = parse(re);
+		break;
+
+	case '>':
+		left->type = NODE_ATOM;
+		left->a = parse(re);
+		break;
+
+	case '=':
 		left->type = NODE_PLA;
 		left->a = parse(re);
-	} else if (*re->sp == '!') {
-		next_char(re);
+		break;
 
+	case '!':
 		left->type = NODE_NLA;
 		left->a = parse(re);
-	} else { /* mode modifiers */
-		left->type = NODE_SETOPT;
-		bool neg = false;
+		break;
 
-		/*
-		 * Here we preserve the original options in case they
-		 * ever need to be restored.
-		 */
-		int old = re->opt;
-		int opt = re->opt;
+	case '0': case '1': case '2': case '3': case '4':
+	case '5': case '6': case '7': case '8': case '9':
+		left->type = NODE_CALL;
+		re->sp--;
+		left->c = parse_dec_num(re);
 
-		while (*re->sp && *re->sp != ')' && *re->sp != ':') {
-			bool off = false;
-			int  bit = 0;
+		if (left->c < re->gp)
+			re->group[left->c].is_called = true;
+		break;
 
-			switch (*re->sp) {
-			case 'i': bit = KTRE_INSENSITIVE;             break;
-			case 'c': bit = KTRE_INSENSITIVE; off = true; break;
-			case 'x': bit = KTRE_EXTENDED;                break;
-			case 't': bit = KTRE_EXTENDED;    off = true; break;
-
-			case '-':
-				neg = true;
-				next_char(re);
-				continue;
-
-			default:
-				error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "invalid mode modifier");
-				free_node(re, left);
-				return NULL;
-			}
-
-			if (off || neg) opt &= ~bit;
-			else            opt |=  bit;
-
-			re->sp++;
-		}
-
-		re->popt = opt;
-		left->c = opt;
-
-		if (*re->sp == ':') {
-			next_char(re);
-
-			/*
-			 * These are inline mode modifiers: to handle
-			 * these, we'll have to put a SETOPT
-			 * instruction at the beginning of the group,
-			 * and another SETOPT at the end to undo what
-			 * was done by the first. We also have to set
-			 * and restore the parser's options.
-			 *
-			 * Because the only way we have of stringing
-			 * nodes together is by creating SEQUENCE
-			 * nodes, the code here is a little ugly.
-			 */
-
-			struct node *tmp1 = new_node(re);
-			struct node *tmp2 = new_node(re);
-			struct node *tmp3 = new_node(re);
-
-			tmp1->loc = left->loc;
-			tmp2->loc = left->loc;
-			tmp3->loc = left->loc;
-
-			tmp1->type = NODE_SEQUENCE;
-			tmp2->type = NODE_SEQUENCE;
-			tmp3->type = NODE_SETOPT;
-
-			tmp3->c = old;
-
-			tmp2->a = parse(re);
-			tmp2->b = tmp3;
-
-			tmp1->a = left;
-			tmp1->b = tmp2;
-
-			left = tmp1;
-
-			re->opt = old;
-		}
+	default:
+		free_node(re, left);
+		re->sp--;
+		left = parse_mode_modifiers(re);
+		break;
 	}
 
 	return left;
@@ -962,29 +958,36 @@ parse_group(struct ktre *re)
 	left->loc = re->sp - re->pat;
 	next_char(re);
 
-	if (!strncmp(re->sp, "?R)", 3)) {
-		re->sp += 2;
+	if (!strncmp(re->sp, "?R", 2)) {
 		left->type = NODE_RECURSE;
+		re->sp += 2;
+
 		re->group[0].is_called = true;
 	} else if (*re->sp == '?') {
 		next_char(re);
+
 		free_node(re, left);
 		left = parse_special_group(re);
 	} else {
+		left->type = NODE_GROUP;
+
 		left->gi = add_group(re);
 		re->group[left->gi].is_called = false;
-		left->type = NODE_GROUP;
+
 		left->a = parse(re);
 	}
 
 	if (*re->sp != ')' && !re->err) {
-		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "unmatched '('");
+		error(re, KTRE_ERROR_SYNTAX_ERROR, left->loc,
+		      "unmatched '('");
+
 		free_node(re, left->a);
-		left->a = NULL;
 		free_node(re, left);
+
 		return NULL;
 	}
 
+	/* skip over the `)` */
 	next_char(re);
 
 	return left;
@@ -1039,9 +1042,6 @@ parse_character_class(struct ktre *re)
 		left->type = NODE_CLASS;
 	}
 
-	/*
-	 * The main loop.
-	 */
 	while (*re->sp && *re->sp != ']') {
 		char a, b;
 		bool range = false;
@@ -1096,10 +1096,7 @@ parse_primary(struct ktre *re)
 	}
 
 again:
-	if (re->literal && strchr(META, *re->sp)) {
-		/*
-		 * Make an exception for \E.
-		 */
+	if (re->literal) {
 		if (*re->sp == '\\' && re->sp[1] == 'E') {
 			re->literal = false;
 			re->sp += 2;
@@ -1283,14 +1280,12 @@ again:
 				next_char(re);
 			}
 
-			if (*re->sp) {
-				goto again;
-			}
+			if (*re->sp) goto again;
+		} else {
+			left->type = NODE_CHAR;
+			left->c = *re->sp;
+			next_char(re);
 		}
-
-		left->type = NODE_CHAR;
-		left->c = *re->sp;
-		next_char(re);
 	}
 
 	if (left) left->loc = loc;
