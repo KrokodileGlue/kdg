@@ -2620,7 +2620,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 			break;
 
 		case INSTR_MATCH:
-			if ((opt & KTRE_UNANCHORED) != 0 || (sp >= 0 && !subject[sp])) {
+			if ((opt & KTRE_UNANCHORED) || (sp >= 0 && !subject[sp])) {
 				*vec = _realloc(re, *vec, (re->num_matches + 1) * sizeof *vec);
 				(*vec)[re->num_matches] = _malloc(re, re->num_groups * 2 * sizeof *vec[0]);
 
@@ -2630,7 +2630,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 				re->vec = *vec;
 
-				if ((opt & KTRE_GLOBAL) == 0) {
+				if (!(opt & KTRE_GLOBAL)) {
 					_free(re, subject_lc);
 					return true;
 				} else {
@@ -2638,7 +2638,11 @@ run(struct ktre *re, const char *subject, int ***vec)
 					THREAD[TP].ip = 0;
 					THREAD[TP].sp = sp;
 
-					if (re->num_matches - 1 && sp == (*vec)[0][0] + (*vec)[0][1]) {
+					if (!(*vec)[re->num_matches - 1][1]) {
+						THREAD[TP].sp++;
+					}
+
+					if (THREAD[TP].sp > strlen(subject)) {
 						_free(re, subject_lc);
 						return true;
 					}
