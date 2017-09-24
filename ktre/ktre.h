@@ -25,25 +25,14 @@
 /*
  * KTRE: a tiny regex engine
  *
- * KTRE supports character classes [a-zA-Z_], submatching and
- * backreferencing (cat|dog)\1, negated character classes [^a-zA-Z_],
- * a variety of escaped metacharacters (\w, \W, \d, \D, \s, \b), mode
- * modifiers (?x-i), comments (?#this is a comment), free-spaced
- * expressions, lookaround assertions (?=re) (?!re) (?<=re) (?<!re),
- * atomic groups (?>re), subroutine calls (foo)(?1), recursion (?R),
- * and, of course, the greedy, non-greedy, and possessive quantifiers
- * you would expect.
- *
- * KTRE currently supports the following options: KTRE_INSENSITIVE,
- * KTRE_UNANCHORED, and KTRE_EXTENDED. All of those options except for
- * KTRE_UNANCHORED may be modified by the regular expression. The
- * options are reset every time the regex is run.
+ * KTRE currently supports the following options:
  *
  * KTRE_INSENSITIVE: (?i)
- *     Makes the runtime match characters of different cases.
+ *     Causes the VM to ignore case when matching English characters.
  * KTRE_UNANCHORED:
- *     Counts a match anywhere in the subject as a match. The default
- *     behavior is to reject any string that does not match exactly.
+ *     Allows the VM to reach a winning state regardless of whether or
+ *     not it has reached the end of the subject string; in other
+ *     words, any substring in the subject may be matched.
  * KTRE_EXTENDED: (?x)
  *     This option turns on so-called 'free-spaced' mode, which allows
  *     whitespace to occur in most parts of the grammar without
@@ -52,56 +41,14 @@
  *     but 'foobar' is the same as 'foo bar'.  If you want to match a
  *     whitespace character in free-spaced mode, you must escape it or
  *     put it into a character class.
- *
- * Here's a simple demo that runs a regex on a subject from the
- * commandline options:
- *
- * #include <stdlib.h>
- * #include <stdio.h>
- *
- * #define KTRE_DEBUG
- * #define KTRE_IMPLEMENTATION
- * #include "ktre.h"
- *
- * static inline void
- * do_regex(struct ktre *re, const char *subject)
- * {
- * 	int **vec = NULL;
- * 	ktre_exec(re, subject, &vec);
- * }
- *
- * static inline void
- * do_replace(struct ktre *re, const char *subject, const char *replacement)
- * {
- * 	free(ktre_filter(re, subject, replacement));
- * }
- *
- * int
- * main(int argc, char *argv[])
- * {
- * 	if (argc < 3 || argc > 4) {
- * 		fprintf(stderr, "Usage: regex subject [replacement]");
- * 		return EXIT_FAILURE;
- * 	}
- *
- * 	char *subject = argv[1],
- * 		*regex = argv[2],
- * 		*replacement = (argc == 4) ? argv[3] : NULL;
- *
- * 	struct ktre *re = ktre_compile(regex, KTRE_UNANCHORED | KTRE_GLOBAL);
- *
- * 	if (!re->err) {
- * 		if (replacement)
- * 			do_replace(re, subject, replacement);
- * 		else
- * 			do_regex(re, subject);
- * 	}
- *
- * 	ktre_free(re);
- * 	fputc('\n', stderr);
- *
- * 	return EXIT_SUCCESS;
- * }
+ * KTRE_GLOBAL:
+ *     If this option is set then the VM will continue trying to match
+ *     the pattern against the subject string until it has found all
+ *     possible matches. There's one quirk: whenever it finds a match
+ *     it destroys all backtracking information and tries to match at
+ *     the end of the last successful match, which will cause valid
+ *     matches to be skipped over. This isn't a mistake; it's how most
+ *     engines handle global matching.
  */
 
 #ifndef KTRE_H
