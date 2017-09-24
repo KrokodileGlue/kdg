@@ -158,6 +158,7 @@ struct ktre {
 		 */
 		_Bool is_compiled;
 		_Bool is_called;
+		char *name;
 	} *group;
 
 	/* runtime */
@@ -204,7 +205,7 @@ struct ktre_info ktre_free(struct ktre *re);
 #include <stdio.h>
 #include <assert.h>
 
-static void print_node(struct node *n);
+static void print_node(struct ktre *re, struct node *n);
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 static void
 dbgf(const char *str)
@@ -313,6 +314,8 @@ ktre__realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line)
 	if (p) {
 		memcpy(p, ptr, n > mi->size ? mi->size : n);
 		ktre__free(re, ptr, file, line);
+	} else {
+		KTRE_FREE(ptr);
 	}
 
 	return p;
@@ -359,8 +362,10 @@ add_group(struct ktre *re)
 	re->group = _realloc(re, re->group, (re->gp + 1) * sizeof re->group[0]);
 
 	re->group[re->gp].is_compiled = false;
-	re->group[re->gp].address = -1;
-	re->group[re->gp].is_called = false;
+	re->group[re->gp].address     = -1;
+	re->group[re->gp].is_called   = false;
+	re->group[re->gp].name        = NULL;
+
 	return re->gp++;
 }
 
@@ -417,6 +422,7 @@ grow_code(struct ktre *re, int n)
 	if (!re->info.instr_alloc) {
 		re->info.instr_alloc = 25;
 		re->c = _malloc(re, sizeof re->c[0] * re->info.instr_alloc);
+		if (!re->c) return;
 	}
 
 	if (re->ip + n >= re->info.instr_alloc) {
@@ -849,6 +855,32 @@ parse_special_group(struct ktre *re)
 		break;
 
 	case '<':
+		if (strchr(WORD, *re->sp)) {
+			const char *a = re->sp;
+			while (*re->sp && strchr(WORD, *re->sp)) re->sp++;
+			const char *b = re->sp;
+
+			if (*re->sp != '>') {
+				error(re, KTRE_ERROR_SYNTAX_ERROR,
+				      re->sp - re->pat, "expected '>'");
+				free_node(re, left);
+				return NULL;
+			}
+
+			next_char(re);
+
+			left->type = NODE_GROUP;
+
+			left->gi = add_group(re);
+			re->group[left->gi].is_called = false;
+			re->group[left->gi].name = _malloc(re, b - a + 1);
+			strncpy(re->group[left->gi].name, a, b - a);
+			re->group[left->gi].name[b - a] = 0;
+
+			left->a = parse(re);
+			break;
+		}
+
 		if      (*re->sp == '=') left->type = NODE_PLB;
 		else if (*re->sp == '!') left->type = NODE_NLB;
 		else {
@@ -859,6 +891,31 @@ parse_special_group(struct ktre *re)
 		}
 
 		next_char(re);
+		left->a = parse(re);
+		break;
+
+	case '\'':
+		const char *a = re->sp;
+		while (*re->sp && strchr(WORD, *re->sp)) re->sp++;
+		const char *b = re->sp;
+
+		if (*re->sp != '\'') {
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      re->sp - re->pat, "expected '\''");
+			free_node(re, left);
+			return NULL;
+		}
+
+		next_char(re);
+
+		left->type = NODE_GROUP;
+
+		left->gi = add_group(re);
+		re->group[left->gi].is_called = false;
+		re->group[left->gi].name = _malloc(re, b - a + 1);
+		strncpy(re->group[left->gi].name, a, b - a);
+		re->group[left->gi].name[b - a] = 0;
+
 		left->a = parse(re);
 		break;
 
@@ -891,6 +948,78 @@ parse_special_group(struct ktre *re)
 		if (left->c < re->gp)
 			re->group[left->c].is_called = true;
 		break;
+
+	case 'P': {
+		if (*re->sp == '=') {
+			/* This is a backreference to a named group */
+			next_char(re);
+
+			const char *a = re->sp;
+			while (*re->sp && strchr(WORD, *re->sp))
+				re->sp++;
+			const char *b = re->sp;
+
+			if (*re->sp != ')') {
+				error(re, KTRE_ERROR_SYNTAX_ERROR,
+				      re->sp - re->pat, "expected ')'");
+				free_node(re, left);
+				return NULL;
+			}
+
+			left->type = NODE_BACKREF;
+			left->c = -1;
+
+			for (int i = 0; i < re->gp; i++) {
+				if (!re->group[i].name) continue;
+				if (!strncmp(re->group[i].name, a, b - a)
+				    && b - a == strlen(re->group[i].name))
+				{
+					left->c = i;
+					break;
+				}
+			}
+
+			if (left->c < 0) {
+				error(re, KTRE_ERROR_SYNTAX_ERROR,
+				      re->sp - re->pat, "name references a group that does not exist");
+				free_node(re, left);
+				return NULL;
+			}
+
+			break;
+		}
+
+		if (*re->sp != '<') {
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      re->sp - re->pat, "expected '<'");
+			free_node(re, left);
+			return NULL;
+		}
+
+		next_char(re);
+		const char *a = re->sp;
+		while (*re->sp && strchr(WORD, *re->sp)) re->sp++;
+		const char *b = re->sp;
+
+		if (*re->sp != '>') {
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      re->sp - re->pat, "expected '>'");
+			free_node(re, left);
+			return NULL;
+		}
+
+		next_char(re);
+
+		left->type = NODE_GROUP;
+
+		left->gi = add_group(re);
+		re->group[left->gi].is_called = false;
+		re->group[left->gi].name = _malloc(re, b - a + 1);
+		strncpy(re->group[left->gi].name, a, b - a);
+		re->group[left->gi].name[b - a] = 0;
+
+		left->a = parse(re);
+	} break;
 
 	default:
 		free_node(re, left);
@@ -1160,6 +1289,101 @@ parse_character_class(struct ktre *re)
 }
 
 static struct node *
+parse_g(struct ktre *re)
+{
+	struct node *left = new_node(re);
+	left->loc = re->sp - re->pat;
+	next_char(re);
+
+	bool bracketed = *re->sp == '{';
+	bool neg = false;
+	bool pos = false;
+	int n;
+
+	if (bracketed) {
+		next_char(re);
+
+		if (*re->sp == '+') pos = true;
+		if (*re->sp == '-') neg = true;
+
+		/* skip over the sign */
+		if (pos || neg) next_char(re);
+		n = parse_dec_num(re);
+
+		if (*re->sp != '}' && !re->err) {
+			free_node(re, left);
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      left->loc, "incomplete token");
+
+			return NULL;
+		}
+	} else {
+		if (*re->sp == '+') pos = true;
+		if (*re->sp == '-') neg = true;
+
+		/* skip over the sign */
+		if (pos || neg) next_char(re);
+		n = parse_dec_num(re);
+
+		re->sp--;
+	}
+
+	if (pos) n = re->gp + n;
+	if (neg) n = re->gp - n;
+
+	left->type = NODE_BACKREF;
+	left->c = n;
+
+	return left;
+}
+
+static struct node *
+parse_k(struct ktre *re)
+{
+	struct node *left = new_node(re);
+	left->loc = re->sp - re->pat;
+
+	bool bracketed = *re->sp == '<';
+	next_char(re);
+
+	const char *a = re->sp;
+	while (*re->sp && strchr(WORD, *re->sp))
+		re->sp++;
+	const char *b = re->sp;
+
+	if ((bracketed && *re->sp != '>')
+	    || (!bracketed && *re->sp != '\'')
+		|| a == b) {
+		error(re, KTRE_ERROR_SYNTAX_ERROR,
+		      re->sp - re->pat, "expected '>' or '");
+		free_node(re, left);
+		return NULL;
+	}
+
+	left->type = NODE_BACKREF;
+	left->c = -1;
+
+	for (int i = 0; i < re->gp; i++) {
+		if (!re->group[i].name) continue;
+		if (!strncmp(re->group[i].name, a, b - a)
+		    && b - a == strlen(re->group[i].name))
+		{
+			left->c = i;
+			break;
+		}
+	}
+
+	if (left->c < 0) {
+		error(re, KTRE_ERROR_SYNTAX_ERROR,
+		      re->sp - re->pat, "name references a group that does not exist");
+		free_node(re, left);
+		return NULL;
+	}
+
+	return left;
+}
+
+static struct node *
 parse_primary(struct ktre *re)
 {
 	struct node *left = new_node(re);
@@ -1392,46 +1616,15 @@ again:
 	} break;
 
 	case 'g':
+		free_node(re, left);
 		next_char(re);
+		left = parse_g(re);
+		break;
 
-		bool bracketed = *re->sp == '{';
-		bool neg = false;
-		bool pos = false;
-		int n;
-
-		if (bracketed) {
-			next_char(re);
-
-			if (*re->sp == '+') pos = true;
-			if (*re->sp == '-') neg = true;
-
-			/* skip over the sign */
-			if (pos || neg) next_char(re);
-			n = parse_dec_num(re);
-
-			if (*re->sp != '}' && !re->err) {
-				free_node(re, left);
-				error(re, KTRE_ERROR_SYNTAX_ERROR,
-				      left->loc, "incomplete token");
-
-				return NULL;
-			}
-		} else {
-			if (*re->sp == '+') pos = true;
-			if (*re->sp == '-') neg = true;
-
-			/* skip over the sign */
-			if (pos || neg) next_char(re);
-			n = parse_dec_num(re);
-
-			re->sp--;
-		}
-
-		if (pos) n = re->gp + n;
-		if (neg) n = re->gp - n;
-
-		left->type = NODE_BACKREF;
-		left->c = n;
+	case 'k':
+		free_node(re, left);
+		next_char(re);
+		left = parse_k(re);
 		break;
 
 	default:
@@ -1440,8 +1633,7 @@ again:
 	}
 
 	next_char(re);
-	left->class = a;
-
+	if (left) left->class = a;
 	if (left) left->loc = loc;
 	return left;
 }
@@ -1610,7 +1802,7 @@ parse(struct ktre *re)
 
 #ifdef KTRE_DEBUG
 static void
-print_node(struct node *n)
+print_node(struct ktre *re, struct node *n)
 {
 #define join arm[l - 1] = 0
 #define split arm[l - 1] = 1
@@ -1628,18 +1820,18 @@ print_node(struct node *n)
 		else DBG("`-- ");
 	}
 
-#define N1(...)                                               \
-	do {                                                  \
-		DBG(__VA_ARGS__); l++; print_node(n->a); l--; \
+#define N1(...)                                                   \
+	do {                                                      \
+		DBG(__VA_ARGS__); l++; print_node(re, n->a); l--; \
 	} while(0);
 
-#define N2(...)                         \
-	do {                            \
-		DBG(__VA_ARGS__);       \
-		l++; split;             \
-		print_node(n->a); join; \
-		print_node(n->b);       \
-		l--;                    \
+#define N2(...)                             \
+	do {                                \
+		DBG(__VA_ARGS__);           \
+		l++; split;                 \
+		print_node(re, n->a); join; \
+		print_node(re, n->b);       \
+		l--;                        \
 	} while(0);
 
 	if (!n) {
@@ -1670,13 +1862,19 @@ print_node(struct node *n)
 	case NODE_REP:       N1 ("(counted repetition %d - %d)", n->c, n->d); break;
 	case NODE_ASTERISK:  N1 ("(asterisk)");                               break;
 	case NODE_PLUS:      N1 ("(plus)");                                   break;
-	case NODE_GROUP:     N1 ("(group)");                                  break;
 	case NODE_QUESTION:  N1 ("(question)");                               break;
 	case NODE_ATOM:      N1 ("(atom)");                                   break;
 	case NODE_PLA:       N1 ("(lookahead)");                              break;
 	case NODE_NLA:       N1 ("(negative lookahead)");                     break;
 	case NODE_PLB:       N1 ("(lookbehind)");                             break;
 	case NODE_NLB:       N1 ("(negative lookbehind)");                    break;
+	case NODE_GROUP:
+		if (re->group[n->gi].name) {
+			N1("(group '%s')", re->group[n->gi].name);
+		} else {
+			N1("(group %d)", n->gi);
+		}
+		break;
 
 	default:
 		DBG("\nunimplemented printer for node of type %d\n", n->type);
@@ -1684,7 +1882,7 @@ print_node(struct node *n)
 	}
 }
 #else
-#define print_node(x) ;
+#define print_node(x,y) ;
 #endif /* KTRE_DEBUG */
 
 static void
@@ -2034,7 +2232,7 @@ ktre_compile(const char *pat, int opt)
 		return re;
 	}
 
-	print_node(re->n);
+	print_node(re, re->n);
 
 	if (re->opt & KTRE_UNANCHORED) {
 		/*
@@ -2641,6 +2839,10 @@ ktre_free(struct ktre *re)
 
 		_free(re, re->vec);
 	}
+
+	for (int i = 0; i < re->gp; i++)
+		if (re->group[i].name)
+			_free(re, re->group[i].name);
 
 	_free(re, re->group);
 	_free(re, re->t);
