@@ -1185,205 +1185,7 @@ again:
 		return left;
 	}
 
-	if (*re->sp == '\\') {
-		left->type = NODE_CLASS;
-		char *a = NULL;
-		next_char(re);
-
-		switch (*re->sp) {
-		case 'x': {
-			next_char(re);
-
-			int loc = re->sp - re->pat;
-			bool bracketed = *re->sp == '{';
-
-			if (bracketed) {
-				next_char(re);
-				class_add_char(re, &a, parse_hex_num(re));
-
-				if (*re->sp != '}' && !re->err) {
-					if (a) ktre__free(re, a);
-
-					error(re, KTRE_ERROR_SYNTAX_ERROR,
-					      loc, "incomplete token");
-
-					return NULL;
-				}
-			} else {
-				class_add_char(re, &a, parse_hex_num(re));
-				re->sp--;
-			}
-		} break;
-
-		case '-': /* backreferences */
-		case '+': case '1': case '2': case '3': case '4':
-		case '5': case '6': case '7': case '8': case '9': {
-			bool neg = (*re->sp == '-');
-			bool pos = (*re->sp == '+');
-			if (neg || pos)
-				/* skip over the sign */
-				next_char(re);
-
-			int a = parse_dec_num(re);
-
-			if (neg) a = re->gp - a;
-			if (pos) a = re->gp + a;
-
-			left->type = NODE_BACKREF;
-			left->c = a;
-			re->sp--;
-		} break;
-
-		case 'o':
-			next_char(re);
-			int loc = re->sp - re->pat;
-
-			if (*re->sp != '{' && !re->err) {
-				free_node(re, left);
-				error(re, KTRE_ERROR_SYNTAX_ERROR,
-				      loc, "expected '{'");
-
-				return NULL;
-			}
-
-			next_char(re);
-			class_add_char(re, &a, parse_oct_num(re));
-
-			if (*re->sp != '}' && !re->err) {
-				free_node(re, left);
-				error(re, KTRE_ERROR_SYNTAX_ERROR,
-				      loc, "unmatched '{'");
-
-				return NULL;
-			}
-			break;
-
-		case 'a': class_add_char(re, &a, '\a'); break;
-		case 'f': class_add_char(re, &a, '\f'); break;
-		case 'n': class_add_char(re, &a, '\n'); break;
-		case 't': class_add_char(re, &a, '\t'); break;
-		case 'r': class_add_char(re, &a, '\r'); break;
-		case 'h': class_add_str(re, &a, " \t"); break;
-		case 'e': class_add_char(re, &a, 7); break;
-
-		case 's':
-			left->type = NODE_SPACE;
-			break;
-
-		case 'S':
-			left->type = NODE_NOT;
-			left->class = strclone(re, WHITESPACE);
-			break;
-
-		case 'd':
-			left->type = NODE_DIGIT;
-			break;
-
-		case 'D':
-			left->type = NODE_NOT;
-			left->class = strclone(re, DIGIT);
-			break;
-
-		case 'w':
-			left->type = NODE_WORD;
-			break;
-
-		case 'W':
-			left->type = NODE_NOT;
-			left->class = strclone(re, WORD);
-			break;
-
-		case 'K':
-			left->type = NODE_SET_START;
-			break;
-
-		case 'b':
-			left->type = NODE_WB;
-			break;
-
-		case 'Q':
-			re->literal = true;
-			next_char(re);
-			goto again;
-
-		case 'E':
-			re->literal = false;
-			next_char(re);
-			goto again;
-
-		case 'H': {
-			a = ktre__malloc(re, 256);
-			int i = 0;
-
-			for (int j = 1; j < 256; j++)
-				if (!strchr("\t ", j))
-					a[i++] = j;
-
-			a[i] = 0;
-		} break;
-
-		case 'N': {
-			a = ktre__malloc(re, 256);
-			int i = 0;
-
-			for (int j = 1; j < 256; j++)
-				if (j != '\n')
-					a[i++] = j;
-
-			a[i] = 0;
-		} break;
-
-		case 'g':
-			next_char(re);
-
-			bool bracketed = *re->sp == '{';
-			bool neg = false;
-			bool pos = false;
-			int n;
-
-			if (bracketed) {
-				next_char(re);
-
-				if (*re->sp == '+') pos = true;
-				if (*re->sp == '-') neg = true;
-
-				/* skip over the sign */
-				if (pos || neg) next_char(re);
-				n = parse_dec_num(re);
-
-				if (*re->sp != '}' && !re->err) {
-					free_node(re, left);
-					error(re, KTRE_ERROR_SYNTAX_ERROR,
-					      left->loc, "incomplete token");
-
-					return NULL;
-				}
-			} else {
-				if (*re->sp == '+') pos = true;
-				if (*re->sp == '-') neg = true;
-
-				/* skip over the sign */
-				if (pos || neg) next_char(re);
-				n = parse_dec_num(re);
-
-				re->sp--;
-			}
-
-			if (pos) n = re->gp + n;
-			if (neg) n = re->gp - n;
-
-			left->type = NODE_BACKREF;
-			left->c = n;
-			break;
-
-		default:
-			class_add_char(re, &a, *re->sp);
-			break;
-		}
-
-		next_char(re);
-		left->class = a;
-	} else {
+	if (*re->sp != '\\') {
 		switch (*re->sp) {
 		case '[': { /* character classes */
 			free_node(re, left);
@@ -1413,7 +1215,8 @@ again:
 
 		case '#': /* extended mode comments */
 			if (re->popt & KTRE_EXTENDED) {
-				while (*re->sp && *re->sp != '\n') { next_char(re); }
+				while (*re->sp && *re->sp != '\n')
+					next_char(re);
 			} else {
 				left->type = NODE_CHAR;
 				left->c = *re->sp;
@@ -1422,11 +1225,12 @@ again:
 			break;
 
 		default:
-			/* ignore whitespace if we're in extended mode */
-			if (re->popt & KTRE_EXTENDED && strchr(WHITESPACE, *re->sp)) {
-				while (*re->sp && strchr(WHITESPACE, *re->sp)) {
+			if (re->popt & KTRE_EXTENDED
+			    && strchr(WHITESPACE, *re->sp)) {
+				/* ignore whitespace */
+				while (*re->sp
+				       && strchr(WHITESPACE, *re->sp))
 					next_char(re);
-				}
 
 				if (*re->sp) goto again;
 			} else {
@@ -1435,7 +1239,208 @@ again:
 				next_char(re);
 			}
 		}
+
+		if (left) left->loc = loc;
+		return left;
 	}
+
+	left->type = NODE_CLASS;
+	char *a = NULL;
+	next_char(re);
+
+	switch (*re->sp) {
+	case 'x': {
+		next_char(re);
+
+		int loc = re->sp - re->pat;
+		bool bracketed = *re->sp == '{';
+
+		if (bracketed) {
+			next_char(re);
+			class_add_char(re, &a, parse_hex_num(re));
+
+			if (*re->sp != '}' && !re->err) {
+				if (a) ktre__free(re, a);
+
+				error(re, KTRE_ERROR_SYNTAX_ERROR,
+				      loc, "incomplete token");
+
+				return NULL;
+			}
+		} else {
+			class_add_char(re, &a, parse_hex_num(re));
+			re->sp--;
+		}
+	} break;
+
+	case '-': /* backreferences */
+	case '+': case '1': case '2': case '3': case '4':
+	case '5': case '6': case '7': case '8': case '9': {
+		bool neg = (*re->sp == '-');
+		bool pos = (*re->sp == '+');
+		if (neg || pos)
+			/* skip over the sign */
+			next_char(re);
+
+		int a = parse_dec_num(re);
+
+		if (neg) a = re->gp - a;
+		if (pos) a = re->gp + a;
+
+		left->type = NODE_BACKREF;
+		left->c = a;
+		re->sp--;
+	} break;
+
+	case 'o':
+		next_char(re);
+		int loc = re->sp - re->pat;
+
+		if (*re->sp != '{' && !re->err) {
+			free_node(re, left);
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      loc, "expected '{'");
+
+			return NULL;
+		}
+
+		next_char(re);
+		class_add_char(re, &a, parse_oct_num(re));
+
+		if (*re->sp != '}' && !re->err) {
+			free_node(re, left);
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      loc, "unmatched '{'");
+
+			return NULL;
+		}
+		break;
+
+	case 'a': class_add_char(re, &a, '\a'); break;
+	case 'f': class_add_char(re, &a, '\f'); break;
+	case 'n': class_add_char(re, &a, '\n'); break;
+	case 't': class_add_char(re, &a, '\t'); break;
+	case 'r': class_add_char(re, &a, '\r'); break;
+	case 'h': class_add_str(re, &a, " \t"); break;
+	case 'e': class_add_char(re, &a, 7); break;
+
+	case 's':
+		left->type = NODE_SPACE;
+		break;
+
+	case 'S':
+		left->type = NODE_NOT;
+		left->class = strclone(re, WHITESPACE);
+		break;
+
+	case 'd':
+		left->type = NODE_DIGIT;
+		break;
+
+	case 'D':
+		left->type = NODE_NOT;
+		left->class = strclone(re, DIGIT);
+		break;
+
+	case 'w':
+		left->type = NODE_WORD;
+		break;
+
+	case 'W':
+		left->type = NODE_NOT;
+		left->class = strclone(re, WORD);
+		break;
+
+	case 'K':
+		left->type = NODE_SET_START;
+		break;
+
+	case 'b':
+		left->type = NODE_WB;
+		break;
+
+	case 'Q':
+		re->literal = true;
+		next_char(re);
+		goto again;
+
+	case 'E':
+		re->literal = false;
+		next_char(re);
+		goto again;
+
+	case 'H': {
+		a = ktre__malloc(re, 256);
+		int i = 0;
+
+		for (int j = 1; j < 256; j++)
+			if (!strchr("\t ", j))
+				a[i++] = j;
+
+		a[i] = 0;
+	} break;
+
+	case 'N': {
+		a = ktre__malloc(re, 256);
+		int i = 0;
+
+		for (int j = 1; j < 256; j++)
+			if (j != '\n')
+				a[i++] = j;
+
+		a[i] = 0;
+	} break;
+
+	case 'g':
+		next_char(re);
+
+		bool bracketed = *re->sp == '{';
+		bool neg = false;
+		bool pos = false;
+		int n;
+
+		if (bracketed) {
+			next_char(re);
+
+			if (*re->sp == '+') pos = true;
+			if (*re->sp == '-') neg = true;
+
+			/* skip over the sign */
+			if (pos || neg) next_char(re);
+			n = parse_dec_num(re);
+
+			if (*re->sp != '}' && !re->err) {
+				free_node(re, left);
+				error(re, KTRE_ERROR_SYNTAX_ERROR,
+				      left->loc, "incomplete token");
+
+				return NULL;
+			}
+		} else {
+			if (*re->sp == '+') pos = true;
+			if (*re->sp == '-') neg = true;
+
+			/* skip over the sign */
+			if (pos || neg) next_char(re);
+			n = parse_dec_num(re);
+
+			re->sp--;
+		}
+
+		if (pos) n = re->gp + n;
+		if (neg) n = re->gp - n;
+
+		left->type = NODE_BACKREF;
+		left->c = n;
+		break;
+
+	default:
+		class_add_char(re, &a, *re->sp);
+		break;
+	}
+
+	next_char(re);
+	left->class = a;
 
 	if (left) left->loc = loc;
 	return left;
@@ -1977,7 +1982,7 @@ print_finish(struct ktre *re, const char *subject, const char *regex, bool ret, 
 }
 #else
 #define print_compile_error(x) ;
-#define print_finish(re,subject,regex,ret,vec,replaced) ;
+#define print_finish(a,b,c,d,e,f)
 #endif
 
 struct ktre *
