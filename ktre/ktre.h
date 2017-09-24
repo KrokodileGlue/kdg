@@ -340,9 +340,9 @@ ktre__free(struct ktre *re, void *ptr, const char *file, int line)
 	KTRE_FREE(mi);
 }
 
-#define ktre__malloc(re, n)       ktre__malloc (re, n,      __FILE__, __LINE__)
-#define ktre__realloc(re, ptr, n) ktre__realloc(re, ptr, n, __FILE__, __LINE__)
-#define ktre__free(re, ptr)       ktre__free   (re, ptr,    __FILE__, __LINE__)
+#define _malloc(re, n)       ktre__malloc (re, n,      __FILE__, __LINE__)
+#define _realloc(re, ptr, n) ktre__realloc(re, ptr, n, __FILE__, __LINE__)
+#define _free(re, ptr)       ktre__free   (re, ptr,    __FILE__, __LINE__)
 
 static int
 add_group(struct ktre *re)
@@ -356,7 +356,7 @@ add_group(struct ktre *re)
 		return -1;
 	}
 
-	re->group = ktre__realloc(re, re->group, (re->gp + 1) * sizeof re->group[0]);
+	re->group = _realloc(re, re->group, (re->gp + 1) * sizeof re->group[0]);
 
 	re->group[re->gp].is_compiled = false;
 	re->group[re->gp].address = -1;
@@ -416,7 +416,7 @@ grow_code(struct ktre *re, int n)
 {
 	if (!re->info.instr_alloc) {
 		re->info.instr_alloc = 25;
-		re->c = ktre__malloc(re, sizeof re->c[0] * re->info.instr_alloc);
+		re->c = _malloc(re, sizeof re->c[0] * re->info.instr_alloc);
 	}
 
 	if (re->ip + n >= re->info.instr_alloc) {
@@ -426,7 +426,7 @@ grow_code(struct ktre *re, int n)
 			re->info.instr_alloc *= 2;
 		}
 
-		re->c = ktre__realloc(re, re->c, sizeof re->c[0] * re->info.instr_alloc);
+		re->c = _realloc(re, re->c, sizeof re->c[0] * re->info.instr_alloc);
 	}
 }
 
@@ -553,12 +553,12 @@ free_node(struct ktre *re, struct node *n)
 		free_node(re, n->a);
 		break;
 	case NODE_CLASS: case NODE_NOT: case NODE_STR:
-		ktre__free(re, n->class);
+		_free(re, n->class);
 		break;
 	default: break;
 	}
 
-	ktre__free(re, n);
+	_free(re, n);
 }
 
 static void
@@ -583,7 +583,7 @@ error(struct ktre *re, enum ktre_error err, int loc, char *fmt, ...)
 		return;
 	}
 
-	re->err_str = ktre__malloc(re, MAX_ERROR_LEN);
+	re->err_str = _malloc(re, MAX_ERROR_LEN);
 	va_list args;
 	va_start(args, fmt);
 	vsnprintf(re->err_str, MAX_ERROR_LEN, fmt, args);
@@ -632,7 +632,7 @@ static void
 class_add_char(struct ktre *re, char **class, char c)
 {
 	size_t len = *class ? strlen(*class) : 0;
-	*class = ktre__realloc(re, *class, len + 2);
+	*class = _realloc(re, *class, len + 2);
 	(*class)[len] = c;
 	(*class)[len + 1] = 0;
 }
@@ -641,14 +641,14 @@ static void
 class_add_str(struct ktre *re, char **class, const char *c)
 {
 	size_t len = *class ? strlen(*class) : 0;
-	*class = ktre__realloc(re, *class, len + strlen(c) + 1);
+	*class = _realloc(re, *class, len + strlen(c) + 1);
 	strcpy(*class + len, c);
 }
 
 static char *
 strclone(struct ktre *re, const char *str)
 {
-	char *ret = ktre__malloc(re, strlen(str) + 1);
+	char *ret = _malloc(re, strlen(str) + 1);
 	if (!ret) return NULL;
 	re->info.parser_alloc += strlen(str) + 1;
 	strcpy(ret, str);
@@ -658,7 +658,7 @@ strclone(struct ktre *re, const char *str)
 static struct node *
 new_node(struct ktre *re)
 {
-	struct node *n = ktre__malloc(re, sizeof *n);
+	struct node *n = _malloc(re, sizeof *n);
 	if (!n) return NULL;
 	re->info.parser_alloc += sizeof *n;
 	memset(n, 0, sizeof *n);
@@ -970,7 +970,7 @@ parse_character_class_character(struct ktre *re)
 			class_add_char(re, &a, parse_hex_num(re));
 
 			if (*re->sp != '}' && !re->err) {
-				if (a) ktre__free(re, a);
+				if (a) _free(re, a);
 
 				error(re, KTRE_ERROR_SYNTAX_ERROR,
 				      loc, "incomplete token");
@@ -1024,7 +1024,7 @@ parse_character_class_character(struct ktre *re)
 	case 'e': class_add_char(re, &a, 7); break;
 
 	case 'D': {
-		a = ktre__malloc(re, 256);
+		a = _malloc(re, 256);
 		int i = 0;
 
 		for (int j = 1; j < '0'; j++)
@@ -1037,7 +1037,7 @@ parse_character_class_character(struct ktre *re)
 	} break;
 
 	case 'H': {
-		a = ktre__malloc(re, 256);
+		a = _malloc(re, 256);
 		int i = 0;
 
 		for (int j = 1; j < 256; j++)
@@ -1048,7 +1048,7 @@ parse_character_class_character(struct ktre *re)
 	} break;
 
 	case 'N': {
-		a = ktre__malloc(re, 256);
+		a = _malloc(re, 256);
 		int i = 0;
 
 		for (int j = 1; j < 256; j++)
@@ -1059,7 +1059,7 @@ parse_character_class_character(struct ktre *re)
 	} break;
 
 	case 'S': {
-		a = ktre__malloc(re, 256);
+		a = _malloc(re, 256);
 		int i = 0;
 
 		for (int j = 1; j < 256; j++)
@@ -1112,7 +1112,7 @@ parse_character_class(struct ktre *re)
 			b = parse_character_class_character(re);
 
 			if (!b) {
-				ktre__free(re, a);
+				_free(re, a);
 				free_node(re, left);
 				return NULL;
 			}
@@ -1120,20 +1120,20 @@ parse_character_class(struct ktre *re)
 			if (strlen(b) != 1) {
 				class_add_str(re, &class, a);
 				class_add_str(re, &class, b);
-				ktre__free(re, a);
-				ktre__free(re, b);
+				_free(re, a);
+				_free(re, b);
 				continue;
 			}
 
 			for (int i = *a; i <= *b; i++)
 				class_add_char(re, &class, i);
 
-			ktre__free(re, b);
+			_free(re, b);
 		} else {
 			class_add_str(re, &class, a);
 		}
 
-		ktre__free(re, a);
+		_free(re, a);
 	}
 
 	if (*re->sp != ']') {
@@ -1260,7 +1260,7 @@ again:
 			class_add_char(re, &a, parse_hex_num(re));
 
 			if (*re->sp != '}' && !re->err) {
-				if (a) ktre__free(re, a);
+				if (a) _free(re, a);
 
 				error(re, KTRE_ERROR_SYNTAX_ERROR,
 				      loc, "incomplete token");
@@ -1370,7 +1370,7 @@ again:
 		goto again;
 
 	case 'H': {
-		a = ktre__malloc(re, 256);
+		a = _malloc(re, 256);
 		int i = 0;
 
 		for (int j = 1; j < 256; j++)
@@ -1381,7 +1381,7 @@ again:
 	} break;
 
 	case 'N': {
-		a = ktre__malloc(re, 256);
+		a = _malloc(re, 256);
 		int i = 0;
 
 		for (int j = 1; j < 256; j++)
@@ -1512,14 +1512,14 @@ term(struct ktre *re)
 		}
 
 		if (left->type == NODE_NONE) {
-			ktre__free(re, left);
+			_free(re, left);
 			left = right;
 		} else {
 			if ((left->type == NODE_CHAR || left->type == NODE_STR) && right->type == NODE_CHAR) {
 				if (left->type == NODE_CHAR) {
 					char a = left->c;
 					left->type = NODE_STR;
-					left->class = ktre__malloc(re, 3);
+					left->class = _malloc(re, 3);
 					re->info.parser_alloc += 3;
 
 					if (re->popt & KTRE_INSENSITIVE) {
@@ -1546,7 +1546,7 @@ term(struct ktre *re)
 				if (left->b->type == NODE_CHAR) {
 					char a = left->b->c;
 					left->b->type = NODE_STR;
-					left->b->class = ktre__malloc(re, 3);
+					left->b->class = _malloc(re, 3);
 					re->info.parser_alloc += 3;
 
 					if (re->popt & KTRE_INSENSITIVE) {
@@ -1845,7 +1845,7 @@ compile(struct ktre *re, struct node *n, bool rev)
 				emit_c(re, INSTR_CALL, re->group[n->a->gi].address + 1, n->loc);
 			} else {
 				if (n->a->type == NODE_CHAR) {
-					char *str = ktre__malloc(re, n->c + 1);
+					char *str = _malloc(re, n->c + 1);
 					if (!str) return;
 					re->info.parser_alloc += n->c + 1;
 
@@ -2141,44 +2141,44 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int e)
 		} else
 			re->info.thread_alloc *= 2;
 
-		re->t = ktre__realloc(re, re->t, re->info.thread_alloc * sizeof THREAD[0]);
+		re->t = _realloc(re, re->t, re->info.thread_alloc * sizeof THREAD[0]);
 		memset(&THREAD[TP], 0, (re->info.thread_alloc - TP) * sizeof THREAD[0]);
 	}
 
 	if (!THREAD[TP].vec) {
-		THREAD[TP].vec = ktre__malloc(re, re->num_groups * 2 * sizeof THREAD[TP].vec[0]);
-		memset(THREAD[TP].vec, 0,         re->num_groups * 2 * sizeof THREAD[TP].vec[0]);
-		re->info.runtime_alloc +=         re->num_groups * 2 * sizeof THREAD[TP].vec[0];
+		THREAD[TP].vec = _malloc(re, re->num_groups * 2 * sizeof THREAD[TP].vec[0]);
+		memset(THREAD[TP].vec, 0,    re->num_groups * 2 * sizeof THREAD[TP].vec[0]);
+		re->info.runtime_alloc +=    re->num_groups * 2 * sizeof THREAD[TP].vec[0];
 	}
 
 	if (!THREAD[TP].prog && re->num_prog) {
-		THREAD[TP].prog = ktre__malloc(re, re->num_prog * sizeof THREAD[TP].prog[0]);
-		memset(THREAD[TP].prog, -1,        re->num_prog * sizeof THREAD[TP].prog[0]);
-		re->info.runtime_alloc +=          re->num_prog * sizeof THREAD[TP].prog[0];
+		THREAD[TP].prog = _malloc(re, re->num_prog * sizeof THREAD[TP].prog[0]);
+		memset(THREAD[TP].prog, -1,   re->num_prog * sizeof THREAD[TP].prog[0]);
+		re->info.runtime_alloc +=     re->num_prog * sizeof THREAD[TP].prog[0];
 	}
 
 	if (!THREAD[TP].frame) {
-		THREAD[TP].frame = ktre__malloc(re, (fp + 1) * sizeof THREAD[TP].frame[0]);
-		memset(THREAD[TP].frame, -1,        (fp + 1) * sizeof THREAD[TP].frame[0]);
-		re->info.runtime_alloc +=           (fp + 1) * sizeof THREAD[TP].frame[0];
+		THREAD[TP].frame = _malloc(re, (fp + 1) * sizeof THREAD[TP].frame[0]);
+		memset(THREAD[TP].frame, -1,   (fp + 1) * sizeof THREAD[TP].frame[0]);
+		re->info.runtime_alloc +=      (fp + 1) * sizeof THREAD[TP].frame[0];
 	} else if (THREAD[TP].fp < fp) {
-		THREAD[TP].frame = ktre__realloc(re, THREAD[TP].frame, (fp + 1) * sizeof THREAD[TP].frame[0]);
+		THREAD[TP].frame = _realloc(re, THREAD[TP].frame, (fp + 1) * sizeof THREAD[TP].frame[0]);
 	}
 
 	if (!THREAD[TP].las) {
-		THREAD[TP].las = ktre__malloc(re, (la + 1) * sizeof THREAD[TP].las[0]);
-		memset(THREAD[TP].las, -1,        (la + 1) * sizeof THREAD[TP].las[0]);
-		re->info.runtime_alloc +=         (la + 1) * sizeof THREAD[TP].las[0];
+		THREAD[TP].las = _malloc(re, (la + 1) * sizeof THREAD[TP].las[0]);
+		memset(THREAD[TP].las, -1,   (la + 1) * sizeof THREAD[TP].las[0]);
+		re->info.runtime_alloc +=    (la + 1) * sizeof THREAD[TP].las[0];
 	} else if (THREAD[TP].la < la) {
-		THREAD[TP].las = ktre__realloc(re, THREAD[TP].las, (la + 1) * sizeof THREAD[TP].las[0]);
+		THREAD[TP].las = _realloc(re, THREAD[TP].las, (la + 1) * sizeof THREAD[TP].las[0]);
 	}
 
 	if (!THREAD[TP].exception) {
-		THREAD[TP].exception = ktre__malloc(re, (e + 1) * sizeof THREAD[TP].exception[0]);
-		memset(THREAD[TP].exception, -1,        (e + 1) * sizeof THREAD[TP].exception[0]);
-		re->info.runtime_alloc +=               (e + 1) * sizeof THREAD[TP].exception[0];
+		THREAD[TP].exception = _malloc(re, (e + 1) * sizeof THREAD[TP].exception[0]);
+		memset(THREAD[TP].exception, -1,   (e + 1) * sizeof THREAD[TP].exception[0]);
+		re->info.runtime_alloc +=          (e + 1) * sizeof THREAD[TP].exception[0];
 	} else if (THREAD[TP].e < e) {
-		THREAD[TP].exception = ktre__realloc(re, THREAD[TP].exception, (e + 1) * sizeof THREAD[TP].exception[0]);
+		THREAD[TP].exception = _realloc(re, THREAD[TP].exception, (e + 1) * sizeof THREAD[TP].exception[0]);
 	}
 
 	THREAD[TP].e   = e;
@@ -2224,10 +2224,10 @@ run(struct ktre *re, const char *subject, int ***vec)
 {
 	if (*vec) {
 		for (int i = 0; i < re->num_matches; i++) {
-			ktre__free(re, (*vec)[i]);
+			_free(re, (*vec)[i]);
 		}
 
-		ktre__free(re, *vec);
+		_free(re, *vec);
 	}
 
 	*vec = NULL;
@@ -2237,12 +2237,12 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 	if (!re->info.thread_alloc) {
 		re->info.thread_alloc = 25;
-		re->t = ktre__malloc(re, re->info.thread_alloc * sizeof THREAD[0]);
+		re->t = _malloc(re, re->info.thread_alloc * sizeof THREAD[0]);
 		if (re->err) return false;
 		memset(re->t, 0, re->info.thread_alloc * sizeof THREAD[0]);
 	}
 
-	char *subject_lc = ktre__malloc(re, strlen(subject) + 1);
+	char *subject_lc = _malloc(re, strlen(subject) + 1);
 	for (int i = 0; i <= (int)strlen(subject); i++)
 		subject_lc[i] = lc(subject[i]);
 
@@ -2423,8 +2423,8 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 		case INSTR_MATCH:
 			if ((opt & KTRE_UNANCHORED) != 0 || (sp >= 0 && !subject[sp])) {
-				*vec = ktre__realloc(re, *vec, (re->num_matches + 1) * sizeof *vec);
-				(*vec)[re->num_matches] = ktre__malloc(re, re->num_groups * 2 * sizeof *vec[0]);
+				*vec = _realloc(re, *vec, (re->num_matches + 1) * sizeof *vec);
+				(*vec)[re->num_matches] = _malloc(re, re->num_groups * 2 * sizeof *vec[0]);
 
 				memcpy((*vec)[re->num_matches++],
 				       THREAD[TP].vec,
@@ -2433,7 +2433,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 				re->vec = *vec;
 
 				if ((opt & KTRE_GLOBAL) == 0) {
-					ktre__free(re, subject_lc);
+					_free(re, subject_lc);
 					return true;
 				} else {
 					TP = 0;
@@ -2441,7 +2441,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 					THREAD[TP].sp = sp;
 
 					if (re->num_matches - 1 && sp == (*vec)[0][0] + (*vec)[0][1]) {
-						ktre__free(re, subject_lc);
+						_free(re, subject_lc);
 						return true;
 					}
 
@@ -2477,7 +2477,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 		case INSTR_CALL:
 			THREAD[TP].ip = re->c[ip].c;
-			THREAD[TP].frame = ktre__realloc(re, THREAD[TP].frame, (fp + 1) * sizeof THREAD[TP].frame[0]);
+			THREAD[TP].frame = _realloc(re, THREAD[TP].frame, (fp + 1) * sizeof THREAD[TP].frame[0]);
 			THREAD[TP].frame[THREAD[TP].fp++] = ip + 1;
 			break;
 
@@ -2522,7 +2522,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 		case INSTR_TRY:
 			THREAD[TP].ip++;
-			THREAD[TP].exception = ktre__realloc(re, THREAD[TP].exception, (e + 1) * sizeof THREAD[TP].exception[0]);
+			THREAD[TP].exception = _realloc(re, THREAD[TP].exception, (e + 1) * sizeof THREAD[TP].exception[0]);
 			THREAD[TP].exception[THREAD[TP].e++] = TP;
 			break;
 
@@ -2581,7 +2581,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 		default:
 			DBG("\nunimplemented instruction %d\n", re->c[ip].op);
-			ktre__free(re, subject_lc);
+			_free(re, subject_lc);
 #ifdef KTRE_DEBUG
 			assert(false);
 #endif
@@ -2590,13 +2590,13 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 		if (TP >= KTRE_MAX_THREAD - 1) {
 			error(re, KTRE_ERROR_STACK_OVERFLOW, loc, "regex exceeded the maximum number of executable threads");
-			ktre__free(re, subject_lc);
+			_free(re, subject_lc);
 			return false;
 		}
 
 		if (fp >= KTRE_MAX_CALL_DEPTH - 1) {
 			error(re, KTRE_ERROR_CALL_OVERFLOW, loc, "regex exceeded the maximum depth for subroutine calls");
-			ktre__free(re, subject_lc);
+			_free(re, subject_lc);
 			return false;
 		}
 
@@ -2605,7 +2605,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 #endif
 	}
 
-	ktre__free(re, subject_lc);
+	_free(re, subject_lc);
 	return !!re->num_matches;
 }
 
@@ -2617,33 +2617,33 @@ ktre_free(struct ktre *re)
 
 	free_node(re, re->n);
 	if (re->err && re->err_str)
-		ktre__free(re, re->err_str);
+		_free(re, re->err_str);
 
 	for (int i = 0; i < re->ip; i++) {
 		if (re->c[i].op == INSTR_TSTR)
-			ktre__free(re, re->c[i].class);
+			_free(re, re->c[i].class);
 	}
 
-	ktre__free(re, re->c);
+	_free(re, re->c);
 
 	for (int i = 0; i <= re->max_tp; i++) {
-		ktre__free(re, THREAD[i].vec);
-		ktre__free(re, THREAD[i].prog);
-		ktre__free(re, THREAD[i].frame);
-		ktre__free(re, THREAD[i].las);
-		ktre__free(re, THREAD[i].exception);
+		_free(re, THREAD[i].vec);
+		_free(re, THREAD[i].prog);
+		_free(re, THREAD[i].frame);
+		_free(re, THREAD[i].las);
+		_free(re, THREAD[i].exception);
 	}
 
 	if (re->vec) {
 		for (int i = 0; i < re->num_matches; i++) {
-			ktre__free(re, (re->vec)[i]);
+			_free(re, (re->vec)[i]);
 		}
 
-		ktre__free(re, re->vec);
+		_free(re, re->vec);
 	}
 
-	ktre__free(re, re->group);
-	ktre__free(re, re->t);
+	_free(re, re->group);
+	_free(re, re->t);
 	struct ktre_info info = re->info;
 
 #if defined(_MSC_VER) && defined(KTRE_DEBUG)
@@ -2694,7 +2694,7 @@ ktre_exec(struct ktre *re, const char *subject, int ***vec)
 
 	if (re->err) {
 		if (re->err_str)
-			ktre__free(re, re->err_str);
+			_free(re, re->err_str);
 		re->err = KTRE_ERROR_NO_ERROR;
 	}
 
@@ -2760,7 +2760,7 @@ replace_strncpy(struct ktre *re, char *dest, const char *src,
 	}
 }
 
-#define SIZE_STRING(ptr,n) ptr = ktre__realloc(re, ptr, n * sizeof *ptr)
+#define SIZE_STRING(ptr,n) ptr = _realloc(re, ptr, n * sizeof *ptr)
 char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 {
 	DBG("\nsubject: %s", subject);
@@ -2771,7 +2771,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 
 	bool u   = false, l   = false;
 	bool uch = false, lch = false;
-	char *ret = ktre__malloc(re, 16);
+	char *ret = _malloc(re, 16);
 	*ret = 0;
 	int idx = 0;
 
@@ -2842,12 +2842,12 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 		if (match) {
 			match[j] = 0;
 
-			ret = ktre__realloc(re, ret, (idx + j + 1) * sizeof *ret);
+			ret = _realloc(re, ret, (idx + j + 1) * sizeof *ret);
 			strcpy(ret + idx, match);
 			ret[idx + j] = 0;
 			idx += j;
 
-			ktre__free(re, match);
+			_free(re, match);
 		}
 	}
 
@@ -2861,7 +2861,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 
 	char *a = KTRE_MALLOC(strlen(ret) + 1);
 	strcpy(a, ret);
-	ktre__free(re, ret);
+	_free(re, ret);
 	print_finish(re, subject, re->pat, ret, vec, a);
 
 	return a;
