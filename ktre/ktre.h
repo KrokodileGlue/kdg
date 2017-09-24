@@ -97,12 +97,14 @@ enum {
 #define KTRE_MEM_CAP 1000000
 
 struct ktre_info {
-	int ba, mba; /* bytes allocated and max bytes allocated */
-	int bf;      /* bytes freed */
-	int num_allocations, num_alloc, num_free;
+	int ba;  /* bytes allocated */
+	int mba; /* max bytes allocated */
+	int bf;  /* bytes freed */
+	int num_alloc, num_free;
 
 	int thread_alloc;
 	int instr_alloc;
+
 	int parser_alloc;
 	int runtime_alloc;
 };
@@ -148,7 +150,7 @@ struct ktre {
 		int address;
 
 		/*
-		 * These boolean flags indicate whether this groups
+		 * These boolean flags indicate whether this group
 		 * has been compiled or called as a subroutine,
 		 * respectively. The is_called field is flexible; it's
 		 * used whenever a group must be called as a
@@ -156,7 +158,7 @@ struct ktre {
 		 */
 		_Bool is_compiled;
 		_Bool is_called;
-	} group[KTRE_MAX_GROUPS];
+	} *group;
 
 	/* runtime */
 	struct thread {
@@ -353,6 +355,8 @@ add_group(struct ktre *re)
 
 		return -1;
 	}
+
+	re->group = ktre__realloc(re, re->group, (re->gp + 1) * sizeof re->group[0]);
 
 	re->group[re->gp].is_compiled = false;
 	re->group[re->gp].address = -1;
@@ -2633,6 +2637,7 @@ ktre_free(struct ktre *re)
 		ktre__free(re, re->vec);
 	}
 
+	ktre__free(re, re->group);
 	ktre__free(re, re->t);
 	struct ktre_info info = re->info;
 
