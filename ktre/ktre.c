@@ -22,6 +22,7 @@ main(int argc, char *argv[])
 
 	if (re->err) {
 		ktre_free(re);
+		fputc('\n', stderr);
 		return EXIT_FAILURE;
 	}
 
