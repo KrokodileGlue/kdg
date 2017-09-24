@@ -2780,7 +2780,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 			int len = vec[i][0]
 				- (vec[i - 1][0]
 				   +  vec[i - 1][1]);
-			SIZE_STRING(re, idx + len + 1);
+			SIZE_STRING(ret, idx + len + 1);
 			strncpy(ret + idx,
 			        subject
 			        + vec[i - 1][0]
@@ -2789,7 +2789,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 			idx += len;
 		} else {
 			idx = vec[i][0];
-			SIZE_STRING(re, idx + 1);
+			SIZE_STRING(ret, idx + 1);
 			strncpy(ret, subject, idx);
 		}
 
@@ -2842,7 +2842,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 		if (match) {
 			match[j] = 0;
 
-			ret = _realloc(re, ret, (idx + j + 1) * sizeof *ret);
+			SIZE_STRING(ret, idx + j + 1);
 			strcpy(ret + idx, match);
 			ret[idx + j] = 0;
 			idx += j;
