@@ -894,7 +894,7 @@ parse_special_group(struct ktre *re)
 		left->a = parse(re);
 		break;
 
-	case '\'':
+	case '\'': {
 		const char *a = re->sp;
 		while (*re->sp && strchr(WORD, *re->sp)) re->sp++;
 		const char *b = re->sp;
@@ -917,7 +917,7 @@ parse_special_group(struct ktre *re)
 		re->group[left->gi].name[b - a] = 0;
 
 		left->a = parse(re);
-		break;
+	} break;
 
 	case ':':
 		free_node(re, left);
@@ -2861,17 +2861,17 @@ ktre_free(struct ktre *re)
 	    info.num_alloc, info.num_free,
 	    info.mba + sizeof (struct ktre));
 
-	DBG("\n%5d bytes were allocated for the main structure.",
+	DBG("\n%5zd bytes were allocated for the main structure.",
 	    sizeof (struct ktre));
-	DBG("\n%5d bytes were allocated for the bytecode.",
+	DBG("\n%5zd bytes were allocated for the bytecode.",
 	    info.instr_alloc * sizeof (struct instr));
-	DBG("\n%5d bytes were allocated for the runtime.",
+	DBG("\n%5zd bytes were allocated for the runtime.",
 	    info.runtime_alloc + info.thread_alloc * sizeof (struct thread));
 	DBG("\n%5d bytes were allocated for the parser.",
 	    info.parser_alloc);
 
 	if (info.ba) {
-		DBG("\nThere were %d leaked bytes from %d unmatched allocations.",
+		DBG("\nThere were %zd leaked bytes from %d unmatched allocations.",
 		    info.ba - (info.num_alloc - info.num_free) * sizeof (struct ktre_minfo),
 		    info.num_alloc - info.num_free);
 
@@ -3029,7 +3029,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 
 			case '0': case '1': case '2': case '3':
 			case '4': case '5': case '6': case '7':
-			case '8': case '9':
+			case '8': case '9': {
 				int n = dec_num(&r);
 
 				if (n < 0 || n >= re->num_groups)
@@ -3041,7 +3041,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 
 				j += vec[i][n * 2 + 1];
 				uch = lch = false;
-				break;
+			} break;
 			}
 		}
 
