@@ -360,6 +360,7 @@ add_group(struct ktre *re)
 	}
 
 	re->group = _realloc(re, re->group, (re->gp + 1) * sizeof re->group[0]);
+	if (!re->group) return -1;
 
 	re->group[re->gp].is_compiled = false;
 	re->group[re->gp].address     = -1;
@@ -639,6 +640,7 @@ class_add_char(struct ktre *re, char **class, char c)
 {
 	size_t len = *class ? strlen(*class) : 0;
 	*class = _realloc(re, *class, len + 2);
+	if (!*class) return;
 	(*class)[len] = c;
 	(*class)[len + 1] = 0;
 }
@@ -648,6 +650,7 @@ class_add_str(struct ktre *re, char **class, const char *c)
 {
 	size_t len = *class ? strlen(*class) : 0;
 	*class = _realloc(re, *class, len + strlen(c) + 1);
+	if (!*class) return;
 	strcpy(*class + len, c);
 }
 
@@ -872,6 +875,12 @@ parse_special_group(struct ktre *re)
 			left->type = NODE_GROUP;
 
 			left->gi = add_group(re);
+
+			if (left->gi < 0) {
+				free_node(re, left);
+				return NULL;
+			}
+
 			re->group[left->gi].is_called = false;
 			re->group[left->gi].name = _malloc(re, b - a + 1);
 			strncpy(re->group[left->gi].name, a, b - a);
@@ -911,6 +920,12 @@ parse_special_group(struct ktre *re)
 		left->type = NODE_GROUP;
 
 		left->gi = add_group(re);
+
+		if (left->gi < 0) {
+			free_node(re, left);
+			return NULL;
+		}
+
 		re->group[left->gi].is_called = false;
 		re->group[left->gi].name = _malloc(re, b - a + 1);
 		strncpy(re->group[left->gi].name, a, b - a);
@@ -1013,6 +1028,12 @@ parse_special_group(struct ktre *re)
 		left->type = NODE_GROUP;
 
 		left->gi = add_group(re);
+
+		if (left->gi < 0) {
+			free_node(re, left);
+			return NULL;
+		}
+
 		re->group[left->gi].is_called = false;
 		re->group[left->gi].name = _malloc(re, b - a + 1);
 		strncpy(re->group[left->gi].name, a, b - a);
@@ -1052,6 +1073,12 @@ parse_group(struct ktre *re)
 		left->type = NODE_GROUP;
 
 		left->gi = add_group(re);
+
+		if (left->gi < 0) {
+			free_node(re, left);
+			return NULL;
+		}
+
 		re->group[left->gi].is_called = false;
 
 		left->a = parse(re);
@@ -2210,9 +2237,23 @@ ktre_compile(const char *pat, int opt)
 	re->max_tp               = -1;
 	re->err_str              = "no error";
 	re->n                    = new_node(re);
+
+	if (!re->n) {
+		re->n = NULL;
+		print_compile_error(re);
+		return re;
+	}
+
 	re->n->loc               = 0;
 	re->n->type              = NODE_GROUP;
 	re->n->gi                = add_group(re);
+
+	if (re->n->gi < 0) {
+		re->n = NULL;
+		print_compile_error(re);
+		return re;
+	}
+
 	re->group[0].is_compiled = false;
 	re->group[0].is_called   = false;
 	re->n->a                 = NULL;
