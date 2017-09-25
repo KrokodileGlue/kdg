@@ -1414,6 +1414,8 @@ static struct node *
 parse_primary(struct ktre *re)
 {
 	struct node *left = new_node(re);
+	if (!left) return NULL;
+
 	int loc = re->sp - re->pat;
 	left->loc = loc;
 
@@ -1789,6 +1791,13 @@ term(struct ktre *re)
 				}
 			} else {
 				struct node *tmp = new_node(re);
+
+				if (!tmp) {
+					free_node(re, left);
+					free_node(re, right);
+					return NULL;
+				}
+
 				tmp->loc = re->sp - re->pat;
 				tmp->a = left;
 				tmp->b = right;
