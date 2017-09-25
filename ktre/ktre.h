@@ -960,7 +960,7 @@ parse_special_group(struct ktre *re)
 		re->sp--;
 		left->c = parse_dec_num(re);
 
-		if (left->c < re->gp)
+		if (left->c >= 0 && left->c < re->gp)
 			re->group[left->c].is_called = true;
 		break;
 
@@ -1087,8 +1087,6 @@ parse_group(struct ktre *re)
 	if (*re->sp != ')' && !re->err) {
 		error(re, KTRE_ERROR_SYNTAX_ERROR, left->loc,
 		      "unmatched '('");
-
-		free_node(re, left->a);
 		free_node(re, left);
 
 		return NULL;
@@ -1660,7 +1658,7 @@ again:
 	}
 
 	next_char(re);
-	if (left) left->class = a;
+	if (left && !left->class) left->class = a;
 	if (left) left->loc = loc;
 	return left;
 }
@@ -1833,7 +1831,11 @@ print_node(struct ktre *re, struct node *n)
 {
 #define join arm[l - 1] = 0
 #define split arm[l - 1] = 1
+	static int depth = 0;
 	static int l = 0, arm[2048] = { 0 };
+
+	if (depth > 100) return;
+	depth++;
 	DBG("\n");
 	arm[l] = 0;
 
@@ -1907,6 +1909,8 @@ print_node(struct ktre *re, struct node *n)
 		DBG("\nunimplemented printer for node of type %d\n", n->type);
 		assert(false);
 	}
+
+	depth--;
 }
 #else
 #define print_node(x,y) ;
@@ -2213,6 +2217,8 @@ print_finish(struct ktre *re, const char *subject, const char *regex, bool ret, 
 struct ktre *
 ktre_compile(const char *pat, int opt)
 {
+	if (!pat) return NULL;
+
 	struct ktre *re = KTRE_MALLOC(sizeof *re);
 	memset(re, 0, sizeof *re);
 
@@ -2607,7 +2613,8 @@ run(struct ktre *re, const char *subject, int ***vec)
 		case INSTR_NOT:
 			THREAD[TP].ip++;
 
-			if (!strchr(re->c[ip].class, subject[sp]) && subject[sp] && sp >= 0)
+			if (!strchr(re->c[ip].class, subject[sp])
+			    && subject[sp] && sp >= 0)
 				THREAD[TP].sp++;
 			else
 				--TP;
