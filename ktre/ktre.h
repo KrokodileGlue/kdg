@@ -305,6 +305,7 @@ ktre__realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line)
 	if (diff <= 0) return ptr;
 
 	if (re->info.ba + diff > KTRE_MEM_CAP) {
+		KTRE_FREE(ptr);
 		error(re, KTRE_ERROR_OUT_OF_MEMORY, 0, NULL);
 		return NULL;
 	}
@@ -313,10 +314,9 @@ ktre__realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line)
 
 	if (p) {
 		memcpy(p, ptr, n > mi->size ? mi->size : n);
-		ktre__free(re, ptr, file, line);
-	} else {
-		KTRE_FREE(ptr);
 	}
+
+	ktre__free(re, ptr, file, line);
 
 	return p;
 }
@@ -423,8 +423,9 @@ grow_code(struct ktre *re, int n)
 	if (!re->info.instr_alloc) {
 		re->info.instr_alloc = 25;
 		re->c = _malloc(re, sizeof re->c[0] * re->info.instr_alloc);
-		if (!re->c) return;
 	}
+
+	if (!re->c) return;
 
 	if (re->ip + n >= re->info.instr_alloc) {
 		if (re->ip + n >= re->info.instr_alloc * 2) {
@@ -483,6 +484,7 @@ emit(struct ktre *re, int instr, int loc)
 {
 	grow_code(re, 1);
 	if (!re->c) return;
+
 	re->c[re->ip].op = instr;
 	re->c[re->ip].loc = loc;
 	re->ip++;
@@ -1966,7 +1968,7 @@ compile(struct ktre *re, struct node *n, bool rev)
 	} break;
 
 	case NODE_GROUP:
-		if (re->group[n->gi].is_called) {
+		if (re->group[n->gi].is_called && !re->group[n->gi].is_compiled) {
 			emit_c(re, INSTR_CALL, re->ip + 3, n->loc);
 			emit_c(re, INSTR_SAVE, re->num_groups * 2 + 1, n->loc);
 			a = re->ip;
@@ -1982,6 +1984,8 @@ compile(struct ktre *re, struct node *n, bool rev)
 			PATCH_C(a, re->ip);
 
 			re->group[old].is_compiled = true;
+		} else if (re->group[n->gi].is_compiled) {
+			emit_c(re, INSTR_CALL, re->group[n->gi].address, n->loc);
 		} else {
 			emit_c(re, INSTR_SAVE, re->num_groups * 2, n->loc);
 
@@ -2869,12 +2873,14 @@ ktre_free(struct ktre *re)
 	if (re->err && re->err_str)
 		_free(re, re->err_str);
 
-	for (int i = 0; i < re->ip; i++) {
-		if (re->c[i].op == INSTR_TSTR)
-			_free(re, re->c[i].class);
-	}
+	if (re->c) {
+		for (int i = 0; i < re->ip; i++) {
+			if (re->c[i].op == INSTR_TSTR)
+				_free(re, re->c[i].class);
+		}
 
-	_free(re, re->c);
+		_free(re, re->c);
+	}
 
 	for (int i = 0; i <= re->max_tp; i++) {
 		_free(re, THREAD[i].vec);
