@@ -1037,7 +1037,6 @@ parse_group(struct ktre *re)
 		left = parse_special_group(re);
 	} else {
 		left->type = NODE_GROUP;
-
 		left->gi = add_group(re);
 
 		if (left->gi < 0) {
@@ -1046,7 +1045,6 @@ parse_group(struct ktre *re)
 		}
 
 		re->group[left->gi].is_called = false;
-
 		left->a = parse(re);
 	}
 
@@ -1647,6 +1645,7 @@ factor(struct ktre *re)
 	                   || *re->sp == '{'))
 	{
 		struct node *n = new_node(re);
+		n->loc = re->sp - re->pat;
 
 		switch (*re->sp) {
 		case '*': n->type = NODE_ASTERISK; next_char(re); break;
@@ -1833,19 +1832,28 @@ print_node(struct ktre *re, struct node *n)
 		else DBG("`-- ");
 	}
 
-#define N1(...)                                                   \
-	do {                                                      \
-		DBG(__VA_ARGS__); l++; print_node(re, n->a); l--; \
-	} while(0);
+#define N0(...)                     \
+	do {                        \
+		DBG(__VA_ARGS__);   \
+		DBG(" %d", n->loc); \
+	} while(0)
+
+#define N1(...)                                 \
+	do {                                    \
+		DBG(__VA_ARGS__);               \
+		DBG(" %d", n->loc);             \
+		l++; print_node(re, n->a); l--; \
+	} while(0)
 
 #define N2(...)                             \
 	do {                                \
 		DBG(__VA_ARGS__);           \
+		DBG(" %d", n->loc); \
 		l++; split;                 \
 		print_node(re, n->a); join; \
 		print_node(re, n->b);       \
 		l--;                        \
-	} while(0);
+	} while(0)
 
 	if (!n) {
 		DBG("(null)");
@@ -1853,23 +1861,23 @@ print_node(struct ktre *re, struct node *n)
 	}
 
 	switch (n->type) {
-	case NODE_ANY:       DBG("(any)");                                    break;
-	case NODE_DIGIT:     DBG("(digit)");                                  break;
-	case NODE_WORD:      DBG("(word)");                                   break;
-	case NODE_SPACE:     DBG("(space)");                                  break;
-	case NODE_NONE:      DBG("(none)");                                   break;
-	case NODE_CHAR:      DBG("(char '%c')", n->c);                        break;
-	case NODE_WB:        DBG("(word boundary)");                          break;
-	case NODE_BACKREF:   DBG("(backreference to %d)", n->c);              break;
-	case NODE_CLASS:     DBG("(class '"); dbgf(n->class); DBG("')");      break;
-	case NODE_STR:       DBG("(string '"); dbgf(n->class); DBG("')");     break;
-	case NODE_NOT:       DBG("(not '%s')", n->class);                     break;
-	case NODE_BOL:       DBG("(bol)");                                    break;
-	case NODE_EOL:       DBG("(eol)");                                    break;
-	case NODE_RECURSE:   DBG("(recurse)");                                break;
-	case NODE_SET_START: DBG("(set_start)");                              break;
-	case NODE_SETOPT:    DBG("(setopt %d)", n->c);                        break;
-	case NODE_CALL:      DBG("(call %d)", n->c);                          break;
+	case NODE_ANY:       N0("(any)");                                     break;
+	case NODE_DIGIT:     N0("(digit)");                                   break;
+	case NODE_WORD:      N0("(word)");                                    break;
+	case NODE_SPACE:     N0("(space)");                                   break;
+	case NODE_NONE:      N0("(none)");                                    break;
+	case NODE_CHAR:      N0("(char '%c')", n->c);                         break;
+	case NODE_WB:        N0("(word boundary)");                           break;
+	case NODE_BACKREF:   N0("(backreference to %d)", n->c);               break;
+	case NODE_CLASS:     DBG("(class '"); dbgf(n->class); N0("')");       break;
+	case NODE_STR:       DBG("(string '"); dbgf(n->class); N0("')");      break;
+	case NODE_NOT:       DBG("(not '"); dbgf(n->class); N0("')");         break;
+	case NODE_BOL:       N0("(bol)");                                     break;
+	case NODE_EOL:       N0("(eol)");                                     break;
+	case NODE_RECURSE:   N0("(recurse)");                                 break;
+	case NODE_SET_START: N0("(set_start)");                               break;
+	case NODE_SETOPT:    N0("(setopt %d)", n->c);                         break;
+	case NODE_CALL:      N0("(call %d)", n->c);                           break;
 	case NODE_SEQUENCE:  N2 ("(sequence)");                               break;
 	case NODE_OR:        N2 ("(or)");                                     break;
 	case NODE_REP:       N1 ("(counted repetition %d - %d)", n->c, n->d); break;
@@ -2192,11 +2200,11 @@ print_finish(struct ktre *re, const char *subject, const char *regex, bool ret, 
 		for (int i = 0; i < re->loc; i++) DBG(" ");
 		DBG("^");
 	} else {
-		DBG("\nno match.");
+		DBG("\nno matches.");
 	}
 }
 #else
-#define print_compile_error(x) ;
+#define print_compile_error(x)
 #define print_finish(a,b,c,d,e,f)
 #endif
 
@@ -2260,7 +2268,10 @@ ktre_compile(const char *pat, int opt)
 	}
 
 	if (*re->sp) {
-		error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat, "unmatched righthand delimiter");
+		error(re, KTRE_ERROR_SYNTAX_ERROR,
+		      re->sp - re->pat,
+		      "unmatched righthand delimiter");
+
 		print_compile_error(re);
 		return re;
 	}
@@ -2302,9 +2313,9 @@ ktre_compile(const char *pat, int opt)
 		switch (re->c[i].op) {
 		case INSTR_CLASS: DBG("CLASS   '"); dbgf(re->c[i].class); DBG("'");    break;
 		case INSTR_STR:   DBG("STR     '"); dbgf(re->c[i].class); DBG("'");    break;
+		case INSTR_NOT:   DBG("NOT     '"); dbgf(re->c[i].class); DBG("'");    break;
 		case INSTR_TSTR:  DBG("TSTR    '"); dbgf(re->c[i].class); DBG("'");    break;
 		case INSTR_BRANCH:    DBG("BRANCH   %d, %d", re->c[i].a, re->c[i].b); break;
-		case INSTR_NOT:       DBG("NOT     '%s'", re->c[i].class);             break;
 		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].a);                 break;
 		case INSTR_SAVE:      DBG("SAVE     %d",  re->c[i].a);                 break;
 		case INSTR_JMP:       DBG("JMP      %d",  re->c[i].a);                 break;
