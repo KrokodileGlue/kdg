@@ -2358,9 +2358,9 @@ struct ktre *ktre_copy(struct ktre *re)
 #define MAKE_THREAD_VARIABLE(f,p)                                                                \
 	do {                                                                                     \
 		if (!THREAD[TP].f) {                                                             \
-			THREAD[TP].f = _malloc((p + 1) * sizeof THREAD[TP].f[0]);                \
-			memset(THREAD[TP].f, -1,   (p + 1) * sizeof THREAD[TP].f[0]);            \
-			re->info.runtime_alloc +=      (p + 1) * sizeof THREAD[TP].f[0];         \
+			THREAD[TP].f = _malloc(   (p + 1) * sizeof THREAD[TP].f[0]);             \
+			memset(THREAD[TP].f, -1,  (p + 1) * sizeof THREAD[TP].f[0]);             \
+			re->info.runtime_alloc += (p + 1) * sizeof THREAD[TP].f[0];              \
 		} else if (THREAD[TP].p < p) {                                                   \
 			THREAD[TP].f = _realloc(THREAD[TP].f, (p + 1) * sizeof THREAD[TP].f[0]); \
 		}                                                                                \
@@ -2988,13 +2988,14 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 	if (!run(re, subject, &vec) || re->err)
 		return NULL;
 
-	bool u   = false, l   = false;
-	bool uch = false, lch = false;
 	char *ret = _malloc(16);
 	*ret = 0;
 	int idx = 0;
 
 	for (int i = 0; i < re->num_matches; i++) {
+		bool u   = false, l   = false;
+		bool uch = false, lch = false;
+
 		if (i > 0) {
 			int len = vec[i][0]
 				- (vec[i - 1][0]
@@ -3073,8 +3074,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 	int end = vec[re->num_matches - 1][0]
 		+ vec[re->num_matches - 1][1];
 	SIZE_STRING(ret, idx + end + 1);
-	smartcopy(re, ret + idx, subject + end, strlen(subject) - end,
-	                u, uch, l, lch);
+	strncpy(ret + idx, subject + end, strlen(subject) - end);
 	idx += strlen(subject) - end;
 	ret[idx] = 0;
 
