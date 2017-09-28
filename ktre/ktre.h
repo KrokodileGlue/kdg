@@ -1905,7 +1905,7 @@ print_node(struct ktre *re, struct node *n)
 	depth--;
 }
 #else
-#define print_node(x,y) ;
+#define print_node(x,y)
 #endif /* KTRE_DEBUG */
 
 static void
@@ -2383,7 +2383,7 @@ struct ktre *ktre_copy(struct ktre *re)
 			       ? p * sizeof THREAD[0].f[0]                                       \
 			       : THREAD[TP - 1].p * sizeof THREAD[0].f[0]);                      \
 		}                                                                                \
-	} while (0);
+	} while (0)
 
 #define MAKE_STATIC_THREAD_VARIABLE(f,s)                                       \
 	do {                                                                   \
@@ -2398,7 +2398,7 @@ struct ktre *ktre_copy(struct ktre *re)
 			       THREAD[TP - 1].f,                               \
 			       (s) * sizeof *THREAD[0].f);                     \
 		}                                                              \
-	} while (0);
+	} while (0)
 
 static void
 new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int ep)

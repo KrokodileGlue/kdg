@@ -26,11 +26,10 @@ main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
-	if (replacement) {
+	if (replacement)
 		free(ktre_filter(re, subject, replacement));
-	} else {
+	else
 		ktre_exec(re, subject, NULL);
-	}
 
 	ktre_free(re);
 	fputc('\n', stderr);
