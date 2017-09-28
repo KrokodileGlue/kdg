@@ -2394,7 +2394,7 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int ep)
 {
 	++TP;
 
-	if (TP > re->info.thread_alloc) {
+	if (TP >= re->info.thread_alloc) {
 		if (re->info.thread_alloc + 25 >= KTRE_MAX_THREAD) {
 			re->info.thread_alloc = KTRE_MAX_THREAD;
 
