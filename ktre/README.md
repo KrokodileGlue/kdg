@@ -5,7 +5,7 @@ implements a subset of Perl/PCRE regular expressions.
 
 To use this library, just make a file in your project (usually called
 ktre.c), `#define KTRE_IMPLEMENTATION` in that file, and `#include
-ktre.h`.
+"ktre.h"`.
 
 Feature list:
 
