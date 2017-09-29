@@ -22,6 +22,15 @@
  * SOFTWARE.
  */
 
+/*
+ * To use this library, just make a file in your project (usually
+ * called ktre.c), define KTRE_IMPLEMENTATION in that file, and
+ * #include this file. Include this file in any compilation unit you
+ * intend to use the library from, but _don't_ include
+ * KTRE_IMPLEMENTATION. Don't turn on KTRE_DEBUG unless something goes
+ * wrong and you need to debug KTRE itself.
+ */
+
 #ifndef KTRE_H
 #define KTRE_H
 
