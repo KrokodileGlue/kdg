@@ -164,7 +164,7 @@ struct ktre *ktre_copy(struct ktre *re);
 _Bool ktre_exec(struct ktre *re, const char *subject, int ***vec);
 _Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec);
 char *ktre_filter(struct ktre *re, const char *subject, const char *replacement);
-char *ktre_replace(const char *subject, const char *pat, const char *replacement, int opt, int ***vec);
+char *ktre_replace(const char *subject, const char *pat, const char *replacement, int opt);
 int **ktre_getvec(const struct ktre *re);
 struct ktre_info ktre_free(struct ktre *re);
 
@@ -224,7 +224,7 @@ static void error(struct ktre *re, enum ktre_error err, int loc, char *fmt, ...)
 
 static void *_ktre_malloc (struct ktre *re,            size_t n, const char *file, int line);
 static void *_ktre_realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line);
-static void  _ktre_free   (struct ktre *re, void *ptr,           const char *file, int line);
+static void  _ktre_free   (struct ktre *re, void *ptr);
 
 static void *
 _ktre_malloc(struct ktre *re, size_t n, const char *file, int line)
@@ -282,17 +282,16 @@ _ktre_realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line)
 
 	void *p = _ktre_malloc(re, n, file, line);
 
-	if (p) {
-		memcpy(p, ptr, n > mi->size ? mi->size : n);
-	}
+	if (p)
+		memcpy(p, ptr, (int)n > mi->size ? mi->size : (int)n);
 
-	_ktre_free(re, ptr, file, line);
+	_ktre_free(re, ptr);
 
 	return p;
 }
 
 static void
-_ktre_free(struct ktre *re, void *ptr, const char *file, int line)
+_ktre_free(struct ktre *re, void *ptr)
 {
 	if (!ptr) return;
 
@@ -315,7 +314,7 @@ _ktre_free(struct ktre *re, void *ptr, const char *file, int line)
 
 #define _malloc(n)      _ktre_malloc (re, n,      __FILE__, __LINE__)
 #define _realloc(ptr,n) _ktre_realloc(re, ptr, n, __FILE__, __LINE__)
-#define _free(ptr)      _ktre_free   (re, ptr,    __FILE__, __LINE__)
+#define _free(ptr)      _ktre_free   (re, ptr)
 
 static int
 add_group(struct ktre *re)
@@ -592,17 +591,15 @@ uc(char c)
 static inline void
 lc_str(char *s)
 {
-	for (int i = 0; i < strlen(s); i++) {
+	for (int i = 0; i < (int)strlen(s); i++)
 		s[i] = lc(s[i]);
-	}
 }
 
 static inline void
 uc_str(char *s)
 {
-	for (int i = 0; i < strlen(s); i++) {
+	for (int i = 0; i < (int)strlen(s); i++)
 		s[i] = uc(s[i]);
-	}
 }
 
 static void
@@ -960,7 +957,7 @@ parse_special_group(struct ktre *re)
 			for (int i = 0; i < re->gp; i++) {
 				if (!re->group[i].name) continue;
 				if (!strncmp(re->group[i].name, a, b - a)
-				    && b - a == strlen(re->group[i].name))
+				    && b - a == (int)strlen(re->group[i].name))
 				{
 					left->c = i;
 					break;
@@ -1367,7 +1364,7 @@ parse_k(struct ktre *re)
 	for (int i = 0; i < re->gp; i++) {
 		if (!re->group[i].name) continue;
 		if (!strncmp(re->group[i].name, a, b - a)
-		    && b - a == strlen(re->group[i].name))
+		    && b - a == (int)strlen(re->group[i].name))
 		{
 			left->c = i;
 			break;
@@ -2672,7 +2669,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 						THREAD[TP].sp++;
 					}
 
-					if (THREAD[TP].sp > strlen(subject)) {
+					if (THREAD[TP].sp > (int)strlen(subject)) {
 						_free(subject_lc);
 						return true;
 					}
@@ -2964,7 +2961,7 @@ _Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec)
 	return false;
 }
 
-char *ktre_replace(const char *subject, const char *pat, const char *replacement, int opt, int ***vec)
+char *ktre_replace(const char *subject, const char *pat, const char *replacement, int opt)
 {
 	struct ktre *re = ktre_compile(pat, opt);
 
@@ -2979,10 +2976,10 @@ char *ktre_replace(const char *subject, const char *pat, const char *replacement
 }
 
 static void
-smartcopy(struct ktre *re, char *dest, const char *src,
-                size_t n, bool u, bool uch, bool l, bool lch)
+smartcopy(char *dest, const char *src, size_t n,
+          bool u, bool uch, bool l, bool lch)
 {
-	for (int i = 0; i < n; i++) {
+	for (int i = 0; i < (int)n; i++) {
 		if (i == 0 && uch) {
 			dest[i] = uc(src[i]);
 			continue;
@@ -3070,8 +3067,8 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 					continue;
 
 				SIZE_STRING(match, j + vec[i][n * 2 + 1] + 1);
-				smartcopy(re, match + j, subject + vec[i][n * 2], vec[i][n * 2 + 1],
-				                u, uch, l, lch);
+				smartcopy(match + j, subject + vec[i][n * 2],
+				          vec[i][n * 2 + 1], u, uch, l, lch);
 
 				j += vec[i][n * 2 + 1];
 				uch = lch = false;
