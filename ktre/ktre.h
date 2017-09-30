@@ -2000,22 +2000,24 @@ compile(struct ktre *re, struct node *n, bool rev)
 	case NODE_GROUP:
 		if (re->group[n->gi].is_called && !re->group[n->gi].is_compiled) {
 			emit_c(re, INSTR_CALL, re->ip + 3, n->loc);
-			emit_c(re, INSTR_SAVE, re->num_groups * 2 + 1, n->loc);
+			emit_c(re, INSTR_SAVE, n->gi * 2 + 1, n->loc);
 			a = re->ip;
 			emit_c(re, INSTR_JMP, -1, n->loc);
-			emit_c(re, INSTR_SAVE, re->num_groups * 2, n->loc);
+			emit_c(re, INSTR_SAVE, n->gi * 2, n->loc);
 
-			old = re->num_groups;
-			re->group[re->num_groups++].address = re->ip - 1;
+			re->group[n->gi].address = re->ip - 1;
+			re->num_groups++;
 
 			compile(re, n->a, rev);
 
 			emit(re, INSTR_RET, n->loc);
 			PATCH_C(a, re->ip);
 
-			re->group[old].is_compiled = true;
+			re->group[n->gi].is_compiled = true;
 		} else if (re->group[n->gi].is_compiled) {
-			emit_c(re, INSTR_CALL, re->group[n->gi].address, n->loc);
+			emit_c(re, INSTR_SAVE, n->gi * 2, n->loc);
+			compile(re, n->a, rev);
+			emit_c(re, INSTR_SAVE, n->gi * 2 + 1, n->loc);
 		} else {
 			emit_c(re, INSTR_SAVE, re->num_groups * 2, n->loc);
 
