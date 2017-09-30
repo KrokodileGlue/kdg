@@ -217,3 +217,28 @@ EXPECT_OUTPUT
 
 
 END_CASE
+
+# test 14
+BEGIN_TEST
+\b.*?\b
+END_TEST
+
+BEGIN_CASE
+a set of words.
+EXPECT_OUTPUT
+
+a
+
+
+
+set
+
+
+
+of
+
+
+
+words
+
+END_CASE
