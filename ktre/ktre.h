@@ -2700,7 +2700,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 			new_thread(re, re->c[ip].a, sp, opt, fp, la, ep);
 			break;
 
-		case INSTR_MATCH:
+		case INSTR_MATCH: {
 			int n = 0;
 			for (int i = 0; i < re->num_matches; i++) {
 				if ((*vec)[i][0] == sp) n++;
@@ -2739,7 +2739,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 			}
 
 			--TP;
-			break;
+		} break;
 
 		case INSTR_SAVE:
 			THREAD[TP].ip++;
@@ -3154,7 +3154,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 
 	int end = vec[re->num_matches - 1][0]
 		+ vec[re->num_matches - 1][1];
-	SIZE_STRING(ret, strlen(subject) - end + 1);
+	SIZE_STRING(ret, idx + strlen(subject) - end + 1);
 	strncpy(ret + idx, subject + end, strlen(subject) - end);
 	idx += strlen(subject) - end;
 	ret[idx] = 0;
