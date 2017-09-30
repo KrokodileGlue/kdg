@@ -461,6 +461,7 @@ emit(struct ktre *re, int instr, int loc)
 
 struct node {
 	enum {
+		NODE_NONE,
 		NODE_CHAR,
 		NODE_SEQUENCE,
 		NODE_ASTERISK,
@@ -500,9 +501,7 @@ struct node {
 
 		NODE_DIGIT,
 		NODE_SPACE,
-		NODE_WORD,
-
-		NODE_NONE
+		NODE_WORD
 	} type;
 
 	struct node *a, *b;
@@ -567,6 +566,7 @@ error(struct ktre *re, enum ktre_error err, int loc, char *fmt, ...)
 }
 
 static struct node *parse(struct ktre *re);
+static struct node *term(struct ktre *re);
 
 static inline char
 lc(char c)
@@ -638,7 +638,7 @@ new_node(struct ktre *re)
 	if (!n) return NULL;
 	re->info.parser_alloc += sizeof *n;
 	memset(n, 0, sizeof *n);
-	n->loc = -1;
+	n->loc = re->sp - re->pat;
 	return n;
 }
 
@@ -786,10 +786,6 @@ parse_mode_modifiers(struct ktre *re)
 		struct node *tmp2 = new_node(re);
 		struct node *tmp3 = new_node(re);
 
-		tmp1->loc = left->loc;
-		tmp2->loc = left->loc;
-		tmp3->loc = left->loc;
-
 		tmp1->type = NODE_SEQUENCE;
 		tmp2->type = NODE_SEQUENCE;
 		tmp3->type = NODE_SETOPT;
@@ -811,10 +807,49 @@ parse_mode_modifiers(struct ktre *re)
 }
 
 static struct node *
+parse_branch_reset(struct ktre *re)
+{
+	struct node *left = NULL;
+
+	int bottom = re->gp;
+	int top = -1;
+
+	do {
+		if (*re->sp == '|') re->sp++;
+		struct node *tmp = new_node(re);
+
+		if (left) {
+			tmp->type = NODE_OR;
+			tmp->a = left;
+			tmp->b = term(re);
+		}else {
+			free_node(re, tmp);
+			tmp = term(re);
+		}
+
+		left = tmp;
+		top = top > tmp->gi ? top : tmp->gi;
+		re->gp = bottom;
+	} while (*re->sp == '|');
+
+	re->gp = top;
+
+	if (*re->sp != ')') {
+		error(re, KTRE_ERROR_SYNTAX_ERROR,
+		      re->sp - re->pat,
+		      "expected ')'");
+
+		free_node(re, left);
+		return NULL;
+	}
+
+	return left;
+}
+
+static struct node *
 parse_special_group(struct ktre *re)
 {
 	struct node *left = new_node(re);
-	left->loc = re->sp - re->pat;
 	re->sp++;
 
 	switch (re->sp[-1]) {
@@ -907,6 +942,11 @@ parse_special_group(struct ktre *re)
 	case ':':
 		free_node(re, left);
 		left = parse(re);
+		break;
+
+	case '|':
+		free_node(re, left);
+		left = parse_branch_reset(re);
 		break;
 
 	case '>':
@@ -1028,7 +1068,6 @@ static struct node *
 parse_group(struct ktre *re)
 {
 	struct node *left = new_node(re);
-	left->loc = re->sp - re->pat;
 	next_char(re);
 
 	if (!strncmp(re->sp, "?R", 2)) {
@@ -1207,7 +1246,6 @@ static struct node *
 parse_character_class(struct ktre *re)
 {
 	struct node *left = new_node(re);
-	left->loc         = re->sp - re->pat;
 	char *class       = NULL;
 
 	if (*re->sp == '^') {
@@ -1290,7 +1328,6 @@ static struct node *
 parse_g(struct ktre *re)
 {
 	struct node *left = new_node(re);
-	left->loc = re->sp - re->pat;
 	next_char(re);
 
 	bool bracketed = *re->sp == '{';
@@ -1339,7 +1376,6 @@ static struct node *
 parse_k(struct ktre *re)
 {
 	struct node *left = new_node(re);
-	left->loc = re->sp - re->pat;
 
 	bool bracketed = *re->sp == '<';
 	next_char(re);
@@ -1388,7 +1424,6 @@ parse_primary(struct ktre *re)
 	if (!left) return NULL;
 
 	int loc = re->sp - re->pat;
-	left->loc = loc;
 
 	if (*re->sp == ')') {
 		free_node(re, left);
@@ -1651,7 +1686,6 @@ factor(struct ktre *re)
 	                   || *re->sp == '{'))
 	{
 		struct node *n = new_node(re);
-		n->loc = re->sp - re->pat;
 
 		switch (*re->sp) {
 		case '*': n->type = NODE_ASTERISK; next_char(re); break;
@@ -1697,7 +1731,6 @@ term(struct ktre *re)
 {
 	struct node *left = new_node(re);
 	left->type = NODE_NONE;
-	left->loc = re->sp - re->pat;
 
 	while (*re->sp && *re->sp != '|' && *re->sp != ')') {
 		struct node *right = factor(re);
@@ -1800,7 +1833,6 @@ parse(struct ktre *re)
 		m->type = NODE_OR;
 		m->a = n;
 		m->b = parse(re);
-		m->loc = re->sp - re->pat;
 
 		if (re->err) {
 			free_node(re, m->b);
@@ -1922,6 +1954,8 @@ compile(struct ktre *re, struct node *n, bool rev)
 #define PATCH_C(loc, _c) if (re->c) re->c[loc].c = _c
 	int a = -1, b = -1, old = -1;
 
+	if (!n) return;
+
 	switch (n->type) {
 	case NODE_ASTERISK:
 		a = re->ip;
@@ -1998,11 +2032,6 @@ compile(struct ktre *re, struct node *n, bool rev)
 		break;
 
 	case NODE_CALL:
-		if (n->c <= 0 || n->c >= re->num_groups) {
-			error(re, KTRE_ERROR_SYNTAX_ERROR, n->loc, "subroutine number is invalid or calls a group that does not yet exist");
-			return;
-		}
-
 		emit_c(re, INSTR_CALL, re->group[n->c].address + 1, n->loc);
 		break;
 
@@ -2448,9 +2477,8 @@ static bool
 run(struct ktre *re, const char *subject, int ***vec)
 {
 	if (*vec) {
-		for (int i = 0; i < re->num_matches; i++) {
+		for (int i = 0; i < re->num_matches; i++)
 			_free((*vec)[i]);
-		}
 
 		_free(*vec);
 	}
@@ -2491,8 +2519,8 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 #ifdef KTRE_DEBUG
 		DBG("\n| %4d | %4d | %4d | %4d | %4d | ", ip, sp, TP, fp, num_steps);
-		if (sp >= 0) DBG("%s", subject + sp);
-		else DBG("%s", subject);
+		if (sp >= 0) DBG("`%s`", subject + sp);
+		else DBG("`%s`", subject);
 #endif
 
 		if (THREAD[TP].die) {
@@ -2626,11 +2654,26 @@ run(struct ktre *re, const char *subject, int ***vec)
 		case INSTR_CHAR:
 			THREAD[TP].ip++;
 
-			if ((sp >= 0 && ((opt & KTRE_INSENSITIVE) && lc(subject[sp]) == lc(re->c[ip].c)))
-			    || subject[sp] == re->c[ip].c)
-				if (rev) THREAD[TP].sp--; else THREAD[TP].sp++;
-			else
+			if (sp < 0 || sp >= strlen(subject)) {
 				--TP;
+				continue;
+			}
+
+			if (opt & KTRE_INSENSITIVE) {
+				if (lc(subject[sp]) != lc(re->c[ip].c))
+					--TP;
+				else {
+					if (rev) THREAD[TP].sp--;
+					else     THREAD[TP].sp++;
+				}
+			} else {
+				if (subject[sp] != re->c[ip].c)
+					--TP;
+				else {
+					if (rev) THREAD[TP].sp--;
+					else     THREAD[TP].sp++;
+				}
+			}
 			break;
 
 		case INSTR_ANY:
