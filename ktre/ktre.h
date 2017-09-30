@@ -2521,8 +2521,8 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 #ifdef KTRE_DEBUG
 		DBG("\n| %4d | %4d | %4d | %4d | %4d | ", ip, sp, TP, fp, num_steps);
-		if (sp >= 0) DBG("`%s`", subject + sp);
-		else DBG("`%s`", subject);
+		if (sp >= 0) dbgf(subject + sp);
+		else dbgf(subject);
 #endif
 
 		if (THREAD[TP].die) {
@@ -3110,6 +3110,10 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 				int n = dec_num(&r);
 
 				if (n < 0 || n >= re->num_groups)
+					continue;
+
+				/* ignore unintialized groups */
+				if (vec[i][n * 2] < 0 || vec[i][n * 2 + 1] < 0)
 					continue;
 
 				SIZE_STRING(match, j + vec[i][n * 2 + 1] + 1);
