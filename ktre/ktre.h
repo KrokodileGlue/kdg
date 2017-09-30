@@ -822,13 +822,13 @@ parse_branch_reset(struct ktre *re)
 			tmp->type = NODE_OR;
 			tmp->a = left;
 			tmp->b = term(re);
-		}else {
+		} else {
 			free_node(re, tmp);
 			tmp = term(re);
 		}
 
 		left = tmp;
-		top = top > tmp->gi ? top : tmp->gi;
+		top = top > re->gp ? top : re->gp;
 		re->gp = bottom;
 	} while (*re->sp == '|');
 
@@ -2019,17 +2019,14 @@ compile(struct ktre *re, struct node *n, bool rev)
 			compile(re, n->a, rev);
 			emit_c(re, INSTR_SAVE, n->gi * 2 + 1, n->loc);
 		} else {
-			emit_c(re, INSTR_SAVE, re->num_groups * 2, n->loc);
+			emit_c(re, INSTR_SAVE, n->gi * 2, n->loc);
 
-			old = re->num_groups;
 			re->num_groups++;
-			re->group[old].address = re->ip - 1;
+			re->group[n->gi].address = re->ip - 1;
 
 			compile(re, n->a, rev);
-
-			emit_c(re, INSTR_SAVE, old * 2 + 1, n->loc);
-
-			re->group[old].is_compiled = true;
+			emit_c(re, INSTR_SAVE, n->gi * 2 + 1, n->loc);
+			re->group[n->gi].is_compiled = true;
 		}
 		break;
 
@@ -2330,6 +2327,7 @@ ktre_compile(const char *pat, int opt)
 	}
 
 	compile(re, re->n, false);
+	re->num_groups = re->gp;
 
 	if (re->err) {
 		print_compile_error(re);
