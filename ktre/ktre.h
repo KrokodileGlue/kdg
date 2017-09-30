@@ -2372,24 +2372,28 @@ struct ktre *ktre_copy(struct ktre *re)
 #define TP (re->tp)
 #define THREAD (re->t)
 
-#define MAKE_THREAD_VARIABLE(f,p)                                                                \
-	do {                                                                                     \
-		if (!THREAD[TP].f) {                                                             \
-			THREAD[TP].f = _malloc(   (p + 1) * sizeof THREAD[TP].f[0]);             \
-			memset(THREAD[TP].f, -1,  (p + 1) * sizeof THREAD[TP].f[0]);             \
-			re->info.runtime_alloc += (p + 1) * sizeof THREAD[TP].f[0];              \
-		} else if (THREAD[TP].p < p) {                                                   \
-			THREAD[TP].f = _realloc(THREAD[TP].f, (p + 1) * sizeof THREAD[TP].f[0]); \
-		}                                                                                \
-                                                                                                 \
-		if (TP > 0) {                                                                    \
-			memcpy(THREAD[TP].f,                                                     \
-			       THREAD[TP - 1].f,                                                 \
-			       THREAD[TP - 1].p > p                                              \
-			       ? p * sizeof THREAD[0].f[0]                                       \
-			       : THREAD[TP - 1].p * sizeof THREAD[0].f[0]);                      \
-		}                                                                                \
+#define MAKE_THREAD_VARIABLE(f,p)                                                  \
+	do {                                                                       \
+		if (!THREAD[TP].f) {                                               \
+			THREAD[TP].f = _malloc(   (p + 1) * sizeof *THREAD[TP].f); \
+			memset(THREAD[TP].f, -1,  (p + 1) * sizeof *THREAD[TP].f); \
+			re->info.runtime_alloc += (p + 1) * sizeof *THREAD[TP].f;  \
+		} else if (THREAD[TP].p < p) {                                     \
+			THREAD[TP].f = _realloc(THREAD[TP].f,                      \
+			                        (p + 1) * sizeof *THREAD[TP].f);   \
+		}                                                                  \
+                                                                                   \
+		THREAD[TP].p = p;                                                  \
+                                                                                   \
+		if (TP > 0) {                                                      \
+			memcpy(THREAD[TP].f,                                       \
+			       THREAD[TP - 1].f,                                   \
+			       THREAD[TP - 1].p > p                                \
+			       ? p * sizeof THREAD[0].f[0]                         \
+			       : THREAD[TP - 1].p * sizeof *THREAD[0].f);          \
+		}                                                                  \
 	} while (0)
+
 
 #define MAKE_STATIC_THREAD_VARIABLE(f,s)                                       \
 	do {                                                                   \
@@ -2433,11 +2437,8 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int ep)
 	MAKE_THREAD_VARIABLE(las, la);
 	MAKE_THREAD_VARIABLE(exception, ep);
 
-	THREAD[TP].ep  = ep;
 	THREAD[TP].ip  = ip;
 	THREAD[TP].sp  = sp;
-	THREAD[TP].fp  = fp;
-	THREAD[TP].la  = la;
 	THREAD[TP].opt = opt;
 
 	re->max_tp = (TP > re->max_tp) ? TP : re->max_tp;
@@ -3090,7 +3091,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 
 	int end = vec[re->num_matches - 1][0]
 		+ vec[re->num_matches - 1][1];
-	SIZE_STRING(ret, idx + end + 1);
+	SIZE_STRING(ret, strlen(subject) - end + 1);
 	strncpy(ret + idx, subject + end, strlen(subject) - end);
 	idx += strlen(subject) - end;
 	ret[idx] = 0;
