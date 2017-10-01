@@ -3030,15 +3030,16 @@ _Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec)
 {
 	struct ktre *re = ktre_compile(pat, opt);
 
-	if (!re->err) {
-		bool ret = run(re, subject, vec);
-		print_finish(re, subject, pat, ret, *vec, NULL);
+	if (re->err) {
 		ktre_free(re);
-		return ret;
+		return false;
 	}
 
+	int **fakevec = NULL;
+	bool ret = run(re, subject, vec ? vec : &fakevec);
+	print_finish(re, subject, pat, ret, vec ? *vec : fakevec, NULL);
 	ktre_free(re);
-	return false;
+	return ret;
 }
 
 char *ktre_replace(const char *subject, const char *pat, const char *replacement, int opt)
