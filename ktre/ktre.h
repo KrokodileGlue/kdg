@@ -2465,7 +2465,7 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int ep)
 	++TP;
 
 	if (TP >= re->info.thread_alloc) {
-		if (re->info.thread_alloc + 25 >= KTRE_MAX_THREAD) {
+		if (re->info.thread_alloc * 2 >= KTRE_MAX_THREAD) {
 			re->info.thread_alloc = KTRE_MAX_THREAD;
 
 			/*
@@ -2474,7 +2474,7 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int ep)
 			 */
 			TP = (TP >= KTRE_MAX_THREAD) ? KTRE_MAX_THREAD - 1 : TP;
 		} else
-			re->info.thread_alloc += 25;
+			re->info.thread_alloc *= 2;
 
 		re->t = _realloc(re->t, re->info.thread_alloc * sizeof THREAD[0]);
 		memset(&THREAD[TP], 0, (re->info.thread_alloc - TP) * sizeof THREAD[0]);
@@ -2496,11 +2496,11 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int ep)
 static bool
 run(struct ktre *re, const char *subject, int ***vec)
 {
-	if (*vec) {
+	if (re->vec) {
 		for (int i = 0; i < re->num_matches; i++)
-			_free((*vec)[i]);
+			_free(re->vec[i]);
 
-		_free(*vec);
+		_free(re->vec);
 	}
 
 	*vec = NULL;
@@ -2516,6 +2516,8 @@ run(struct ktre *re, const char *subject, int ***vec)
 	}
 
 	char *subject_lc = _malloc(strlen(subject) + 1);
+	if (!subject_lc) return false;
+
 	for (int i = 0; i <= (int)strlen(subject); i++)
 		subject_lc[i] = lc(subject[i]);
 
@@ -2733,6 +2735,12 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 			if ((opt & KTRE_UNANCHORED) || (sp >= 0 && !subject[sp])) {
 				*vec = _realloc(*vec, (re->num_matches + 1) * sizeof *vec);
+
+				if (!*vec) {
+					_free(subject_lc);
+					return !!re->num_matches;
+				}
+
 				(*vec)[re->num_matches] = _malloc(re->num_groups * 2 * sizeof *vec[0]);
 
 				memcpy((*vec)[re->num_matches++],
@@ -2926,7 +2934,7 @@ ktre_free(struct ktre *re)
 		return re->info;
 
 	free_node(re, re->n);
-	if (re->err && re->err_str)
+	if (re->err)
 		_free(re->err_str);
 
 	if (re->c) {
@@ -3018,10 +3026,10 @@ ktre_exec(struct ktre *re, const char *subject, int ***vec)
 	_Bool ret = false;
 
 	if (vec) ret = run(re, subject, vec);
-	else ret = run(re, subject, &v);
+	else     ret = run(re, subject, &v);
 
 	if (vec) print_finish(re, subject, re->pat, ret, *vec, NULL);
-	else print_finish(re, subject, re->pat, ret, v, NULL);
+	else     print_finish(re, subject, re->pat, ret, v, NULL);
 
 	return ret;
 }
@@ -3035,9 +3043,9 @@ _Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec)
 		return false;
 	}
 
-	int **fakevec = NULL;
-	bool ret = run(re, subject, vec ? vec : &fakevec);
-	print_finish(re, subject, pat, ret, vec ? *vec : fakevec, NULL);
+	int **v = NULL;
+	bool ret = run(re, subject, vec ? vec : &v);
+	print_finish(re, subject, pat, ret, vec ? *vec : v, NULL);
 	ktre_free(re);
 	return ret;
 }
