@@ -1946,6 +1946,17 @@ print_node(struct ktre *re, struct node *n)
 #define print_node(x,y)
 #endif /* KTRE_DEBUG */
 
+static bool
+is_iteratable(struct node *n)
+{
+	switch (n->type) {
+	case NODE_SETOPT:
+		return false;
+	default:
+		return true;
+	}
+}
+
 static void
 compile(struct ktre *re, struct node *n, bool rev)
 {
@@ -1955,6 +1966,15 @@ compile(struct ktre *re, struct node *n, bool rev)
 	int a = -1, b = -1, old = -1;
 
 	if (!n) return;
+
+	if (n->type == NODE_ASTERISK
+	    || n->type == NODE_PLUS
+	    || n->type == NODE_QUESTION) {
+		if (!is_iteratable(n->a)) {
+			error(re, KTRE_ERROR_SYNTAX_ERROR, n->loc, "iteration on non-iteratable value");
+			return;
+		}
+	}
 
 	switch (n->type) {
 	case NODE_ASTERISK:
