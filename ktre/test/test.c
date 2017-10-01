@@ -2,7 +2,7 @@
 #include <stdio.h>
 
 #define KTRE_IMPLEMENTATION
-#include "ktre.h"
+#include "../ktre.h"
 
 static inline void
 do_regex(struct ktre *re, const char *subject, FILE *f)

@@ -2493,18 +2493,12 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int ep)
 	re->max_tp = (TP > re->max_tp) ? TP : re->max_tp;
 }
 
+#define VEC (re->vec)
+
 static bool
 run(struct ktre *re, const char *subject, int ***vec)
 {
-	if (re->vec) {
-		for (int i = 0; i < re->num_matches; i++)
-			_free(re->vec[i]);
-
-		_free(re->vec);
-	}
-
 	*vec = NULL;
-	re->vec = NULL;
 	re->num_matches = 0;
 	TP = -1;
 
@@ -2725,7 +2719,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 		case INSTR_MATCH: {
 			int n = 0;
 			for (int i = 0; i < re->num_matches; i++) {
-				if ((*vec)[i][0] == sp) n++;
+				if (VEC[i][0] == sp) n++;
 			}
 
 			if (n) {
@@ -2734,20 +2728,20 @@ run(struct ktre *re, const char *subject, int ***vec)
 			}
 
 			if ((opt & KTRE_UNANCHORED) || (sp >= 0 && !subject[sp])) {
-				*vec = _realloc(*vec, (re->num_matches + 1) * sizeof *vec);
+				VEC = _realloc(VEC, (re->num_matches + 1) * sizeof *VEC);
 
-				if (!*vec) {
+				if (!VEC) {
 					_free(subject_lc);
 					return !!re->num_matches;
 				}
 
-				(*vec)[re->num_matches] = _malloc(re->num_groups * 2 * sizeof *vec[0]);
+				VEC[re->num_matches] = _malloc(re->num_groups * 2 * sizeof VEC[0]);
 
-				memcpy((*vec)[re->num_matches++],
+				memcpy(VEC[re->num_matches++],
 				       THREAD[TP].vec,
-				       re->num_groups * 2 * sizeof *vec[0][0]);
+				       re->num_groups * 2 * sizeof VEC[0][0]);
 
-				re->vec = *vec;
+				if (vec) *vec = VEC;
 
 				if (!(opt & KTRE_GLOBAL)) {
 					_free(subject_lc);
