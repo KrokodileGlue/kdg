@@ -7,7 +7,7 @@ To use this library, just make a file in your project (usually called
 ktre.c), `#define KTRE_IMPLEMENTATION` in that file, and `#include
 "ktre.h"`.
 
-Feature list:
+## Features
 
 * submatching
 * backreferencing
@@ -22,18 +22,20 @@ Feature list:
 * \Q and \E
 * useful debugging output with KTRE_DEBUG
 
-Interaction with the library is done through the following functions:
+## API
 
-	struct ktre *ktre_compile(const char *pat, int opt);
-	struct ktre *ktre_copy(struct ktre *re);
-	_Bool ktre_exec(struct ktre *re, const char *subject, int ***vec);
-	_Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec);
-	char *ktre_filter(struct ktre *re, const char *subject, const char *replacement);
-	char *ktre_replace(const char *subject, const char *pat, const char *replacement, int opt, int ***vec);
-	int **ktre_getvec(const struct ktre *re);
-	struct ktre_info ktre_free(struct ktre *re);
+```c
+struct ktre *ktre_compile(const char *pat, int opt);
+struct ktre *ktre_copy(struct ktre *re);
+_Bool ktre_exec(struct ktre *re, const char *subject, int ***vec);
+_Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec);
+char *ktre_filter(struct ktre *re, const char *subject, const char *replacement);
+char *ktre_replace(const char *subject, const char *pat, const char *replacement, int opt, int ***vec);
+int **ktre_getvec(const struct ktre *re);
+struct ktre_info ktre_free(struct ktre *re);
+```
 
-The following options are currently supported:
+## Options
 
 KTRE_INSENSITIVE: (?i) - (?c)
 
