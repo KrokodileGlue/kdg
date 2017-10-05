@@ -1,5 +1,4 @@
 # KTRE: a regular expression engine
-
 KTRE is a small, single-header regular expression library that
 implements a subset of Perl/PCRE regular expressions.
 
@@ -8,7 +7,6 @@ ktre.c), `#define KTRE_IMPLEMENTATION` in that file, and `#include
 "ktre.h"`.
 
 ## Features
-
 * submatching
 * backreferencing
 * named capture groups
@@ -23,21 +21,20 @@ ktre.c), `#define KTRE_IMPLEMENTATION` in that file, and `#include
 * useful debugging output with KTRE_DEBUG
 
 ## API
-
 ```c
-struct ktre *ktre_compile(const char *pat, int opt);
-struct ktre *ktre_copy(struct ktre *re);
-_Bool ktre_exec(struct ktre *re, const char *subject, int ***vec);
+ktre *ktre_compile(const char *pat, int opt);
+ktre *ktre_copy(ktre *re);
+_Bool ktre_exec(ktre *re, const char *subject, int ***vec);
 _Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec);
-char *ktre_filter(struct ktre *re, const char *subject, const char *replacement);
+char *ktre_filter(ktre *re, const char *subject, const char *replacement);
 char *ktre_replace(const char *subject, const char *pat, const char *replacement, int opt);
-int **ktre_getvec(const struct ktre *re);
-struct ktre_info ktre_free(struct ktre *re);
+int **ktre_getvec(const ktre *re);
+struct ktre_info ktre_free(ktre *re);
 ```
 
 ## Options
 ### KTRE_INSENSITIVE
-Causes the VM to ignore case when matching English characters.
+Turns on case-insensitive matching for English.
 
 ### KTRE_UNANCHORED
 Allows the VM to reach a winning state regardless of whether or not it

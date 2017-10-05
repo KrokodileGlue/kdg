@@ -23,12 +23,11 @@
  */
 
 /*
- * To use this library, just make a file in your project (usually
- * called ktre.c), define KTRE_IMPLEMENTATION in that file, and
- * #include this file. Include this file in any compilation unit you
- * intend to use the library from, but _don't_ include
- * KTRE_IMPLEMENTATION. Don't turn on KTRE_DEBUG unless something goes
- * wrong and you need to debug KTRE itself.
+ * To use this library, just make a file in your project, #define
+ * KTRE_IMPLEMENTATION in that file, and #include "ktre.h". You can
+ * include this file as a regular header, but _don't_ #define
+ * KTRE_IMPLEMENTATION more than once. Don't turn on KTRE_DEBUG unless
+ * something goes wrong and you need to debug KTRE itself.
  */
 
 #ifndef KTRE_H
@@ -158,15 +157,17 @@ struct ktre {
 	_Bool copied;
 };
 
+typedef struct ktre ktre;
+
 /* API prototypes */
-struct ktre *ktre_compile(const char *pat, int opt);
-struct ktre *ktre_copy(struct ktre *re);
-_Bool ktre_exec(struct ktre *re, const char *subject, int ***vec);
+ktre *ktre_compile(const char *pat, int opt);
+ktre *ktre_copy(ktre *re);
+_Bool ktre_exec(ktre *re, const char *subject, int ***vec);
 _Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec);
-char *ktre_filter(struct ktre *re, const char *subject, const char *replacement);
+char *ktre_filter(ktre *re, const char *subject, const char *replacement);
 char *ktre_replace(const char *subject, const char *pat, const char *replacement, int opt);
-int **ktre_getvec(const struct ktre *re);
-struct ktre_info ktre_free(struct ktre *re);
+int **ktre_getvec(const ktre *re);
+struct ktre_info ktre_free(ktre *re);
 
 #ifdef __cplusplus
 }
