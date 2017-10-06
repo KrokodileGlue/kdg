@@ -3038,6 +3038,14 @@ ktre_free(struct ktre *re)
 		}
 	}
 #endif
+	struct ktre_minfo *mi = re->minfo;
+
+	while (mi) {
+		struct ktre_minfo *mi2 = mi;
+		mi = mi->next;
+		KTRE_FREE(mi2);
+	}
+
 	KTRE_FREE(re);
 
 	return info;
