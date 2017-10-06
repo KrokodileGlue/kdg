@@ -9,7 +9,7 @@ int
 main(int argc, char *argv[])
 {
 	if (argc < 3 || argc > 4) {
-		fprintf(stderr, "Usage: regex subject [replacement]");
+		fprintf(stderr, "Usage: subject regex [replacement]");
 		return EXIT_FAILURE;
 	}
 
