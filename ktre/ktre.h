@@ -2308,6 +2308,8 @@ ktre_compile(const char *pat, int opt)
 	struct ktre *re = KTRE_MALLOC(sizeof *re);
 	memset(re, 0, sizeof *re);
 
+	if (opt & KTRE_GLOBAL) opt |= KTRE_UNANCHORED;
+
 #ifdef KTRE_DEBUG
 	DBG("regexpr: %s", pat);
 	if (opt) DBG("\noptions:");
