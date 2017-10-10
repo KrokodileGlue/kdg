@@ -164,8 +164,8 @@ ktre *ktre_compile(const char *pat, int opt);
 ktre *ktre_copy(ktre *re);
 _Bool ktre_exec(ktre *re, const char *subject, int ***vec);
 _Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec);
-char *ktre_filter(ktre *re, const char *subject, const char *replacement);
-char *ktre_replace(const char *subject, const char *pat, const char *replacement, int opt);
+char *ktre_filter(ktre *re, const char *subject, const char *replacement, const char *indicator);
+char *ktre_replace(const char *subject, const char *pat, const char *replacement, const char *indicator, int opt);
 int **ktre_getvec(const ktre *re);
 struct ktre_info ktre_free(ktre *re);
 
@@ -3092,12 +3092,12 @@ _Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec)
 	return ret;
 }
 
-char *ktre_replace(const char *subject, const char *pat, const char *replacement, int opt)
+char *ktre_replace(const char *subject, const char *pat, const char *replacement, const char *indicator, int opt)
 {
 	struct ktre *re = ktre_compile(pat, opt);
 
 	if (!re->err) {
-		char *ret = ktre_filter(re, subject, replacement);
+		char *ret = ktre_filter(re, subject, replacement, indicator);
 		ktre_free(re);
 		return ret;
 	}
@@ -3128,7 +3128,7 @@ smartcopy(char *dest, const char *src, size_t n,
 }
 
 #define SIZE_STRING(ptr,n) ptr = _realloc(ptr, n * sizeof *ptr)
-char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
+char *ktre_filter(struct ktre *re, const char *subject, const char *replacement, const char *indicator)
 {
 	DBG("\nsubject: %s", subject);
 
@@ -3169,6 +3169,30 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 		const char *r = replacement;
 
 		while (*r) {
+			if (!strncmp(r, indicator, strlen(indicator))) {
+				const char *t = r;
+				t += strlen(indicator);
+				int n = dec_num(&t);
+
+				if (n < 0 || n >= re->num_groups)
+					goto skip_capture;
+
+				r = t;
+
+				/* ignore unintialized groups */
+				if (vec[i][n * 2] < 0 || vec[i][n * 2 + 1] < 0)
+					continue;
+
+				SIZE_STRING(match, j + vec[i][n * 2 + 1] + 1);
+				smartcopy(match + j, subject + vec[i][n * 2],
+				          vec[i][n * 2 + 1], u, uch, l, lch);
+
+				j += vec[i][n * 2 + 1];
+				uch = lch = false;
+				continue;
+			}
+
+skip_capture:
 			if (*r != '\\') {
 				SIZE_STRING(match, j + 2);
 				match[j] = *r;
@@ -3193,20 +3217,8 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement)
 			case '4': case '5': case '6': case '7':
 			case '8': case '9': {
 				int n = dec_num(&r);
-
-				if (n < 0 || n >= re->num_groups)
-					continue;
-
-				/* ignore unintialized groups */
-				if (vec[i][n * 2] < 0 || vec[i][n * 2 + 1] < 0)
-					continue;
-
-				SIZE_STRING(match, j + vec[i][n * 2 + 1] + 1);
-				smartcopy(match + j, subject + vec[i][n * 2],
-				          vec[i][n * 2 + 1], u, uch, l, lch);
-
-				j += vec[i][n * 2 + 1];
-				uch = lch = false;
+				SIZE_STRING(match, j + 2);
+				match[j] = n;
 			} break;
 			}
 		}

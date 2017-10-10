@@ -27,7 +27,7 @@ main(int argc, char *argv[])
 	}
 
 	if (replacement)
-		free(ktre_filter(re, subject, replacement));
+		free(ktre_filter(re, subject, replacement, "\\"));
 	else
 		ktre_exec(re, subject, NULL);
 
