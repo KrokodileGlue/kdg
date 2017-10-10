@@ -2311,7 +2311,7 @@ ktre_compile(const char *pat, int opt)
 	if (opt & KTRE_GLOBAL) opt |= KTRE_UNANCHORED;
 
 #ifdef KTRE_DEBUG
-	DBG("regexpr: %s", pat);
+	DBG("\nregexpr: %s", pat);
 	if (opt) DBG("\noptions:");
 	for (size_t i = 0; i < sizeof opt; i++) {
 		switch (opt & 1 << i) {
@@ -3133,8 +3133,10 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement,
 	DBG("\nsubject: %s", subject);
 
 	int **vec = NULL;
-	if (!run(re, subject, &vec) || re->err)
+	if (!run(re, subject, &vec) || re->err) {
+		print_finish(re, subject, re->pat, false, vec, NULL);
 		return NULL;
+	}
 
 	char *ret = _malloc(16);
 	*ret = 0;

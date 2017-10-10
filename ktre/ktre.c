@@ -17,8 +17,7 @@ main(int argc, char *argv[])
 		*regex = argv[2],
 		*replacement = (argc == 4) ? argv[3] : NULL;
 
-	struct ktre *re =
-		ktre_compile(regex, KTRE_UNANCHORED | KTRE_GLOBAL);
+	struct ktre *re = ktre_compile(regex, KTRE_GLOBAL);
 
 	if (re->err) {
 		ktre_free(re);
@@ -27,7 +26,7 @@ main(int argc, char *argv[])
 	}
 
 	if (replacement)
-		free(ktre_filter(re, subject, replacement, "\\"));
+		free(ktre_filter(re, subject, replacement, "$"));
 	else
 		ktre_exec(re, subject, NULL);
 
