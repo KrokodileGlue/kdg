@@ -359,6 +359,7 @@ struct instr {
 		INSTR_CATCH,
 		INSTR_SET_START,
 		INSTR_WB,
+		INSTR_NWB,
 		INSTR_SAVE,
 		INSTR_CALL,
 		INSTR_PLA,
@@ -488,6 +489,7 @@ struct node {
 		NODE_SET_START, /* Set the start position of the group
 		                 * capturing the entire match. */
 		NODE_WB,	/* word boundary */
+		NODE_NWB,       /* negated word boundary */
 		NODE_CALL,
 		NODE_PLA,	/* positive lookahead */
 		NODE_PLB,	/* positive lookbehind */
@@ -1656,6 +1658,10 @@ again:
 		left->type = NODE_WB;
 		break;
 
+	case 'B':
+		left->type = NODE_NWB;
+		break;
+
 	case 'Q':
 		re->literal = true;
 		next_char(re);
@@ -1944,6 +1950,7 @@ print_node(struct ktre *re, struct node *n)
 	case NODE_NONE:      N0("(none)");                                    break;
 	case NODE_CHAR:      N0("(char '%c')", n->c);                         break;
 	case NODE_WB:        N0("(word boundary)");                           break;
+	case NODE_NWB:       N0("(negated word boundary)");                   break;
 	case NODE_BACKREF:   N0("(backreference to %d)", n->c);               break;
 	case NODE_CLASS:     DBG("(class '"); dbgf(n->class); N0("')");       break;
 	case NODE_STR:       DBG("(string '"); dbgf(n->class); N0("')");      break;
@@ -2242,6 +2249,7 @@ compile(struct ktre *re, struct node *n, bool rev)
 	case NODE_ANY:       emit      (re, INSTR_ANY,              n->loc); break;
 	case NODE_SET_START: emit      (re, INSTR_SET_START,        n->loc); break;
 	case NODE_WB:        emit      (re, INSTR_WB,               n->loc); break;
+	case NODE_NWB:       emit      (re, INSTR_NWB,              n->loc); break;
 	case NODE_DIGIT:     emit      (re, INSTR_DIGIT,            n->loc); break;
 	case NODE_WORD:      emit      (re, INSTR_WORD,             n->loc); break;
 	case NODE_SPACE:     emit      (re, INSTR_SPACE,            n->loc); break;
@@ -2429,6 +2437,7 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_EOL:       DBG("EOL");                                      break;
 		case INSTR_RET:       DBG("RET");                                      break;
 		case INSTR_WB:        DBG("WB");                                       break;
+		case INSTR_NWB:       DBG("NWB");                                      break;
 		case INSTR_MATCH:     DBG("MATCH");                                    break;
 		case INSTR_PLA:       DBG("PLA");                                      break;
 		case INSTR_PLA_WIN:   DBG("PLA_WIN");                                  break;
@@ -2711,6 +2720,27 @@ run(struct ktre *re, const char *subject, int ***vec)
 				if (strchr(WORD, subject[sp]) && !strchr(WORD, subject[sp - 1]))
 					continue;
 				if (!strchr(WORD, subject[sp]) && strchr(WORD, subject[sp - 1]))
+					continue;
+			}
+
+			--TP;
+			break;
+
+		case INSTR_NWB:
+			THREAD[TP].ip++;
+
+			if (sp < 0 || sp >= strlen(subject)) {
+				--TP;
+				continue;
+			}
+
+			if (sp == 0 && !strchr(WORD, subject[sp]))
+				continue;
+
+			if (sp > 0) {
+				if (!(strchr(WORD, subject[sp]) && !strchr(WORD, subject[sp - 1])))
+					continue;
+				if (!(!strchr(WORD, subject[sp]) && strchr(WORD, subject[sp - 1])))
 					continue;
 			}
 
