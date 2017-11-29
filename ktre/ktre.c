@@ -9,7 +9,7 @@ int
 main(int argc, char *argv[])
 {
 	if (argc < 3 || argc > 4) {
-		fprintf(stderr, "Usage: subject regex [replacement]");
+		fprintf(stderr, "Usage: subject regex [replacement]\n");
 		return EXIT_FAILURE;
 	}
 
@@ -17,7 +17,7 @@ main(int argc, char *argv[])
 		*regex = argv[2],
 		*replacement = (argc == 4) ? argv[3] : NULL;
 
-	struct ktre *re = ktre_compile(regex, KTRE_GLOBAL);
+	struct ktre *re = ktre_compile(regex, KTRE_GLOBAL | KTRE_INSENSITIVE);
 
 	if (re->err) {
 		ktre_free(re);
