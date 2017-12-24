@@ -67,6 +67,7 @@ enum {
 	KTRE_UNANCHORED  = 1 << 1,
 	KTRE_EXTENDED    = 1 << 2,
 	KTRE_GLOBAL      = 1 << 3,
+	KTRE_MULTILINE   = 1 << 4
 };
 
 /* settings and limits */
@@ -354,6 +355,8 @@ struct instr {
 		INSTR_BACKREF,
 		INSTR_BOL,
 		INSTR_EOL,
+		INSTR_BOS,
+		INSTR_EOS,
 		INSTR_SETOPT,
 		INSTR_TRY,
 		INSTR_CATCH,
@@ -478,6 +481,8 @@ struct node {
 		NODE_BACKREF, /* backreference to an existing group */
 		NODE_BOL,
 		NODE_EOL,
+		NODE_BOS, /* beginning of string */
+		NODE_EOS, /* end of string */
 
 		/*
 		 * Sets the options for the current thread of
@@ -738,6 +743,7 @@ parse_mode_modifiers(struct ktre *re)
 		case 'i': bit = KTRE_INSENSITIVE; break;
 		case 't': off = true;
 		case 'x': bit = KTRE_EXTENDED;    break;
+		case 'm': bit = KTRE_MULTILINE;   break;
 
 		case '-':
 			neg = true;
@@ -1662,6 +1668,14 @@ again:
 		left->type = NODE_NWB;
 		break;
 
+	case 'A':
+		left->type = NODE_BOS;
+		break;
+
+	case 'Z':
+		left->type = NODE_EOS;
+		break;
+
 	case 'Q':
 		re->literal = true;
 		next_char(re);
@@ -1957,6 +1971,8 @@ print_node(struct ktre *re, struct node *n)
 	case NODE_NOT:       DBG("(not '"); dbgf(n->class); N0("')");         break;
 	case NODE_BOL:       N0("(bol)");                                     break;
 	case NODE_EOL:       N0("(eol)");                                     break;
+	case NODE_BOS:       N0("(bos)");                                     break;
+	case NODE_EOS:       N0("(eos)");                                     break;
 	case NODE_RECURSE:   N0("(recurse)");                                 break;
 	case NODE_SET_START: N0("(set_start)");                               break;
 	case NODE_SETOPT:    N0("(setopt %d)", n->c);                         break;
@@ -2246,6 +2262,8 @@ compile(struct ktre *re, struct node *n, bool rev)
 	case NODE_CHAR:      emit_c    (re, INSTR_CHAR,   n->c,     n->loc); break;
 	case NODE_BOL:       emit      (re, INSTR_BOL,              n->loc); break;
 	case NODE_EOL:       emit      (re, INSTR_EOL,              n->loc); break;
+	case NODE_BOS:       emit      (re, INSTR_BOS,              n->loc); break;
+	case NODE_EOS:       emit      (re, INSTR_EOS,              n->loc); break;
 	case NODE_ANY:       emit      (re, INSTR_ANY,              n->loc); break;
 	case NODE_SET_START: emit      (re, INSTR_SET_START,        n->loc); break;
 	case NODE_WB:        emit      (re, INSTR_WB,               n->loc); break;
@@ -2319,7 +2337,7 @@ ktre_compile(const char *pat, int opt)
 	if (opt & KTRE_GLOBAL) opt |= KTRE_UNANCHORED;
 
 #ifdef KTRE_DEBUG
-	DBG("\nregexpr: %s", pat);
+	DBG("regexpr: %s", pat);
 	if (opt) DBG("\noptions:");
 	for (size_t i = 0; i < sizeof opt; i++) {
 		switch (opt & 1 << i) {
@@ -2435,6 +2453,8 @@ ktre_compile(const char *pat, int opt)
 		case INSTR_SPACE:     DBG("SPACE");                                    break;
 		case INSTR_BOL:       DBG("BOL");                                      break;
 		case INSTR_EOL:       DBG("EOL");                                      break;
+		case INSTR_BOS:       DBG("BOS");                                      break;
+		case INSTR_EOS:       DBG("EOS");                                      break;
 		case INSTR_RET:       DBG("RET");                                      break;
 		case INSTR_WB:        DBG("WB");                                       break;
 		case INSTR_NWB:       DBG("NWB");                                      break;
@@ -2586,6 +2606,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 		DBG("\n| %4d | %4d | %4d | %4d | %4d | ", ip, sp, TP, fp, num_steps);
 		if (sp >= 0) dbgf(subject + sp);
 		else dbgf(subject);
+		num_steps++;
 #endif
 
 		if (THREAD[TP].die) {
@@ -2694,12 +2715,26 @@ run(struct ktre *re, const char *subject, int ***vec)
 			break;
 
 		case INSTR_BOL:
-			if (sp == 0) THREAD[TP].ip++;
+			if ((sp > 0 && subject[sp - 1] == '\n') || sp == 0)
+				THREAD[TP].ip++;
 			else --TP;
 			break;
 
 		case INSTR_EOL:
-			if ((subject[sp] == 0 || subject[sp] == '\n') && sp >= 0)
+			if ((subject[sp] == '\n' && sp >= 0) || sp == strlen(subject))
+				THREAD[TP].ip++;
+			else
+				--TP;
+			break;
+
+		case INSTR_BOS:
+			if (sp == 0)
+				THREAD[TP].ip++;
+			else --TP;
+			break;
+
+		case INSTR_EOS:
+			if (sp == strlen(subject))
 				THREAD[TP].ip++;
 			else
 				--TP;
@@ -2775,10 +2810,17 @@ run(struct ktre *re, const char *subject, int ***vec)
 		case INSTR_ANY:
 			THREAD[TP].ip++;
 
-			if (subject[sp] && sp >= 0)
-				if (rev) THREAD[TP].sp--; else THREAD[TP].sp++;
-			else
-				--TP;
+			if (opt & KTRE_MULTILINE) {
+				if (sp >= 0 && subject[sp])
+					if (rev) THREAD[TP].sp--; else THREAD[TP].sp++;
+				else
+					--TP;
+			} else {
+				if (sp >= 0 && subject[sp] && subject[sp] != '\n')
+					if (rev) THREAD[TP].sp--; else THREAD[TP].sp++;
+				else
+					--TP;
+			}
 			break;
 
 		case INSTR_BRANCH:
@@ -2981,10 +3023,6 @@ run(struct ktre *re, const char *subject, int ***vec)
 			_free(subject_lc);
 			return false;
 		}
-
-#ifdef KTRE_DEBUG
-		num_steps++;
-#endif
 	}
 
 	_free(subject_lc);
