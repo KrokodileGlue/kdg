@@ -17,7 +17,7 @@ main(int argc, char *argv[])
 		*regex = argv[2],
 		*replacement = (argc == 4) ? argv[3] : NULL;
 
-	struct ktre *re = ktre_compile(regex, KTRE_GLOBAL);
+	struct ktre *re = ktre_compile(regex, KTRE_GLOBAL | KTRE_INSENSITIVE);
 
 	if (re->err) {
 		ktre_free(re);
