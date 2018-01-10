@@ -3329,8 +3329,10 @@ char **ktre_split(ktre *re, const char *subject, int *len)
 
 	*len = 0;
 	int **vec = NULL;
-	if (!run(re, subject, &vec) || re->err)
-		return print_finish(re, subject, re->pat, false, vec, NULL), NULL;
+	if (!run(re, subject, &vec) || re->err) {
+		print_finish(re, subject, re->pat, false, vec, NULL);
+		return NULL;
+	}
 
 	char **r = NULL;
 	int j = 0;
@@ -3347,7 +3349,7 @@ char **ktre_split(ktre *re, const char *subject, int *len)
 		(*len)++;
 	}
 
-	if (strlen(subject) >= j) {
+	if ((int)strlen(subject) >= j) {
 		r = realloc(r, (*len + 1) * sizeof *r);
 		r[*len] = malloc(strlen(subject) - j + 1);
 		strcpy(r[*len], subject + j);
