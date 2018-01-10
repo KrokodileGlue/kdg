@@ -48,7 +48,6 @@ extern "C" {
 #if defined(_MSC_VER) && defined(KTRE_DEBUG)
 #define _CRTDBG_MAP_ALLOC
 #include <stdlib.h>
-#include <stdio.h>
 #include <crtdbg.h>
 #endif
 
@@ -181,6 +180,7 @@ struct ktre_info ktre_free(ktre *re);
 #include <stdarg.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdio.h>
 
 #define WHITESPACE " \t\r\n\v\f"
 #define DIGIT      "0123456789"
@@ -2324,7 +2324,7 @@ print_finish(struct ktre *re, const char *subject, const char *regex, bool ret, 
 }
 #else
 #define print_compile_error(x)
-#define print_finish(a,b,c,d,e,f)
+#define print_finish(a,b,c,d,e,f) do {} while (0)
 #endif
 
 struct ktre *
