@@ -67,7 +67,8 @@ enum {
 	KTRE_UNANCHORED  = 1 << 1,
 	KTRE_EXTENDED    = 1 << 2,
 	KTRE_GLOBAL      = 1 << 3,
-	KTRE_MULTILINE   = 1 << 4
+	KTRE_MULTILINE   = 1 << 4,
+	KTRE_CONTINUE    = 1 << 5
 };
 
 /* settings and limits */
@@ -126,6 +127,7 @@ struct ktre {
 	int gp;          /* group pointer */
 	struct node *n;  /* the head node of the ast */
 	_Bool literal;   /* whether to escape metacharacters or not */
+	int cont;
 
 	struct group {
 		int address;
@@ -2350,6 +2352,7 @@ ktre_compile(const char *pat, int opt)
 		case KTRE_UNANCHORED:  DBG("\n\tUNANCHORED");  break;
 		case KTRE_EXTENDED:    DBG("\n\tEXTENDED");    break;
 		case KTRE_GLOBAL:      DBG("\n\tGLOBAL");      break;
+		case KTRE_CONTINUE:    DBG("\n\tCONTINUE");    break;
 		default: continue;
 		}
 	}
@@ -2591,7 +2594,10 @@ run(struct ktre *re, const char *subject, int ***vec)
 		subject_lc[i] = lc(subject[i]);
 
 	/* push the initial thread */
-	new_thread(re, 0, 0, re->opt, 0, 0, 0);
+	if (re->opt | KTRE_CONTINUE)
+		new_thread(re, 0, re->cont, re->opt, 0, 0, 0);
+	else
+		new_thread(re, 0, 0, re->opt, 0, 0, 0);
 
 #ifdef KTRE_DEBUG
 	int num_steps = 0;
@@ -2855,10 +2861,12 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 			if ((opt & KTRE_UNANCHORED) || (sp >= 0 && !subject[sp])) {
 				VEC = _realloc(VEC, (re->num_matches + 1) * sizeof *VEC);
+				re->cont = sp;
 
 				if (!VEC) {
+					error(re, KTRE_ERROR_OUT_OF_MEMORY, loc, "out of memory");
 					_free(subject_lc);
-					return !!re->num_matches;
+					return false;
 				}
 
 				VEC[re->num_matches] = _malloc(re->num_groups * 2 * sizeof VEC[0]);
