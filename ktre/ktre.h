@@ -58,7 +58,8 @@ enum ktre_error {
 	KTRE_ERROR_CALL_OVERFLOW,
 	KTRE_ERROR_SYNTAX_ERROR,
 	KTRE_ERROR_OUT_OF_MEMORY,
-	KTRE_ERROR_TOO_MANY_GROUPS
+	KTRE_ERROR_TOO_MANY_GROUPS,
+	KTRE_ERROR_INVALID_OPTIONS
 };
 
 /* options */
@@ -2366,6 +2367,15 @@ ktre_compile(const char *pat, int opt)
 	re->err_str = "no error";
 	re->n       = new_node(re);
 
+	if ((opt & KTRE_CONTINUE) && (opt & KTRE_GLOBAL)) {
+		error(re, KTRE_ERROR_INVALID_OPTIONS, 0,
+		      "invalid option configuration: /c and /g may not be used together");
+
+		re->n = NULL;
+		print_compile_error(re);
+		return re;
+	}
+
 	if (!re->n) {
 		re->n = NULL;
 		print_compile_error(re);
@@ -2592,6 +2602,9 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 	for (int i = 0; i <= (int)strlen(subject); i++)
 		subject_lc[i] = lc(subject[i]);
+
+	if (re->opt | KTRE_CONTINUE && re->cont >= (int)strlen(subject))
+		return false;
 
 	/* push the initial thread */
 	if (re->opt | KTRE_CONTINUE)
