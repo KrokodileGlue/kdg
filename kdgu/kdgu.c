@@ -46,7 +46,7 @@ main(int argc, char **argv)
 	kdgu *k = kdgu_new(s1, len, true);
 	free(s1);
 
-	/* kdgu_chomp(k); */
+	kdgu_chomp(k);
 	kdgu_print(k);
 	printf("\nlength: %zu\n", kdgu_len(k));
 	if (k->err) puts("The file contains invalid UTF-8.");

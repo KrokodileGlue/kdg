@@ -64,7 +64,7 @@ bool kdgu_nth(kdgu *k, unsigned n);
 
 bool kdgu_whitespace(const kdgu *k);
 
-void kdgu_setsubstr(kdgu *k1, size_t a, size_t b, kdgu *k2);
+void kdgu_replace_substr(kdgu *k1, size_t a, size_t b, kdgu *k2);
 void kdgu_print(const kdgu *k);
 void kdgu_pchr(const kdgu *k);
 
@@ -360,9 +360,12 @@ bool
 kdgu_inc(kdgu *k)
 {
 	if (k->idx >= k->len) return false;
+	unsigned idx = k->idx;
 	do {
-		k->idx++;
-	} while (k->idx < k->len && (k->s[k->idx] & 0xc0) == 0x80);
+		idx++;
+	} while (idx < k->len && (k->s[idx] & 0xc0) == 0x80);
+	if (idx == k->len) return false;
+	k->idx = idx;
 	return true;
 }
 
@@ -408,8 +411,54 @@ kdgu_len(const kdgu *k)
 	return utf8len(k->s, k->len);
 }
 
-bool kdgu_whitespace(const kdgu *k)
+static char *whitespace[] = {
+	"\x9",          /* CHARACTER TABULATION */
+	"\xa",          /* LINE FEED */
+	"\xb",          /* LINE TABULATION */
+	"\xc",          /* FORM FEED */
+	"\xd",          /* CARRIAGE RETURN */
+	"\x20",         /* SPACE */
+	"\xc2\x85",     /* NEXT LINE */
+	"\xc2\xa0",     /* NO-BREAK SPACE */
+	"\xe1\x9a\x80", /* OGHAM SPACE MARK */
+	"\xe1\xa0\x8e", /* MONGOLIAN VOWEL SEPARATOR */
+	"\xe2\x80\x80", /* EN QUAD */
+	"\xe2\x80\x81", /* EM QUAD */
+	"\xe2\x80\x82", /* EN SPACE */
+	"\xe2\x80\x83", /* EM SPACE */
+	"\xe2\x80\x84", /* THREE-PER-EM SPACE */
+	"\xe2\x80\x85", /* FOUR-PER-EM SPACE */
+	"\xe2\x80\x86", /* SIX-PER-EM SPACE */
+	"\xe2\x80\x87", /* FIGURE SPACE */
+	"\xe2\x80\x88", /* PUNCTUATION SPACE */
+	"\xe2\x80\x89", /* THIN SPACE */
+	"\xe2\x80\x8A", /* HAIR SPACE */
+	"\xe2\x80\x8B", /* ZERO WIDTH SPACE */
+	"\xe2\x80\x8C", /* ZERO WIDTH NON-JOINER */
+	"\xe2\x80\x8D", /* ZERO WIDTH JOINER */
+	"\xe2\x80\xa8", /* LINE SEPARATOR */
+	"\xe2\x80\xa9", /* PARAGRAPH SEPARATOR */
+	"\xe2\x80\xaf", /* NARROW NO-BREAK SPACE */
+	"\xe2\x81\x9f", /* MEDIUM MATHEMATICAL SPACE */
+	"\xe2\x81\xa0", /* WORD JOINER */
+	"\xe3\x80\x80", /* IDEOGRAPHIC SPACE */
+	"\xef\xbb\xbf"  /* ZERO WIDTH NON-BREAKING SPACE */
+};
+
+bool
+kdgu_whitespace(const kdgu *k)
 {
+	for (unsigned i = 0;
+	     i < sizeof whitespace / sizeof *whitespace;
+	     i++) {
+		if (strlen(whitespace[i]) <= k->len - k->idx
+		    && !strncmp(k->s + k->idx,
+		                whitespace[i],
+		                strlen(whitespace[i]))) {
+			return true;
+		}
+	}
+
 	return false;
 }
 
@@ -420,12 +469,13 @@ kdgu_chomp(kdgu *k)
 	unsigned idx = k->idx;
 
 	while (kdgu_inc(k));
-	while (kdgu_whitespace(k)) kdgu_dec(k);
+	while (kdgu_whitespace(k) && kdgu_dec(k));
+	kdgu_inc(k);
 	unsigned r = idx - k->idx;
 
 	kdgu *tmp = kdgu_new("", 0, false);
 	assert(!tmp->err);
-	kdgu_setsubstr(k, k->idx, k->len, tmp);
+	kdgu_replace_substr(k, k->idx, k->len, tmp);
 	kdgu_free(tmp);
 
 	k->idx = idx;
@@ -433,12 +483,12 @@ kdgu_chomp(kdgu *k)
 }
 
 void
-kdgu_setsubstr(kdgu *k1, size_t a, size_t b, kdgu *k2)
+kdgu_replace_substr(kdgu *k1, size_t a, size_t b, kdgu *k2)
 {
 	assert(b >= a);
 
 	/* TODO: make realloc/malloc/free customizable */
-	void *p = realloc(k1->s, k1->len - (b - a) + k2->len);
+	void *p = realloc(k1->s, k1->len + k2->len);
 
 	if (!p) {
 		k1->err |= KDGU_ERR_OUT_OF_MEMORY;
@@ -447,8 +497,8 @@ kdgu_setsubstr(kdgu *k1, size_t a, size_t b, kdgu *k2)
 
 	k1->s = p;
 
-	memmove(k1->s + b, k1->s + a, b - a);
-	memcpy(k1->s + a, k2->s, b - a);
+	memcpy(k1->s + a, k2->s, k2->len < b - a ? k2->len : b - a);
+	k1->len = k1->len + k2->len - (b - a);
 }
 
 #endif /* ifdef KDGU_IMPLEMENTATION */
