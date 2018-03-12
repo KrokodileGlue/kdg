@@ -24,10 +24,10 @@ load_file(const char *p, int *l)
 	b = malloc(len + 1);
 	if (!b) return NULL;
 
-	if (fseek(f, 0L, SEEK_SET)) return NULL;
+	if (fseek(f, 0L, SEEK_SET)) return free(b), NULL;
 
 	len = fread(b, 1, len, f);
-	if (ferror(f)) return NULL;
+	if (ferror(f)) return free(b), NULL;
 
 	b[len] = 0;
 	if (l) *l = len;
@@ -43,7 +43,7 @@ main(int argc, char **argv)
 	char *s1 = load_file(argv[argc - 1], &len);
 	if (!s1) return EXIT_FAILURE;
 
-	kdgu *k = kdgu_new(s1, len, true);
+	kdgu *k = kdgu_new(s1, len);
 	free(s1);
 
 	kdgu_chomp(k);
@@ -53,7 +53,17 @@ main(int argc, char **argv)
 	kdgu *chr = kdgu_getnth(k, 0);
 	printf("first character: '"); kdgu_print(chr); puts("'");
 	kdgu_free(chr);
-	if (k->err) puts("The file contains invalid UTF-8.");
+
+	if (k->errlist) {
+		puts("The file contains invalid UTF-8:");
+
+		for (unsigned i = 0; i < k->errlist->num; i++)
+			printf("error:%s:%u: %s\n",
+			       argv[argc - 1],
+			       k->errlist->err[i].loc,
+			       k->errlist->err[i].msg);
+	}
+
 	kdgu_free(k);
 
 	/* while (kdgu_inc(k)); */

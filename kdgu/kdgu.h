@@ -38,25 +38,43 @@
 #endif
 
 /* =============== Settings =============== */
-#define KDGU_REPLACEMENT "?"
+#define KDGU_REPLACEMENT "~"
 
 /* =============== API =============== */
-enum kdgu_error {
-	KDGU_ERR_NO_ERROR                =      0,
-	KDGU_ERR_STRAY_CONTINUATION_BYTE = 1 << 0,
-	KDGU_ERR_INVALID_BYTE            = 1 << 1,
-	KDGU_ERR_OUT_OF_MEMORY           = 1 << 2
-};
+typedef struct kdgu_error {
+	enum kdgu_errorcode {
+		KDGU_ERR_NO_ERROR,
+		KDGU_ERR_UTF8_STRAY_CONTINUATION_BYTE,
+		KDGU_ERR_UTF8_INVALID_BYTE,
+		KDGU_ERR_UTF8_MISSING_CONTINUATION,
+		KDGU_ERR_UTF8_NONCHARACTER,
+		KDGU_ERR_UTF8_INVALID_RANGE,
+		KDGU_ERR_UTF8_RANGE_LENGTH_MISMATCH,
+		KDGU_ERR_UTF8_INVALID_LENGTH,
+		KDGU_ERR_UTF8_INCORRECT_LENGTH,
+		KDGU_ERR_OUT_OF_MEMORY
+	} kind;
+
+	unsigned loc;
+	char *msg;
+} kdgu_error;
 
 typedef struct kdgu {
-	unsigned len;
-	unsigned idx;
-	unsigned errloc;
+	unsigned len, idx;
 	char *s;
-	unsigned char err;
+
+	struct kdgu_errorlist {
+		struct kdgu_error *err;
+		unsigned num;
+	} *errlist;
+
+	enum kdgu_fmt {
+		KDGU_FMT_ASCII,
+		KDGU_FMT_UTF8
+	} fmt;
 } kdgu;
 
-kdgu *kdgu_new(const char *s, size_t len, bool recover);
+kdgu *kdgu_new(const char *s, size_t len);
 
 bool kdgu_inc(kdgu *k);
 bool kdgu_dec(kdgu *k);
@@ -75,6 +93,37 @@ size_t kdgu_chomp(kdgu *k);
 
 #ifdef KDGU_IMPLEMENTATION
 
+/*
+ * VOLATILE: This table must be kept up-to-date with the order of enum
+ * kdgu_errorcode.
+ */
+
+static char *error[] = {
+	"no error",
+
+	"a continuation byte cannot be the start of a well-formed"
+	" sequence",
+
+	"impossible byte value cannot appear anywhere in well-formed"
+	" UTF-8",
+
+	"sequence initializer is followed by an unexpected number of"
+	" continuation bytes",
+
+	"sequence represents a noncharacter; noncharacters are"
+	" permanently reserved for internal usage",
+
+	"sequence contains continuation bytes that are outside of the"
+	" valid range",
+
+	"initializer byte indicates an impossible sequence length",
+
+	"sequence actual length does not match the length declared"
+	" by the initializer byte",
+
+	"kdgu has run out of memory; you should never see this"
+};
+
 #include <stdio.h>
 #include <stdint.h>
 #include <limits.h>
@@ -90,14 +139,6 @@ _Static_assert(CHAR_BIT == 8,
 
 #define IS_CONT_BYTE(X) (((X) & 0xc0) == 0x80)
 
-#define RANGE(X,Y,Z)	  \
-	(((unsigned char)s[X] >= Y) && ((unsigned char)s[X] <= Z))
-
-#define ASSERTRANGE(X,Y,Z)	  \
-	do { \
-		if (!RANGE(X,Y,Z)) goto err; \
-	} while (false)
-
 /*
  * These utf8 functions are internal, for use only on fully processed
  * kdgu strings. They do no validation of their input.
@@ -109,7 +150,8 @@ utf8len(const char *s, size_t l)
 	size_t j = 0;
 
 	for (size_t i = 0; i < l; i++)
-		if ((s[i] & 0xc0) != 0x80) j++;
+		if (!IS_CONT_BYTE(s[i]))
+			j++;
 
 	return j;
 }
@@ -118,7 +160,7 @@ static bool
 utf8inc(const char *s, size_t l, unsigned *i)
 {
 	if (*i >= l) return false;
-	do (*i)++; while (*i < l && (s[*i] & 0xc0) == 0x80);
+	do (*i)++; while (*i < l && IS_CONT_BYTE(s[*i]));
 	return true;
 }
 
@@ -146,11 +188,31 @@ utf8chr(const char *s, size_t l)
 	assert(l > 0 && l <= 4);
 	uint32_t r = (unsigned char)s[0] << 24;
 
-	for (unsigned i = 1; i < l && (s[i] & 0xc0) == 0x80; i++)
+	for (unsigned i = 1; i < l && IS_CONT_BYTE(s[i]); i++)
 		r |= (unsigned char)s[i] << (24 - i * 8);
 
 	return r;
 }
+
+#define ERR(X,Y)	  \
+	(struct kdgu_error){.kind = (X), .loc = (Y), .msg = error[X]}
+
+#define RANGE(X,Y,Z)	  \
+	(((unsigned char)s[X] >= Y) && ((unsigned char)s[X] <= Z))
+
+#define ASSERTRANGE(X,Y,Z)	  \
+	do { \
+		if (!RANGE(X,Y,Z)) { \
+			err = ERR(KDGU_ERR_UTF8_INVALID_RANGE, *i); \
+			goto error; \
+		} \
+	} while (false)
+
+#define CHECKLEN(X)	  \
+	if (len != X) { \
+		err = ERR(KDGU_ERR_UTF8_RANGE_LENGTH_MISMATCH, *i); \
+		goto error; \
+	}
 
 static bool
 is_noncharacter(const char *s, unsigned len)
@@ -189,24 +251,31 @@ is_noncharacter(const char *s, unsigned len)
 	return false;
 }
 
-static enum kdgu_error
-utf8validatechar(const char *s, char *r, unsigned *i, unsigned *idx, size_t *l)
+#define FAIL(X)	  \
+	do { \
+		err = ERR(KDGU_ERR_UTF8_INVALID_BYTE, *i); \
+		goto error; \
+	} while (false)
+
+static struct kdgu_error
+utf8validatechar(const char *s, char *r, unsigned *i,
+                 unsigned *idx, size_t *l)
 {
-	enum kdgu_error err = KDGU_ERR_NO_ERROR;
+	struct kdgu_error err = ERR(KDGU_ERR_NO_ERROR, *i);
 
 	/*
 	 * Misplaced continuation byte. It's not a mistake that a
 	 * separate error substitution is made for each one.
 	 */
 
-	if (IS_CONT_BYTE((unsigned char)s[*i])) {
+	if (IS_CONT_BYTE(s[*i])) {
 		memcpy(r + *idx,
 		       KDGU_REPLACEMENT,
 		       strlen(KDGU_REPLACEMENT));
 
 		*idx += strlen(KDGU_REPLACEMENT);
 		(*i)++;
-		return KDGU_ERR_STRAY_CONTINUATION_BYTE;
+		return ERR(KDGU_ERR_UTF8_STRAY_CONTINUATION_BYTE, *i);
 	}
 
 	/* This is just a regular ASCII character. */
@@ -214,7 +283,7 @@ utf8validatechar(const char *s, char *r, unsigned *i, unsigned *idx, size_t *l)
 	    && IS_VALID_BYTE((unsigned char)s[*i])) {
 		r[(*idx)++] = s[*i];
 		(*i)++;
-		return KDGU_ERR_NO_ERROR;
+		return ERR(KDGU_ERR_NO_ERROR, *i);
 	}
 
 	int len = -1;
@@ -229,8 +298,11 @@ utf8validatechar(const char *s, char *r, unsigned *i, unsigned *idx, size_t *l)
 		if (len < 0) len = 0; else len++;
 	}
 
-	if (!IS_VALID_BYTE((unsigned char)s[*i])) goto err;
-	if (len < 0 || len > 4) goto err;
+	if (!IS_VALID_BYTE((unsigned char)s[*i]))
+		FAIL(KDGU_ERR_UTF8_INVALID_BYTE);
+
+	if (len < 0 || len > 4)
+		FAIL(KDGU_ERR_UTF8_INVALID_LENGTH);
 
 	/*
 	 * We're looking at the leading byte and we need to
@@ -241,90 +313,97 @@ utf8validatechar(const char *s, char *r, unsigned *i, unsigned *idx, size_t *l)
 	 * Make sure there are enough bytes left in the buffer for a
 	 * sequence of the expected length.
 	 */
-	if (*i + len >= *l) goto err;
+	if (*i + len >= *l)
+		FAIL(KDGU_ERR_UTF8_INCORRECT_LENGTH);
 
 	/* Make sure they're all valid continuation bytes. */
 	for (int j = 0; j < len; j++)
-		if (!IS_CONT_BYTE((unsigned char)s[*i + j + 1]))
-			goto err;
+		if (!IS_CONT_BYTE(s[*i + j + 1]))
+			FAIL(KDGU_ERR_UTF8_MISSING_CONTINUATION);
+
+	/* Quickly check for noncharacters. */
+	if (is_noncharacter(s + *i, len))
+		FAIL(KDGU_ERR_UTF8_NONCHARACTER);
 
 	/* Now we need to check the ranges. */
 
 	/*
 	 * There is no rhyme or reason to these magic numbers. For
 	 * information see page 126 (table 3-7) of
-	 * http://www.unicode.org/versions/Unicode10.0.0/UnicodeStandard-10.0.pdf
+	 * https://goo.gl/kQZpon
 	 */
 
 	if (RANGE(*i, 0xc2, 0xdf))
 		ASSERTRANGE(*i + 1, 0x80, 0xbf);
 
 	if (RANGE(*i, 0xe0, 0xe0)) {
-		if (len != 2) goto err;
+		CHECKLEN(2);
 		ASSERTRANGE(*i + 1, 0xa0, 0xbf);
 		ASSERTRANGE(*i + 2, 0x80, 0xbf);
 	}
 
 	if (RANGE(*i, 0xe1, 0xec)) {
-		if (len != 2) goto err;
+		CHECKLEN(2);
 		ASSERTRANGE(*i + 1, 0x80, 0xbf);
 		ASSERTRANGE(*i + 2, 0x80, 0xbf);
 	}
 
 	if (RANGE(*i, 0xed, 0xed)) {
-		if (len != 2) goto err;
+		CHECKLEN(2);
 		ASSERTRANGE(*i + 1, 0x80, 0x9f);
 		ASSERTRANGE(*i + 2, 0x80, 0xbf);
 	}
 
 	if (RANGE(*i, 0xee, 0xef)) {
-		if (len != 2) goto err;
+		CHECKLEN(2);
 		ASSERTRANGE(*i + 1, 0x80, 0xbf);
 		ASSERTRANGE(*i + 2, 0x80, 0xbf);
 	}
 
 	if (RANGE(*i, 0xf0, 0xf0)) {
-		if (len != 3) goto err;
+		CHECKLEN(3);
 		ASSERTRANGE(*i + 1, 0x90, 0xbf);
 		ASSERTRANGE(*i + 2, 0x80, 0xbf);
 		ASSERTRANGE(*i + 3, 0x80, 0xbf);
 	}
 
 	if (RANGE(*i, 0xf1, 0xf3)) {
-		if (len != 3) goto err;
+		CHECKLEN(3);
 		ASSERTRANGE(*i + 1, 0x80, 0xbf);
 		ASSERTRANGE(*i + 2, 0x80, 0xbf);
 		ASSERTRANGE(*i + 3, 0x80, 0xbf);
 	}
 
 	if (RANGE(*i, 0xf4, 0xf4)) {
-		if (len != 3) goto err;
+		CHECKLEN(3);
 		ASSERTRANGE(*i + 1, 0x80, 0x8f);
 		ASSERTRANGE(*i + 2, 0x80, 0xbf);
 		ASSERTRANGE(*i + 3, 0x80, 0xbf);
 	}
 
-	if (is_noncharacter(s + *i, len)) goto err;
-
 	memcpy(r + *idx, s + *i, len + 1);
 	*idx += len + 1;
 	*i += len + 1;
-	return KDGU_ERR_NO_ERROR;
+	return ERR(KDGU_ERR_NO_ERROR, *i);
 
- err:
+ error:
 	(*i)++;
 	memcpy(r + *idx, KDGU_REPLACEMENT, strlen(KDGU_REPLACEMENT));
 	*idx += strlen(KDGU_REPLACEMENT);
 
 	/* Just skip over any continuation bytes. */
-	while (*i < *l && IS_CONT_BYTE((unsigned char)s[*i])) (*i)++;
+	while (*i < *l && IS_CONT_BYTE(s[*i]))
+		(*i)++;
+
 	return err;
 }
 
 static char *
-utf8validate(kdgu *k, const char *s, size_t *l, bool recover)
+utf8validate(kdgu *k, const char *s, size_t *l)
 {
 	char *r = malloc(*l * strlen(KDGU_REPLACEMENT) + 1);
+	if (!r) return NULL;
+
 	*r = 0;
 	unsigned idx = 0;
 
@@ -336,14 +415,34 @@ utf8validate(kdgu *k, const char *s, size_t *l, bool recover)
 		s += 3;
 
 	for (unsigned i = 0; i < *l;) {
-		enum kdgu_error err = utf8validatechar(s, r, &i, &idx, l);
+		struct kdgu_error err =
+			utf8validatechar(s, r, &i, &idx, l);
 
-		if (!recover && !k->err) {
-			k->err = err;
-			k->errloc = i;
+		if (!err.kind) continue;
+
+		if (!k->errlist) {
+			k->errlist = malloc(sizeof *k->errlist);
+
+			if (!k->errlist) {
+				free(r);
+				return NULL;
+			}
+
+			memset(k->errlist, 0, sizeof *k->errlist);
 		}
 
-		if (recover) k->err |= err;
+		void *p = realloc(k->errlist->err,
+		                  (k->errlist->num + 1)
+		                  * sizeof *k->errlist->err);
+
+		if (!p) {
+			free(k->errlist->err);
+			free(p), free(r);
+			return NULL;
+		}
+
+		k->errlist->err = p;
+		k->errlist->err[k->errlist->num++] = err;
 	}
 
 	r[idx] = 0;
@@ -351,14 +450,19 @@ utf8validate(kdgu *k, const char *s, size_t *l, bool recover)
 	return r;
 }
 
-kdgu *kdgu_new(const char *s, size_t len, bool recover)
+kdgu *kdgu_new(const char *s, size_t len)
 {
 	kdgu *k = malloc(sizeof *k);
 	if (!k) return NULL;
 	memset(k, 0, sizeof *k);
 
-	k->s = utf8validate(k, s, &len, recover);
+	k->s = utf8validate(k, s, &len);
 	k->len = len;
+
+	if (!k->s) {
+		free(k);
+		return NULL;
+	}
 
 	return k;
 }
@@ -368,6 +472,8 @@ kdgu_free(kdgu *k)
 {
 	if (!k) return;
 
+	if (k->errlist) free(k->errlist->err);
+	free(k->errlist);
 	free(k->s);
 	free(k);
 }
@@ -420,7 +526,7 @@ kdgu_getnth(kdgu *k, unsigned n)
 	char *t = utf8chrtostr(k->s + i, k->len - i);
 
 	if (!t) return NULL;
-	kdgu *chr = kdgu_new(t, strlen(t), true);
+	kdgu *chr = kdgu_new(t, strlen(t));
 	free(t);
 
 	return chr;
@@ -515,8 +621,8 @@ kdgu_chomp(kdgu *k)
 	kdgu_inc(k);
 	unsigned r = idx - k->idx;
 
-	kdgu *tmp = kdgu_new("", 0, false);
-	assert(!tmp->err);
+	kdgu *tmp = kdgu_new("", 0);
+	assert(!tmp->errlist);
 	kdgu_replace_substr(k, k->idx, k->len, tmp);
 	kdgu_free(tmp);
 
@@ -531,11 +637,7 @@ kdgu_replace_substr(kdgu *k1, size_t a, size_t b, kdgu *k2)
 
 	/* TODO: make realloc/malloc/free customizable */
 	void *p = realloc(k1->s, k1->len + k2->len);
-
-	if (!p) {
-		k1->err |= KDGU_ERR_OUT_OF_MEMORY;
-		return;
-	}
+	if (!p) return;
 
 	k1->s = p;
 
