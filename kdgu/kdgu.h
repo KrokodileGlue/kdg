@@ -62,6 +62,8 @@ bool kdgu_inc(kdgu *k);
 bool kdgu_dec(kdgu *k);
 bool kdgu_nth(kdgu *k, unsigned n);
 
+kdgu *kdgu_getnth(kdgu *k, unsigned n);
+
 bool kdgu_whitespace(const kdgu *k);
 
 void kdgu_replace_substr(kdgu *k1, size_t a, size_t b, kdgu *k2);
@@ -82,6 +84,25 @@ size_t kdgu_chomp(kdgu *k);
 _Static_assert(CHAR_BIT == 8,
                "kdgu only supports systems on which CHAR_BIT == 8 is true.");
 
+#define IS_VALID_BYTE(X) (!(X == 0xc0	\
+                          || X == 0xc1	\
+                          || (X >= 0xf5 && X <= 0xff)))
+
+#define IS_CONT_BYTE(X) (((X) & 0xc0) == 0x80)
+
+#define RANGE(X,Y,Z)	  \
+	(((unsigned char)s[X] >= Y) && ((unsigned char)s[X] <= Z))
+
+#define ASSERTRANGE(X,Y,Z)	  \
+	do { \
+		if (!RANGE(X,Y,Z)) goto err; \
+	} while (false)
+
+/*
+ * These utf8 functions are internal, for use only on fully processed
+ * kdgu strings. They do no validation of their input.
+ */
+
 static size_t
 utf8len(const char *s, size_t l)
 {
@@ -96,8 +117,8 @@ utf8len(const char *s, size_t l)
 static bool
 utf8inc(const char *s, size_t l, unsigned *i)
 {
-	if (l >= *i) return false;
-	while (*i < l && !((s[*i] & 0xc0) != 0x80)) (*i)++;
+	if (*i >= l) return false;
+	do (*i)++; while (*i < l && (s[*i] & 0xc0) == 0x80);
 	return true;
 }
 
@@ -105,11 +126,14 @@ static char *
 utf8chrtostr(const char *s, size_t l)
 {
 	/* The maximum length for a UTF-8 character is four bytes. */
+	if (!s) return NULL;
+
 	char *r = malloc(5);
 	if (!r) return NULL;
+
 	unsigned i = 0;
 
-	utf8inc(s, l, &i);
+	if (!utf8inc(s, l, &i)) return free(r), NULL;
 	memcpy(r, s, i);
 	r[i] = 0;
 
@@ -128,26 +152,12 @@ utf8chr(const char *s, size_t l)
 	return r;
 }
 
-#define IS_VALID_BYTE(X) (!(X == 0xc0	\
-                          || X == 0xc1	\
-                          || (X >= 0xf5 && X <= 0xff)))
-
-#define IS_CONT_BYTE(X) (((X) & 0xc0) == 0x80)
-
-#define RANGE(X,Y,Z)	  \
-	(((unsigned char)s[X] >= Y) && ((unsigned char)s[X] <= Z))
-
-#define ASSERTRANGE(X,Y,Z)	  \
-	do { \
-		if (!RANGE(X,Y,Z)) goto err; \
-	} while (false)
-
 static bool
 is_noncharacter(const char *s, unsigned len)
 {
 	/*
 	 * Refer to Section 2.4 (Code Points and Characters) and
-	 * Section 23.7 (Noncharacters) for details on this stuff.
+	 * Section 23.7 (Noncharacters) for this stuff.
 	 */
 
 	/* efb790 to efb7af */
@@ -184,7 +194,11 @@ utf8validatechar(const char *s, char *r, unsigned *i, unsigned *idx, size_t *l)
 {
 	enum kdgu_error err = KDGU_ERR_NO_ERROR;
 
-	/* Misplaced continuation byte. */
+	/*
+	 * Misplaced continuation byte. It's not a mistake that a
+	 * separate error substitution is made for each one.
+	 */
+
 	if (IS_CONT_BYTE((unsigned char)s[*i])) {
 		memcpy(r + *idx,
 		       KDGU_REPLACEMENT,
@@ -237,10 +251,9 @@ utf8validatechar(const char *s, char *r, unsigned *i, unsigned *idx, size_t *l)
 	/* Now we need to check the ranges. */
 
 	/*
-	 * There is no rhyme or reason to these magic numbers. See
-	 * page 126 (table 3-7) of
+	 * There is no rhyme or reason to these magic numbers. For
+	 * information see page 126 (table 3-7) of
 	 * http://www.unicode.org/versions/Unicode10.0.0/UnicodeStandard-10.0.pdf
-	 * for information.
 	 */
 
 	if (RANGE(*i, 0xc2, 0xdf))
@@ -341,6 +354,7 @@ utf8validate(kdgu *k, const char *s, size_t *l, bool recover)
 kdgu *kdgu_new(const char *s, size_t len, bool recover)
 {
 	kdgu *k = malloc(sizeof *k);
+	if (!k) return NULL;
 	memset(k, 0, sizeof *k);
 
 	k->s = utf8validate(k, s, &len, recover);
@@ -352,6 +366,8 @@ kdgu *kdgu_new(const char *s, size_t len, bool recover)
 void
 kdgu_free(kdgu *k)
 {
+	if (!k) return;
+
 	free(k->s);
 	free(k);
 }
@@ -372,6 +388,8 @@ kdgu_inc(kdgu *k)
 bool
 kdgu_dec(kdgu *k)
 {
+	if (!k) return false;
+
 	if (k->idx == 0) return false;
 	do {
 		k->idx--;
@@ -382,15 +400,36 @@ kdgu_dec(kdgu *k)
 bool
 kdgu_nth(kdgu *k, unsigned n)
 {
+	if (!k) return false;
+
 	k->idx = 0;
 	for (unsigned i = 0; i < n; i++)
 		if (!kdgu_inc(k)) return false;
 	return true;
 }
 
+kdgu *
+kdgu_getnth(kdgu *k, unsigned n)
+{
+	unsigned i = 0;
+
+	for (unsigned j = 0; j < n; j++)
+		if (!utf8inc(k->s, k->len, &i))
+			return NULL;
+
+	char *t = utf8chrtostr(k->s + i, k->len - i);
+
+	if (!t) return NULL;
+	kdgu *chr = kdgu_new(t, strlen(t), true);
+	free(t);
+
+	return chr;
+}
+
 void
 kdgu_print(const kdgu *k)
 {
+	if (!k) return;
 	for (unsigned i = 0; i < k->len; i++)
 		putchar(k->s[i]);
 }
@@ -398,6 +437,8 @@ kdgu_print(const kdgu *k)
 void
 kdgu_pchr(const kdgu *k)
 {
+	if (!k) return;
+
 	unsigned i = k->idx;
 	if (i >= k->len) return;
 	do {
@@ -408,6 +449,7 @@ kdgu_pchr(const kdgu *k)
 size_t
 kdgu_len(const kdgu *k)
 {
+	if (!k) return -1;
 	return utf8len(k->s, k->len);
 }
 
