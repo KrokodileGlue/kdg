@@ -145,11 +145,11 @@ _Static_assert(CHAR_BIT == 8,
                "kdgu only supports systems on which CHAR_BIT == 8 is true.");
 
 
-#define IS_VALID_BYTE(X) (!(X == 0xc0	\
-                          || X == 0xc1	\
-                          || (X >= 0xf5 && X <= 0xff)))
+#define IS_VALID_BYTE(X) (X != 0xc0	\
+                          && X != 0xc1	\
+                          && X < 0xf5)
 
-#define IS_CONT_BYTE(X) (((X) & 0xc0) == 0x80)
+#define IS_CONT_BYTE(X) (((unsigned char)(X) & 0xc0) == 0x80)
 
 /*
  * These utf8 functions are internal, for use only on fully processed
