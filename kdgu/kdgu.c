@@ -16,20 +16,21 @@ load_file(const char *p, int *l)
 	int len = -1;
 
 	f = fopen(p, "r");
-	if (!f || fseek(f, 0L, SEEK_END)) return NULL;
+
+	if (!f) return NULL;
+	if (fseek(f, 0L, SEEK_END)) return fclose(f), NULL;
 
 	len = ftell(f);
-	if (len == -1) return NULL;
+	if (len == -1) return fclose(f), NULL;
 
-	b = malloc(len + 1);
-	if (!b) return NULL;
+	b = malloc(len);
 
-	if (fseek(f, 0L, SEEK_SET)) return free(b), NULL;
+	if (!b) return fclose(f), NULL;
+	if (fseek(f, 0L, SEEK_SET)) return fclose(f), free(b), NULL;
 
 	len = fread(b, 1, len, f);
-	if (ferror(f)) return free(b), NULL;
 
-	b[len] = 0;
+	if (ferror(f)) return fclose(f), free(b), NULL;
 	if (l) *l = len;
 
 	fclose(f);
@@ -43,7 +44,7 @@ main(int argc, char **argv)
 	char *s1 = load_file(argv[argc - 1], &len);
 	if (!s1) return EXIT_FAILURE;
 
-	kdgu *k = kdgu_new(s1, len);
+	kdgu *k = kdgu_new(KDGU_FMT_UTF8, s1, len);
 	free(s1);
 
 	kdgu_chomp(k);
@@ -51,11 +52,20 @@ main(int argc, char **argv)
 	printf("\nlength: %zu\n", kdgu_len(k));
 
 	kdgu *chr = kdgu_getnth(k, 0);
-	printf("first character: '"); kdgu_print(chr); puts("'");
+
+	printf("first character: '");
+	kdgu_print(chr);
+	puts("'");
+
 	kdgu_free(chr);
 
+	printf("also the first character: '");
+	kdgu_nth(k, 0);
+	kdgu_pchr(k);
+	puts("'");
+
 	if (k->errlist) {
-		puts("The file contains invalid UTF-8:");
+		puts("The file contains invalid text:");
 
 		for (unsigned i = 0; i < k->errlist->num; i++)
 			printf("error:%s:%u: %s\n",
@@ -65,9 +75,6 @@ main(int argc, char **argv)
 	}
 
 	kdgu_free(k);
-
-	/* while (kdgu_inc(k)); */
-	/* do kdgu_pchr(k); while (kdgu_dec(k)); */
 
 	return EXIT_SUCCESS;
 }
