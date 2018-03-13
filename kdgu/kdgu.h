@@ -71,6 +71,7 @@ typedef struct kdgu {
 	} *errlist;
 
 	enum kdgu_fmt {
+		KDGU_FMT_RAW,
 		KDGU_FMT_ASCII,
 		KDGU_FMT_UTF8
 	} fmt;
@@ -465,6 +466,13 @@ kdgu_new(enum kdgu_fmt fmt, const char *s, size_t len)
 	k->fmt = fmt;
 
 	switch (fmt) {
+	case KDGU_FMT_RAW:
+		k->s = malloc(len);
+		if (!k->s) return free(k), NULL;
+		memcpy(k->s, s, len);
+		k->len = len;
+		break;
+
 	case KDGU_FMT_ASCII:
 		k->s = malloc(len);
 		if (!k->s) return free(k), NULL;
@@ -545,6 +553,7 @@ kdgu_getnth(kdgu *k, unsigned n)
 	kdgu *chr = NULL;
 
 	switch (k->fmt) {
+	case KDGU_FMT_RAW:
 	case KDGU_FMT_ASCII: {
 		char t[2] = { k->s[n], 0 };
 		chr = kdgu_new(k->fmt, t, strlen(t));
@@ -584,6 +593,7 @@ kdgu_pchr(const kdgu *k)
 	unsigned i = k->idx;
 
 	switch (k->fmt) {
+	case KDGU_FMT_RAW:
 	case KDGU_FMT_ASCII:
 		putchar(k->s[i]);
 		break;
@@ -602,6 +612,7 @@ kdgu_len(const kdgu *k)
 	size_t l = -1;
 
 	switch (k->fmt) {
+	case KDGU_FMT_RAW:
 	case KDGU_FMT_ASCII: l = k->len; break;
 	case KDGU_FMT_UTF8: l = utf8len(k->s, k->len); break;
 	}
@@ -609,37 +620,46 @@ kdgu_len(const kdgu *k)
 	return l;
 }
 
+static char *asciiwhitespace[] = {
+	"\x9", /* CHARACTER TABULATION */
+	"\xa", /* LINE FEED            */
+	"\xb", /* LINE TABULATION      */
+	"\xc", /* FORM FEED            */
+	"\xd", /* CARRIAGE RETURN      */
+	"\x20" /* SPACE                */
+};
+
 static char *utf8whitespace[] = {
-	"\x9",          /* CHARACTER TABULATION */
-	"\xa",          /* LINE FEED */
-	"\xb",          /* LINE TABULATION */
-	"\xc",          /* FORM FEED */
-	"\xd",          /* CARRIAGE RETURN */
-	"\x20",         /* SPACE */
-	"\xc2\x85",     /* NEXT LINE */
-	"\xc2\xa0",     /* NO-BREAK SPACE */
-	"\xe1\x9a\x80", /* OGHAM SPACE MARK */
-	"\xe1\xa0\x8e", /* MONGOLIAN VOWEL SEPARATOR */
-	"\xe2\x80\x80", /* EN QUAD */
-	"\xe2\x80\x81", /* EM QUAD */
-	"\xe2\x80\x82", /* EN SPACE */
-	"\xe2\x80\x83", /* EM SPACE */
-	"\xe2\x80\x84", /* THREE-PER-EM SPACE */
-	"\xe2\x80\x85", /* FOUR-PER-EM SPACE */
-	"\xe2\x80\x86", /* SIX-PER-EM SPACE */
-	"\xe2\x80\x87", /* FIGURE SPACE */
-	"\xe2\x80\x88", /* PUNCTUATION SPACE */
-	"\xe2\x80\x89", /* THIN SPACE */
-	"\xe2\x80\x8A", /* HAIR SPACE */
-	"\xe2\x80\x8B", /* ZERO WIDTH SPACE */
-	"\xe2\x80\x8C", /* ZERO WIDTH NON-JOINER */
-	"\xe2\x80\x8D", /* ZERO WIDTH JOINER */
-	"\xe2\x80\xa8", /* LINE SEPARATOR */
-	"\xe2\x80\xa9", /* PARAGRAPH SEPARATOR */
-	"\xe2\x80\xaf", /* NARROW NO-BREAK SPACE */
-	"\xe2\x81\x9f", /* MEDIUM MATHEMATICAL SPACE */
-	"\xe2\x81\xa0", /* WORD JOINER */
-	"\xe3\x80\x80", /* IDEOGRAPHIC SPACE */
+	"\x9",          /* CHARACTER TABULATION          */
+	"\xa",          /* LINE FEED                     */
+	"\xb",          /* LINE TABULATION               */
+	"\xc",          /* FORM FEED                     */
+	"\xd",          /* CARRIAGE RETURN               */
+	"\x20",         /* SPACE                         */
+	"\xc2\x85",     /* NEXT LINE                     */
+	"\xc2\xa0",     /* NO-BREAK SPACE                */
+	"\xe1\x9a\x80", /* OGHAM SPACE MARK              */
+	"\xe1\xa0\x8e", /* MONGOLIAN VOWEL SEPARATOR     */
+	"\xe2\x80\x80", /* EN QUAD                       */
+	"\xe2\x80\x81", /* EM QUAD                       */
+	"\xe2\x80\x82", /* EN SPACE                      */
+	"\xe2\x80\x83", /* EM SPACE                      */
+	"\xe2\x80\x84", /* THREE-PER-EM SPACE            */
+	"\xe2\x80\x85", /* FOUR-PER-EM SPACE             */
+	"\xe2\x80\x86", /* SIX-PER-EM SPACE              */
+	"\xe2\x80\x87", /* FIGURE SPACE                  */
+	"\xe2\x80\x88", /* PUNCTUATION SPACE             */
+	"\xe2\x80\x89", /* THIN SPACE                    */
+	"\xe2\x80\x8A", /* HAIR SPACE                    */
+	"\xe2\x80\x8B", /* ZERO WIDTH SPACE              */
+	"\xe2\x80\x8C", /* ZERO WIDTH NON-JOINER         */
+	"\xe2\x80\x8D", /* ZERO WIDTH JOINER             */
+	"\xe2\x80\xa8", /* LINE SEPARATOR                */
+	"\xe2\x80\xa9", /* PARAGRAPH SEPARATOR           */
+	"\xe2\x80\xaf", /* NARROW NO-BREAK SPACE         */
+	"\xe2\x81\x9f", /* MEDIUM MATHEMATICAL SPACE     */
+	"\xe2\x81\xa0", /* WORD JOINER                   */
+	"\xe3\x80\x80", /* IDEOGRAPHIC SPACE             */
 	"\xef\xbb\xbf"  /* ZERO WIDTH NON-BREAKING SPACE */
 };
 
@@ -650,7 +670,13 @@ kdgu_whitespace(const kdgu *k)
 	size_t len = -1;
 
 	switch (k->fmt) {
+	case KDGU_FMT_RAW:
 	case KDGU_FMT_ASCII:
+		ws = asciiwhitespace;
+		len = sizeof asciiwhitespace
+			/ sizeof *asciiwhitespace;
+		break;
+
 	case KDGU_FMT_UTF8:
 		ws = utf8whitespace;
 		len = sizeof utf8whitespace / sizeof *utf8whitespace;
@@ -668,9 +694,10 @@ kdgu_whitespace(const kdgu *k)
 size_t
 kdgu_chomp(kdgu *k)
 {
-	size_t r = -1;
+	size_t r = 0;
 
 	switch (k->fmt) {
+	case KDGU_FMT_RAW:
 	case KDGU_FMT_ASCII: {
 		unsigned i = k->len - 1;
 		while (i && isspace(k->s[i])) i--, r++;
