@@ -589,7 +589,7 @@ cp1252validate(kdgu *k, const char *s, size_t *l)
 	for (unsigned i = 0; i < k->len; i++)
 		if (!IS_VALID_CP1252((unsigned char)r[i])) {
 			pusherror(k, ERR(KDGU_ERR_INVALID_CP1252, i));
-			r[i] = '?';
+			r[i] = KDGU_REPLACEMENT;
 		}
 
 	return r;
@@ -1039,15 +1039,14 @@ kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
 
 		if (!IS_VALID_CP1252(c)) {
 			err = ERR(KDGU_ERR_NO_CONVERSION, idx);
-			buf[0] = '?';
-			break;
+			buf[0] = KDGU_REPLACEMENT;
 		}
 		break;
 
 	case KDGU_FMT_ASCII:
 		if (c > 127) {
 			err = ERR(KDGU_ERR_NO_CONVERSION, idx);
-			buf[0] = '?';
+			buf[0] = KDGU_REPLACEMENT;
 			break;
 		}
 
