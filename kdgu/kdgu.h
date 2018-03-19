@@ -123,7 +123,8 @@ void kdgu_pchr(kdgu *k, FILE *f);
 void kdgu_print_error(struct kdgu_error err);
 
 uint32_t kdgu_decode(kdgu *k);
-struct kdgu_error kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf, unsigned *len, unsigned idx);
+struct kdgu_error kdgu_encode(enum kdgu_fmt fmt, uint32_t c,
+                              char *buf, unsigned *len, unsigned idx);
 
 size_t kdgu_len(kdgu *k);
 size_t kdgu_chrsize(kdgu *k);
@@ -594,6 +595,20 @@ cp1252validate(kdgu *k, const char *s, size_t *l)
 	return r;
 }
 
+static char *
+asciivalidate(kdgu *k, const char *s, size_t *l)
+{
+	char *r = KDGU_MALLOC(*l);
+	if (!r) return NULL;
+	memcpy(k->s, s, *l);
+
+	for (unsigned i = 0; i < k->len; i++)
+		if ((unsigned char)k->s[i] > 128)
+			pusherror(k, ERR(KDGU_ERR_INVALID_ASCII, i));
+
+	return r;
+}
+
 /* static struct encoding { */
 /* 	char    *(*validate)(kdgu *, const char *, */
 /* 	                     size_t *, enum kdgu_byte_order); */
@@ -615,20 +630,14 @@ kdgu_new(enum kdgu_fmt fmt, const char *s, size_t len)
 	int endian = ENDIAN_NONE;
 
 	switch (fmt) {
-	case KDGU_FMT_CP1252: {
+	case KDGU_FMT_CP1252:
 		k->s = cp1252validate(k, s, &len);
 		k->len = len;
-	} break;
+		break;
 
 	case KDGU_FMT_ASCII:
-		k->s = KDGU_MALLOC(len);
-		if (!k->s) return KDGU_FREE(k), NULL;
-		memcpy(k->s, s, len);
+		k->s = asciivalidate(k, s, &len);
 		k->len = len;
-
-		for (unsigned i = 0; i < k->len; i++)
-			if ((unsigned char)k->s[i] > 128)
-				pusherror(k, ERR(KDGU_ERR_INVALID_ASCII, i));
 		break;
 
 	case KDGU_FMT_UTF8:
