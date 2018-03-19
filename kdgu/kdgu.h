@@ -104,7 +104,10 @@ typedef struct kdgu {
 } kdgu;
 
 kdgu *kdgu_new(enum kdgu_fmt fmt, const char *s, size_t len);
+kdgu *kdgu_news(const char *s);
 kdgu *kdgu_copy(kdgu *k);
+kdgu *kdgu_cat(kdgu *k1, kdgu *k2);
+void kdgu_free(kdgu *k);
 
 unsigned kdgu_inc(kdgu *k);
 unsigned kdgu_dec(kdgu *k);
@@ -205,6 +208,36 @@ _Static_assert(CHAR_BIT == 8,
 #define ERR(X,Y)	  \
 	(struct kdgu_error){.kind = (X), .loc = (Y), .msg = error[X]}
 
+#define UTF8VALID(X) (X != 0xc0	\
+                          && X != 0xc1	\
+                          && X < 0xf5)
+
+#define UTF8CONT(X) (((unsigned char)(X) & 0xc0) == 0x80)
+
+#define READUTF16(X)	  \
+	((endian == ENDIAN_LITTLE) \
+	 ? (uint8_t)*(X)   << 8 | (uint8_t)*(X+1) \
+	 : (uint8_t)*(X+1) << 8 | (uint8_t)*(X))
+
+#define UTF16HIGH_SURROGATE(X)	  \
+	((X) >= 0xd800 && (X) <= 0xdbff)
+
+#define UTF16LOW_SURROGATE(X)	  \
+	((X) >= 0xdc00 && (X) <= 0xdfff)
+
+/* Not a decoder! Does not calculate code points! */
+static uint32_t
+utf8chr(const char *s, size_t l)
+{
+	assert(l > 0 && l <= 4);
+	uint32_t r = (unsigned char)s[0] << 24;
+
+	for (unsigned i = 1; i < l && UTF8CONT(s[i]); i++)
+		r |= (unsigned char)s[i] << (24 - i * 8);
+
+	return r;
+}
+
 #define RANGE(X,Y,Z)	  \
 	(((unsigned char)s[X] >= Y) && ((unsigned char)s[X] <= Z))
 
@@ -220,36 +253,6 @@ _Static_assert(CHAR_BIT == 8,
 		err = ERR(KDGU_ERR_UTF8_RANGE_LENGTH_MISMATCH, *i); \
 		goto error; \
 	}
-
-#define IS_VALID_BYTE(X) (X != 0xc0	\
-                          && X != 0xc1	\
-                          && X < 0xf5)
-
-#define IS_CONT_BYTE(X) (((unsigned char)(X) & 0xc0) == 0x80)
-
-#define READUTF16(X)	  \
-	((endian == ENDIAN_LITTLE) \
-	 ? (uint8_t)*(X)   << 8 | (uint8_t)*(X+1) \
-	 : (uint8_t)*(X+1) << 8 | (uint8_t)*(X))
-
-#define IS_HIGH_SURROGATE(X)	  \
-	((X) >= 0xd800 && (X) <= 0xdbff)
-
-#define IS_LOW_SURROGATE(X)	  \
-	((X) >= 0xdc00 && (X) <= 0xdfff)
-
-/* Not a decoder! Does not calculate code points! */
-static uint32_t
-utf8chr(const char *s, size_t l)
-{
-	assert(l > 0 && l <= 4);
-	uint32_t r = (unsigned char)s[0] << 24;
-
-	for (unsigned i = 1; i < l && IS_CONT_BYTE(s[i]); i++)
-		r |= (unsigned char)s[i] << (24 - i * 8);
-
-	return r;
-}
 
 static bool
 is_noncharacter(const char *s, unsigned len)
@@ -305,7 +308,7 @@ utf8validatechar(const char *s, char *r, unsigned *i,
 	 * separate error substitution is made for each one.
 	 */
 
-	if (IS_CONT_BYTE(s[*i])) {
+	if (UTF8CONT(s[*i])) {
 		r[(*idx)++] = KDGU_REPLACEMENT;
 		(*i)++;
 		return ERR(KDGU_ERR_UTF8_STRAY_CONTINUATION_BYTE, *i);
@@ -313,7 +316,7 @@ utf8validatechar(const char *s, char *r, unsigned *i,
 
 	/* This is just a regular ASCII character. */
 	if ((unsigned char)s[*i] < 128
-	    && IS_VALID_BYTE((unsigned char)s[*i])) {
+	    && UTF8VALID((unsigned char)s[*i])) {
 		r[(*idx)++] = s[*i];
 		(*i)++;
 		return ERR(KDGU_ERR_NO_ERROR, *i);
@@ -331,7 +334,7 @@ utf8validatechar(const char *s, char *r, unsigned *i,
 		if (len < 0) len = 0; else len++;
 	}
 
-	if (!IS_VALID_BYTE((unsigned char)s[*i]))
+	if (!UTF8VALID((unsigned char)s[*i]))
 		FAIL(KDGU_ERR_UTF8_INVALID_BYTE);
 
 	if (len < 0 || len > 4)
@@ -351,10 +354,10 @@ utf8validatechar(const char *s, char *r, unsigned *i,
 
 	/* Make sure they're all valid continuation bytes. */
 	for (int j = 0; j < len; j++) {
-		if (!IS_VALID_BYTE((unsigned char)s[*i + j + 1]))
+		if (!UTF8VALID((unsigned char)s[*i + j + 1]))
 			FAIL(KDGU_ERR_UTF8_INVALID_BYTE);
 
-		if (!IS_CONT_BYTE(s[*i + j + 1]))
+		if (!UTF8CONT(s[*i + j + 1]))
 			FAIL(KDGU_ERR_UTF8_MISSING_CONTINUATION);
 	}
 
@@ -418,7 +421,7 @@ utf8validatechar(const char *s, char *r, unsigned *i,
 	r[(*idx)++] = KDGU_REPLACEMENT;
 
 	/* Just skip over any continuation bytes. */
-	while (*i < *l && IS_CONT_BYTE(s[*i]))
+	while (*i < *l && UTF8CONT(s[*i]))
 		(*i)++;
 
 	return err;
@@ -493,7 +496,7 @@ utf16validatechar(const char *s, char *r, unsigned *i,
 	uint16_t c = READUTF16(s + *i);
 
 	/* It's not in the surrogate pair range. */
-	if (!IS_HIGH_SURROGATE(c)) {
+	if (!UTF16HIGH_SURROGATE(c)) {
 		memcpy(r + *idx, &c, sizeof c);
 		*idx += 2;
 		*i += 2;
@@ -507,7 +510,7 @@ utf16validatechar(const char *s, char *r, unsigned *i,
 	uint16_t c2 = READUTF16(s + *i + 2);
 	*i += 4;
 
-	if (!IS_LOW_SURROGATE(c2)) {
+	if (!UTF16LOW_SURROGATE(c2)) {
 		r[(*idx)++] = KDGU_REPLACEMENT;
 		return ERR(KDGU_ERR_UTF16_MISSING_SURROGATE, *i);
 	}
@@ -601,10 +604,10 @@ asciivalidate(kdgu *k, const char *s, size_t *l)
 {
 	char *r = KDGU_MALLOC(*l);
 	if (!r) return NULL;
-	memcpy(k->s, s, *l);
+	memcpy(r, s, *l);
 
 	for (unsigned i = 0; i < k->len; i++)
-		if ((unsigned char)k->s[i] > 128)
+		if ((unsigned char)s[i] > 128)
 			pusherror(k, ERR(KDGU_ERR_INVALID_ASCII, i));
 
 	return r;
@@ -666,6 +669,12 @@ kdgu_new(enum kdgu_fmt fmt, const char *s, size_t len)
 }
 
 kdgu *
+kdgu_news(const char *s)
+{
+	return kdgu_new(KDGU_FMT_ASCII, s, strlen(s));
+}
+
+kdgu *
 kdgu_copy(kdgu *k)
 {
 	kdgu *r = KDGU_MALLOC(sizeof *r);
@@ -683,6 +692,28 @@ kdgu_copy(kdgu *k)
 	memcpy(r->s, k->s, k->len);
 
 	return r;
+}
+
+kdgu *
+kdgu_cat(kdgu *k1, kdgu *k2)
+{
+	if (!k1 || !k2 || k1->fmt != k2->fmt) return NULL;
+
+	kdgu *k = kdgu_copy(k1);
+	k->alloc = k1->len + k2->len;
+	k->len = k1->len + k2->len;
+
+	char *p = KDGU_REALLOC(k->s, k->alloc);
+
+	if (!p) {
+		kdgu_free(k);
+		return NULL;
+	}
+
+	k->s = p;
+	memcpy(k->s + k1->len, k2->s, k2->len);
+
+	return k;
 }
 
 void
@@ -713,13 +744,13 @@ kdgu_inc(kdgu *k)
 	case KDGU_FMT_UTF8:
 		do {
 			idx++;
-		} while (idx < k->len && IS_CONT_BYTE(k->s[idx]));
+		} while (idx < k->len && UTF8CONT(k->s[idx]));
 		break;
 
 	case KDGU_FMT_UTF16BE: endian = ENDIAN_BIG;
 	case KDGU_FMT_UTF16LE: if (!endian) endian = ENDIAN_LITTLE;
 	case KDGU_FMT_UTF16: {
-		if (IS_HIGH_SURROGATE(READUTF16(k->s + idx)))
+		if (UTF16HIGH_SURROGATE(READUTF16(k->s + idx)))
 			idx += 4;
 		else idx += 2;
 	} break;
@@ -749,13 +780,13 @@ kdgu_dec(kdgu *k)
 	case KDGU_FMT_UTF8:
 		do {
 			idx--;
-		} while (idx && IS_CONT_BYTE(k->s[idx]));
+		} while (idx && UTF8CONT(k->s[idx]));
 		break;
 
 	case KDGU_FMT_UTF16BE: endian = ENDIAN_BIG;
 	case KDGU_FMT_UTF16LE: if (!endian) endian = ENDIAN_LITTLE;
 	case KDGU_FMT_UTF16: {
-		if (IS_LOW_SURROGATE(READUTF16(k->s + idx - 2)))
+		if (UTF16LOW_SURROGATE(READUTF16(k->s + idx - 2)))
 			idx -= 4;
 		else idx -= 2;
 	} break;
@@ -1101,7 +1132,7 @@ kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
 		uint16_t high = (c >> 10) + 0xD800;
 		uint16_t low = (c & 0x3FF) + 0xDC00;
 
-		if (IS_HIGH_SURROGATE(high)) *len = 4;
+		if (UTF16HIGH_SURROGATE(high)) *len = 4;
 		else *len = 2;
 
 		if (endian == ENDIAN_BIG) {

@@ -87,5 +87,16 @@ main(int argc, char **argv)
 	kdgu_free(t2);
 	free(s1);
 
+	/* ========================== */
+	kdgu *a = kdgu_news("foo ");
+	kdgu *b = kdgu_news("bar");
+	kdgu *c = kdgu_cat(a, b);
+
+	kdgu_print(c); putchar('\n');
+
+	kdgu_free(a);
+	kdgu_free(b);
+	kdgu_free(c);
+
 	return EXIT_SUCCESS;
 }
