@@ -77,9 +77,9 @@ main(int argc, char **argv)
 	kdgu_nth(t, kdgu_len(t) - 1); kdgu_pchr(t, stdout);
 	puts("'");
 
-	/* print_errors(u16->errlist, argc, argv); */
-	/* print_errors(u8->errlist, argc, argv); */
-	/* print_errors(t->errlist, argc, argv); */
+	print_errors(u16->errlist, argc, argv);
+	print_errors(u8->errlist, argc, argv);
+	print_errors(t->errlist, argc, argv);
 
 	kdgu_free(u8);
 	kdgu_free(u16);

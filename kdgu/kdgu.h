@@ -1163,7 +1163,7 @@ kdgu_print_error(struct kdgu_error err)
 	if (err.kind == KDGU_ERR_NO_CONVERSION) {
 		printf(err.msg, err.codepoint, err.data);
 	} else {
-		puts(err.msg);
+		printf("%s", err.msg);
 	}
 }
 
