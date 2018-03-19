@@ -16,7 +16,7 @@ load_file(const char *p, unsigned *l)
 	FILE *f = NULL;
 	int len = -1;
 
-	f = fopen(p, "r");
+	f = fopen(p, "rb");
 
 	if (!f) return NULL;
 	if (fseek(f, 0L, SEEK_END)) return fclose(f), NULL;
@@ -59,7 +59,7 @@ main(int argc, char **argv)
 	char *text = load_file(argv[argc - 1], &len);
 	if (!text) return EXIT_FAILURE;
 
-	kdgu *q = kdgu_new(KDGU_FMT_UTF8, text, len);
+	kdgu *q = kdgu_new(KDGU_FMT_EBCDIC, text, len);
 	kdgu_chomp(q);
 
 	kdgu *w = kdgu_convert(q, KDGU_FMT_UTF16);
@@ -75,16 +75,17 @@ main(int argc, char **argv)
 	 */
 	/* assert(!memcmp(r->s, q->s, r->len)); */
 
-	for (unsigned i = 0; i < q->len; i++) {
-		if (q->s[i] != r->s[i]) {
-			printf("0x%X and 0x%X at %u\n",
-			       (unsigned char)q->s[i],
-			       (unsigned char)r->s[i],
-			       i);
-		}
-	}
+	/* for (unsigned i = 0; i < q->len; i++) { */
+	/* 	if (q->s[i] != r->s[i]) { */
+	/* 		printf("0x%X and 0x%X at %u\n", */
+	/* 		       (unsigned char)q->s[i], */
+	/* 		       (unsigned char)r->s[i], */
+	/* 		       i); */
+	/* 	} */
+	/* } */
 
-	/* kdgu_print(r); putchar('\n'); */
+	kdgu_print(q); putchar('\n');
+	kdgu_print(r); putchar('\n');
 	printf("length: %zu\n", kdgu_len(q));
 	printf("length: %zu\n", kdgu_len(w));
 	printf("length: %zu\n", kdgu_len(e));
