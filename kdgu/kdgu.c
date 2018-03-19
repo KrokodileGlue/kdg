@@ -66,20 +66,41 @@ main(int argc, char **argv)
 	kdgu *e = kdgu_convert(w, KDGU_FMT_UTF8);
 	kdgu *r = kdgu_copy(e);
 
-	kdgu_print(r);
-	printf("\nlength: %zu\n", kdgu_len(e));
+	assert(kdgu_cmp(w, r));
+	assert(r->len == q->len);
+
+	/*
+	 * TODO: It seems that non-shortest-form UTF-8 sequences are
+	 * not being properly caught?
+	 */
+	/* assert(!memcmp(r->s, q->s, r->len)); */
+
+	for (unsigned i = 0; i < q->len; i++) {
+		if (q->s[i] != r->s[i]) {
+			printf("0x%X and 0x%X at %u\n",
+			       (unsigned char)q->s[i],
+			       (unsigned char)r->s[i],
+			       i);
+		}
+	}
+
+	/* kdgu_print(r); putchar('\n'); */
+	printf("length: %zu\n", kdgu_len(q));
+	printf("length: %zu\n", kdgu_len(w));
+	printf("length: %zu\n", kdgu_len(e));
+	printf("length: %zu\n", kdgu_len(r));
 
 	printf("first character: '");
-	kdgu_nth(e, 0); kdgu_pchr(e, stdout);
+	kdgu_nth(r, 0); kdgu_pchr(r, stdout);
 	puts("'");
 
 	printf("last character: '");
-	kdgu_nth(e, kdgu_len(e) - 1); kdgu_pchr(e, stdout);
+	kdgu_nth(r, kdgu_len(r) - 1); kdgu_pchr(r, stdout);
 	puts("'");
 
-	print_errors(q->errlist, argv[argc - 1]);
-	print_errors(w->errlist, argv[argc - 1]);
-	print_errors(e->errlist, argv[argc - 1]);
+	/* print_errors(q->errlist, argv[argc - 1]); */
+	/* print_errors(w->errlist, argv[argc - 1]); */
+	/* print_errors(e->errlist, argv[argc - 1]); */
 
 	kdgu_free(q);
 	kdgu_free(w);

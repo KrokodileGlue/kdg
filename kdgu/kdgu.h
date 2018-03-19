@@ -111,15 +111,16 @@ void kdgu_free(kdgu *k);
 
 unsigned kdgu_inc(kdgu *k);
 unsigned kdgu_dec(kdgu *k);
-bool kdgu_nth(kdgu *k, unsigned n);
 
 kdgu *kdgu_getnth(kdgu *k, unsigned n);
 kdgu *kdgu_convert(kdgu *k, enum kdgu_fmt fmt);
 
+bool kdgu_cmp(kdgu *k1, kdgu *k2);
+bool kdgu_nth(kdgu *k, unsigned n);
 bool kdgu_whitespace(kdgu *k);
+bool kdgu_append(kdgu *k, const char *s, size_t l);
 
 void kdgu_delete(kdgu *k, size_t a, size_t b);
-bool kdgu_append(kdgu *k, const char *s, size_t l);
 void kdgu_print(kdgu *k);
 void kdgu_debugprint(kdgu *k);
 void kdgu_pchr(kdgu *k, FILE *f);
@@ -759,6 +760,7 @@ kdgu_inc(kdgu *k)
 	if (idx >= k->len) return 0;
 	unsigned r = idx - k->idx;
 	k->idx = idx;
+
 	return r;
 }
 
@@ -856,6 +858,24 @@ kdgu_convert(kdgu *k, enum kdgu_fmt fmt)
 	return r;
 }
 
+bool
+kdgu_cmp(kdgu *k1, kdgu *k2)
+{
+	if (!k1 || !k2 || kdgu_len(k1) != kdgu_len(k2))
+		return false;
+
+	unsigned idx1 = k1->idx, idx2 = k2->idx;
+	k1->idx = 0, k2->idx = 0;
+
+	do {
+		if (kdgu_decode(k1) != kdgu_decode(k2))
+			return false;
+	} while (kdgu_inc(k1) && kdgu_inc(k2));
+
+	k1->idx = idx1, k2->idx = idx2;
+	return true;
+}
+
 void
 kdgu_print(kdgu *k)
 {
@@ -891,11 +911,14 @@ size_t
 kdgu_len(kdgu *k)
 {
 	if (!k || !k->len) return 0;
+
 	size_t l = 0;
 	unsigned idx = k->idx;
+
 	k->idx = 0;
 	do l++; while (kdgu_inc(k));
 	k->idx = idx;
+
 	return l;
 }
 
@@ -959,6 +982,7 @@ kdgu_chomp(kdgu *k)
 
 	return k->len - a;
 }
+
 void
 kdgu_delete(kdgu *k, size_t a, size_t b)
 {
@@ -1093,7 +1117,7 @@ kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
 		} else if (c >= 0x80 && c <= 0x7FF) {
 			*len = 2;
 
-			buf[0] = 0xC0 | ((c >> 6) & 0xF);
+			buf[0] = 0xC0 | ((c >> 6) & 0x1F);
 			buf[1] = 0x80 | (c & 0x3F);
 		} else if (c >= 0x800 && c <= 0xFFFF) {
 			*len = 3;
@@ -1104,7 +1128,7 @@ kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
 		} else if (c >= 0x10000 && c <= 0x10FFFF) {
 			*len = 4;
 
-			buf[0] = 0xF0 | ((c >> 18) & 0xF);
+			buf[0] = 0xF0 | ((c >> 18) & 0x7);
 			buf[1] = 0x80 | ((c >> 12) & 0x3F);
 			buf[2] = 0x80 | ((c >> 6) & 0x3F);
 			buf[3] = 0x80 | (c & 0x3F);
