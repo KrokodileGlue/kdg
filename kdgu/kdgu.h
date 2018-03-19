@@ -179,7 +179,8 @@ static char *error[] = {
 
 	"ASCII character is out-of-range",
 
-	"no representation for character U+%02"PRIX32" in encoding '%s'",
+	"no representation for character U+%02"PRIX32
+	" in encoding '%s'",
 
 	"kdgu has run out of memory; you should never see this"
 };
