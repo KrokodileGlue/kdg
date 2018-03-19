@@ -7,9 +7,10 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include <inttypes.h>
 
 char *
-load_file(const char *p, int *l)
+load_file(const char *p, unsigned *l)
 {
 	char *b = NULL;
 	FILE *f = NULL;
@@ -37,44 +38,54 @@ load_file(const char *p, int *l)
 	return b;
 }
 
+void
+print_errors(struct kdgu_errorlist *errlist, int argc, char **argv)
+{
+	if (!errlist) return;
+
+	for (unsigned i = 0; i < errlist->num; i++) {
+		printf("error:%s:%u: ",
+		       argv[argc - 1],
+		       errlist->err[i].loc);
+		kdgu_print_error(errlist->err[i]);
+		putchar('\n');
+	}
+}
+
 int
 main(int argc, char **argv)
 {
-	int len = 0;
+	unsigned len = 0;
 	char *s1 = load_file(argv[argc - 1], &len);
 	if (!s1) return EXIT_FAILURE;
 
-	kdgu *k = kdgu_new(KDGU_FMT_UTF8, s1, len);
-	free(s1);
+	kdgu *u8 = kdgu_new(KDGU_FMT_UTF8, s1, len);
+	kdgu_chomp(u8);
 
-	kdgu_chomp(k);
-	kdgu_print(k);
-	printf("\nlength: %zu\n", kdgu_len(k));
+	kdgu *u16 = kdgu_convert(u8, KDGU_FMT_UTF16);
+	kdgu *t = kdgu_convert(u16, KDGU_FMT_UTF8);
+	kdgu *t2 = kdgu_copy(t);
 
-	kdgu *chr = kdgu_getnth(k, 0);
+	kdgu_print(t2);
+	printf("\nlength: %zu\n", kdgu_len(t));
 
 	printf("first character: '");
-	kdgu_print(chr);
+	kdgu_nth(t, 0); kdgu_pchr(t, stdout);
 	puts("'");
 
-	kdgu_free(chr);
-
-	printf("also the first character: '");
-	kdgu_nth(k, 0);
-	kdgu_pchr(k);
+	printf("last character: '");
+	kdgu_nth(t, kdgu_len(t) - 1); kdgu_pchr(t, stdout);
 	puts("'");
 
-	if (k->errlist) {
-		puts("The file contains invalid text:");
+	/* print_errors(u16->errlist, argc, argv); */
+	/* print_errors(u8->errlist, argc, argv); */
+	/* print_errors(t->errlist, argc, argv); */
 
-		for (unsigned i = 0; i < k->errlist->num; i++)
-			printf("error:%s:%u: %s\n",
-			       argv[argc - 1],
-			       k->errlist->err[i].loc,
-			       k->errlist->err[i].msg);
-	}
-
-	kdgu_free(k);
+	kdgu_free(u8);
+	kdgu_free(u16);
+	kdgu_free(t);
+	kdgu_free(t2);
+	free(s1);
 
 	return EXIT_SUCCESS;
 }
