@@ -1124,11 +1124,12 @@ kdgu_decode(kdgu *k)
 
 	case KDGU_FMT_UTF8: {
 		unsigned len = kdgu_chrsize(k);
-		unsigned topmask = (1 << (8 - len)) - 1;
 
-		c = ((unsigned char)k->s[k->idx] & topmask) << (len - 1) * 6;
+		c = (k->s[k->idx] & ((1 << (8 - len)) - 1))
+			<< (len - 1) * 6;
 		for (unsigned i = 1; i < len; i++)
-			c |= ((unsigned char)k->s[k->idx + i] & 0x3F) << (len - i - 1) * 6;
+			c |= (k->s[k->idx + i] & 0x3F)
+				<< (len - i - 1) * 6;
 	} break;
 
 	case KDGU_FMT_UTF16BE: if (!endian) endian = ENDIAN_BIG;
