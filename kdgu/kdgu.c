@@ -39,14 +39,14 @@ load_file(const char *p, unsigned *l)
 }
 
 void
-print_errors(struct kdgu_errorlist *errlist, int argc, char **argv)
+print_errors(struct kdgu_errorlist *errlist, char *path)
 {
 	if (!errlist) return;
 
 	for (unsigned i = 0; i < errlist->num; i++) {
 		printf("error:%s:%u: ",
-		       argv[argc - 1],
-		       errlist->err[i].loc);
+		       path, errlist->err[i].loc);
+
 		kdgu_print_error(errlist->err[i]);
 		putchar('\n');
 	}
@@ -56,36 +56,36 @@ int
 main(int argc, char **argv)
 {
 	unsigned len = 0;
-	char *s1 = load_file(argv[argc - 1], &len);
-	if (!s1) return EXIT_FAILURE;
+	char *text = load_file(argv[argc - 1], &len);
+	if (!text) return EXIT_FAILURE;
 
-	kdgu *u8 = kdgu_new(KDGU_FMT_UTF8, s1, len);
-	kdgu_chomp(u8);
+	kdgu *q = kdgu_new(KDGU_FMT_UTF8, text, len);
+	kdgu_chomp(q);
 
-	kdgu *u16 = kdgu_convert(u8, KDGU_FMT_UTF16);
-	kdgu *t = kdgu_convert(u16, KDGU_FMT_UTF8);
-	kdgu *t2 = kdgu_copy(t);
+	kdgu *w = kdgu_convert(q, KDGU_FMT_UTF16);
+	kdgu *e = kdgu_convert(w, KDGU_FMT_UTF8);
+	kdgu *r = kdgu_copy(e);
 
-	kdgu_print(t2);
-	printf("\nlength: %zu\n", kdgu_len(t));
+	kdgu_print(r);
+	printf("\nlength: %zu\n", kdgu_len(e));
 
 	printf("first character: '");
-	kdgu_nth(t, 0); kdgu_pchr(t, stdout);
+	kdgu_nth(e, 0); kdgu_pchr(e, stdout);
 	puts("'");
 
 	printf("last character: '");
-	kdgu_nth(t, kdgu_len(t) - 1); kdgu_pchr(t, stdout);
+	kdgu_nth(e, kdgu_len(e) - 1); kdgu_pchr(e, stdout);
 	puts("'");
 
-	print_errors(u16->errlist, argc, argv);
-	print_errors(u8->errlist, argc, argv);
-	print_errors(t->errlist, argc, argv);
+	print_errors(q->errlist, argv[argc - 1]);
+	print_errors(w->errlist, argv[argc - 1]);
+	print_errors(e->errlist, argv[argc - 1]);
 
-	kdgu_free(u8);
-	kdgu_free(u16);
-	kdgu_free(t);
-	kdgu_free(t2);
-	free(s1);
+	kdgu_free(q);
+	kdgu_free(w);
+	kdgu_free(e);
+	kdgu_free(r);
+	free(text);
 
 	/* ========================== */
 	kdgu *a = kdgu_news("foo ");
