@@ -61,6 +61,7 @@ main(int argc, char **argv)
 
 	kdgu *q = kdgu_new(KDGU_FMT_EBCDIC, text, len);
 	kdgu_chomp(q);
+	q = kdgu_uc(q);
 
 	kdgu *w = kdgu_convert(q, KDGU_FMT_UTF16);
 	kdgu *e = kdgu_convert(w, KDGU_FMT_UTF8);
@@ -70,19 +71,22 @@ main(int argc, char **argv)
 	assert(r->len == q->len);
 
 	/*
-	 * TODO: It seems that non-shortest-form UTF-8 sequences are
+	 * TODO: It seems that non shortest form UTF-8 sequences are
 	 * not being properly caught?
+	 *
+	 * assert(!memcmp(r->s, q->s, r->len));
 	 */
-	/* assert(!memcmp(r->s, q->s, r->len)); */
 
-	/* for (unsigned i = 0; i < q->len; i++) { */
-	/* 	if (q->s[i] != r->s[i]) { */
-	/* 		printf("0x%X and 0x%X at %u\n", */
-	/* 		       (unsigned char)q->s[i], */
-	/* 		       (unsigned char)r->s[i], */
-	/* 		       i); */
-	/* 	} */
-	/* } */
+#if 0
+	for (unsigned i = 0; i < q->len; i++) {
+		if (q->s[i] != r->s[i]) {
+			printf("0x%X and 0x%X at %u\n",
+			       (unsigned char)q->s[i],
+			       (unsigned char)r->s[i],
+			       i);
+		}
+	}
+#endif
 
 	kdgu_print(q); putchar('\n');
 	kdgu_print(r); putchar('\n');
