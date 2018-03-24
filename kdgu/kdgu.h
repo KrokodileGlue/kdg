@@ -240,8 +240,8 @@ void kdgu_free(kdgu *k);
 
 kdgu *kdgu_copy(kdgu *k);
 kdgu *kdgu_cat(kdgu *k1, kdgu *k2);
-kdgu *kdgu_uc(kdgu *k);
-kdgu *kdgu_lc(kdgu *k);
+bool kdgu_uc(kdgu *k);
+bool kdgu_lc(kdgu *k);
 
 unsigned kdgu_inc(kdgu *k);
 unsigned kdgu_dec(kdgu *k);
@@ -1451,35 +1451,52 @@ seqindex_decode_index(uint32_t idx)
 
 static struct kdgu_codepoint *
 codepoint(uint32_t u) {
-	return (u == (uint32_t)-1 || u >= 0x110000)
-		? codepoints
-		: codepoints +
-		(stage2table
-		 [
-		  stage1table[u >> 8] + (u & 0xFF)
-		  ]);
+	if (u == UINT32_MAX || u >= 0x110000) {
+		return codepoints;
+	} else {
+		return codepoints + stage2table[stage1table[u >> 8] + (u & 0xFF)];
+	}
 }
 
 static uint32_t
 upperize(uint32_t c)
 {
 	uint16_t u = codepoint(c)->uc;
-	return u != (uint16_t)-1 ? seqindex_decode_index(u) : c;
+	return u != UINT16_MAX ? seqindex_decode_index(u) : c;
 }
 
 static uint32_t
 lowerize(uint32_t c)
 {
 	uint16_t u = codepoint(c)->lc;
-	return u != (uint16_t)-1 ? seqindex_decode_index(u) : c;
+	return u != UINT16_MAX ? seqindex_decode_index(u) : c;
 }
 
-kdgu *
+static void
+overwritechr(kdgu *k, char *b, unsigned l1)
+{
+	unsigned l2 = kdgu_chrsize(k);
+
+	if (l1 == l2) {
+		memcpy(k->s + k->idx, b, l1);
+		return;
+	} else if (l1 > l2) {
+		memmove(k->s + k->idx + l1 + l2,
+		        k->s + k->idx + l2, l1);
+		memcpy(k->s + k->idx, b, l1);
+	} else if (l1 < l2) {
+		memmove(k->s + k->idx + l1,
+		        k->s + k->idx + l2, l1);
+		memcpy(k->s + k->idx, b, l1);
+	}
+}
+
+bool
 kdgu_uc(kdgu *k)
 {
-	if (!k || !k->len) return NULL;
+	if (!k || !k->len) return false;
 
-	kdgu *r = kdgu_new(k->fmt, (const char[]){ 0 }, 0);
+	bool ret = true;
 	unsigned idx = k->idx;
 	k->idx = 0;
 	unsigned l = kdgu_inc(k);
@@ -1495,26 +1512,27 @@ kdgu_uc(kdgu *k)
 			kdgu_encode(k->fmt, c, buf, &len, k->idx);
 
 		if (err.kind) {
+			ret = false;
 			err.codepoint = c;
 			err.data = format[k->fmt];
-			pusherror(r, err);
+			pusherror(k, err);
 		}
 
-		kdgu_append(r, buf, len);
+		overwritechr(k, buf, len);
 
 		if (!l) break;
 	} while ((l = kdgu_inc(k)));
 
 	k->idx = idx;
-	return r;
+	return ret;
 }
 
-kdgu *
+bool
 kdgu_lc(kdgu *k)
 {
-	if (!k || !k->len) return NULL;
+	if (!k || !k->len) return false;
 
-	kdgu *r = kdgu_new(k->fmt, (const char[]){ 0 }, 0);
+	bool ret = true;
 	unsigned idx = k->idx;
 	k->idx = 0;
 	unsigned l = kdgu_inc(k);
@@ -1530,18 +1548,19 @@ kdgu_lc(kdgu *k)
 			kdgu_encode(k->fmt, c, buf, &len, k->idx);
 
 		if (err.kind) {
+			ret = false;
 			err.codepoint = c;
 			err.data = format[k->fmt];
-			pusherror(r, err);
+			pusherror(k, err);
 		}
 
-		kdgu_append(r, buf, len);
+		overwritechr(k, buf, len);
 
 		if (!l) break;
 	} while ((l = kdgu_inc(k)));
 
 	k->idx = idx;
-	return r;
+	return ret;
 }
 
 #endif /* ifdef KDGU_IMPLEMENTATION */

@@ -61,7 +61,7 @@ main(int argc, char **argv)
 
 	kdgu *q = kdgu_new(KDGU_FMT_EBCDIC, text, len);
 	kdgu_chomp(q);
-	q = kdgu_uc(q);
+	kdgu_uc(q);
 
 	kdgu *w = kdgu_convert(q, KDGU_FMT_UTF16);
 	kdgu *e = kdgu_convert(w, KDGU_FMT_UTF8);
@@ -103,9 +103,9 @@ main(int argc, char **argv)
 	kdgu_nth(r, kdgu_len(r) - 1); kdgu_pchr(r, stdout);
 	puts("'");
 
-	/* print_errors(q->errlist, argv[argc - 1]); */
-	/* print_errors(w->errlist, argv[argc - 1]); */
-	/* print_errors(e->errlist, argv[argc - 1]); */
+	print_errors(q->errlist, argv[argc - 1]);
+	print_errors(w->errlist, argv[argc - 1]);
+	print_errors(e->errlist, argv[argc - 1]);
 
 	kdgu_free(q);
 	kdgu_free(w);
@@ -116,6 +116,7 @@ main(int argc, char **argv)
 	/* ========================== */
 	kdgu *a = kdgu_news("foo ");
 	kdgu *b = kdgu_news("bar");
+	kdgu_uc(b);
 	kdgu *c = kdgu_cat(a, b);
 
 	kdgu_print(c); putchar('\n');
