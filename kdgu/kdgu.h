@@ -239,7 +239,7 @@ kdgu *kdgu_news(const char *s);
 void kdgu_free(kdgu *k);
 
 kdgu *kdgu_copy(kdgu *k);
-kdgu *kdgu_cat(kdgu *k1, kdgu *k2);
+bool kdgu_cat(kdgu *k1, kdgu *k2);
 bool kdgu_uc(kdgu *k);
 bool kdgu_lc(kdgu *k);
 
@@ -247,7 +247,7 @@ unsigned kdgu_inc(kdgu *k);
 unsigned kdgu_dec(kdgu *k);
 
 kdgu *kdgu_getnth(kdgu *k, unsigned n);
-kdgu *kdgu_convert(kdgu *k, enum kdgu_fmt fmt);
+bool kdgu_convert(kdgu *k, enum kdgu_fmt fmt);
 
 bool kdgu_cmp(kdgu *k1, kdgu *k2);
 bool kdgu_nth(kdgu *k, unsigned n);
@@ -267,6 +267,8 @@ struct kdgu_error kdgu_encode(enum kdgu_fmt fmt, uint32_t c,
 size_t kdgu_len(kdgu *k);
 size_t kdgu_chrsize(kdgu *k);
 size_t kdgu_chomp(kdgu *k);
+
+void kdgu_size(kdgu *k, size_t n);
 
 #ifdef KDGU_IMPLEMENTATION
 
@@ -838,26 +840,20 @@ kdgu_copy(kdgu *k)
 	return r;
 }
 
-kdgu *
+bool
 kdgu_cat(kdgu *k1, kdgu *k2)
 {
 	if (!k1 || !k2 || k1->fmt != k2->fmt) return NULL;
 
-	kdgu *k = kdgu_copy(k1);
-	k->alloc = k1->len + k2->len;
-	k->len = k1->len + k2->len;
+	k1->alloc += k2->len;
+	char *p = KDGU_REALLOC(k1->s, k1->alloc);
+	if (!p) return false;
 
-	char *p = KDGU_REALLOC(k->s, k->alloc);
+	k1->s = p;
+	memcpy(k1->s + k1->len, k2->s, k2->len);
+	k1->len += k2->len;
 
-	if (!p) {
-		kdgu_free(k);
-		return NULL;
-	}
-
-	k->s = p;
-	memcpy(k->s + k1->len, k2->s, k2->len);
-
-	return k;
+	return true;
 }
 
 void
@@ -968,39 +964,63 @@ kdgu_getnth(kdgu *k, unsigned n)
 	return chr;
 }
 
-kdgu *
+static void
+overwritechr(kdgu *k, char *b, unsigned l1)
+{
+	unsigned l2 = kdgu_chrsize(k);
+
+	if (l1 == l2) {
+		memcpy(k->s + k->idx, b, l1);
+		return;
+	} else if (l1 > l2) {
+		kdgu_size(k, k->len + l1 - l2);
+		memmove(k->s + k->idx + l1,
+		        k->s + k->idx + l2,
+		        k->len - k->idx - l2);
+		memcpy(k->s + k->idx, b, l1);
+		k->len += l1 - l2;
+	} else if (l1 < l2) {
+		kdgu_size(k, k->len + l2 - l1);
+		memmove(k->s + k->idx + l1,
+		        k->s + k->idx + l2,
+		        k->len - k->idx - l2);
+		memcpy(k->s + k->idx, b, l1);
+		k->len -= l2 - l1;
+	}
+}
+
+bool
 kdgu_convert(kdgu *k, enum kdgu_fmt fmt)
 {
-	if (!k || !k->len) return NULL;
-	if (k->fmt == fmt) return kdgu_copy(k);
+	if (!k) return false;
+	if (!k->len || k->fmt == fmt) {
+		k->fmt = fmt;
+		return true;
+	}
 
-	kdgu *r = kdgu_new(fmt, (const char[]){ 0 }, 0);
-	unsigned idx = k->idx;
+	unsigned l;
 	k->idx = 0;
-	unsigned l = kdgu_inc(k);
-	kdgu_dec(k);
 
-	do {
+	while (true) {
 		uint32_t c = kdgu_decode(k);
 		char buf[4];
-		unsigned len;
 
 		struct kdgu_error err =
-			kdgu_encode(fmt, c, buf, &len, k->idx);
+			kdgu_encode(fmt, c, buf, &l, k->idx);
 
 		if (err.kind) {
 			err.codepoint = c;
 			err.data = format[fmt];
-			pusherror(r, err);
+			pusherror(k, err);
 		}
 
-		kdgu_append(r, buf, len);
+		overwritechr(k, buf, l);
+		k->idx += l;
+		if (k->idx >= k->len) break;
+	}
 
-		if (!l) break;
-	} while ((l = kdgu_inc(k)));
-
-	k->idx = idx;
-	return r;
+	k->fmt = fmt;
+	return k;
 }
 
 bool
@@ -1390,23 +1410,7 @@ kdgu_chrsize(kdgu *k)
 bool
 kdgu_append(kdgu *k, const char *s, size_t l)
 {
-	if (l + k->len >= k->alloc * 2) {
-		k->alloc = k->len + l;
-
-		void *p = KDGU_REALLOC(k->s, k->alloc * 2);
-		if (!p) return false;
-
-		k->s = p;
-	} else if (l + k->len >= k->alloc) {
-		if (!k->alloc) k->alloc = l / 2 + 1;
-
-		void *p = KDGU_REALLOC(k->s, k->alloc * 2);
-		if (!p) return false;
-
-		k->alloc *= 2;
-		k->s = p;
-	}
-
+	kdgu_size(k, k->len + l);
 	memcpy(k->s + k->len, s, l);
 	k->len = k->len + l;
 
@@ -1472,95 +1476,57 @@ lowerize(uint32_t c)
 	return u != UINT16_MAX ? seqindex_decode_index(u) : c;
 }
 
-static void
-overwritechr(kdgu *k, char *b, unsigned l1)
-{
-	unsigned l2 = kdgu_chrsize(k);
-
-	if (l1 == l2) {
-		memcpy(k->s + k->idx, b, l1);
-		return;
-	} else if (l1 > l2) {
-		memmove(k->s + k->idx + l1 + l2,
-		        k->s + k->idx + l2, l1);
-		memcpy(k->s + k->idx, b, l1);
-	} else if (l1 < l2) {
-		memmove(k->s + k->idx + l1,
-		        k->s + k->idx + l2, l1);
-		memcpy(k->s + k->idx, b, l1);
-	}
-}
+#define CHRMANIP(X)	  \
+	if (!k || !k->len) return false; \
+	bool ret = true; \
+	unsigned idx = k->idx; \
+	k->idx = 0; \
+	unsigned l = kdgu_inc(k); \
+	kdgu_dec(k); \
+	do { \
+		uint32_t c = kdgu_decode(k); \
+		char buf[4]; \
+		unsigned len; \
+		c = X(c); \
+		struct kdgu_error err = \
+			kdgu_encode(k->fmt, c, buf, &len, k->idx); \
+		if (err.kind) { \
+			ret = false; \
+			err.codepoint = c; \
+			err.data = format[k->fmt]; \
+			pusherror(k, err); \
+		} \
+		overwritechr(k, buf, len); \
+		if (!l) break; \
+	} while ((l = kdgu_inc(k))); \
+	k->idx = idx; \
+	return ret
 
 bool
 kdgu_uc(kdgu *k)
 {
-	if (!k || !k->len) return false;
-
-	bool ret = true;
-	unsigned idx = k->idx;
-	k->idx = 0;
-	unsigned l = kdgu_inc(k);
-	kdgu_dec(k);
-
-	do {
-		uint32_t c = kdgu_decode(k);
-		char buf[4];
-		unsigned len;
-		c = upperize(c);
-
-		struct kdgu_error err =
-			kdgu_encode(k->fmt, c, buf, &len, k->idx);
-
-		if (err.kind) {
-			ret = false;
-			err.codepoint = c;
-			err.data = format[k->fmt];
-			pusherror(k, err);
-		}
-
-		overwritechr(k, buf, len);
-
-		if (!l) break;
-	} while ((l = kdgu_inc(k)));
-
-	k->idx = idx;
-	return ret;
+	CHRMANIP(upperize);
 }
 
 bool
 kdgu_lc(kdgu *k)
 {
-	if (!k || !k->len) return false;
+	CHRMANIP(lowerize);
+}
 
-	bool ret = true;
-	unsigned idx = k->idx;
-	k->idx = 0;
-	unsigned l = kdgu_inc(k);
-	kdgu_dec(k);
+void
+kdgu_size(kdgu *k, size_t n)
+{
+	if (n <= k->alloc) return;
 
-	do {
-		uint32_t c = kdgu_decode(k);
-		char buf[4];
-		unsigned len;
-		c = lowerize(c);
+	if (!k->alloc) k->alloc = n / 2 + 1;
+	else if (n >= k->alloc * 2) k->alloc = n;
+	else k->alloc *= 2;
 
-		struct kdgu_error err =
-			kdgu_encode(k->fmt, c, buf, &len, k->idx);
+	void *p = KDGU_REALLOC(k->s, k->alloc);
+	if (!p) return;
 
-		if (err.kind) {
-			ret = false;
-			err.codepoint = c;
-			err.data = format[k->fmt];
-			pusherror(k, err);
-		}
-
-		overwritechr(k, buf, len);
-
-		if (!l) break;
-	} while ((l = kdgu_inc(k)));
-
-	k->idx = idx;
-	return ret;
+	k->s = p;
 }
 
 #endif /* ifdef KDGU_IMPLEMENTATION */

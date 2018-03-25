@@ -63,11 +63,11 @@ main(int argc, char **argv)
 	kdgu_chomp(q);
 	kdgu_uc(q);
 
-	kdgu *w = kdgu_convert(q, KDGU_FMT_UTF16);
-	kdgu *e = kdgu_convert(w, KDGU_FMT_UTF8);
-	kdgu *r = kdgu_copy(e);
+	kdgu *r = kdgu_copy(q);
+	kdgu_convert(r, KDGU_FMT_UTF16);
+	kdgu_convert(r, KDGU_FMT_UTF8);
 
-	assert(kdgu_cmp(w, r));
+	assert(kdgu_cmp(q, r));
 	assert(r->len == q->len);
 
 	/*
@@ -91,8 +91,6 @@ main(int argc, char **argv)
 	kdgu_print(q); putchar('\n');
 	kdgu_print(r); putchar('\n');
 	printf("length: %zu\n", kdgu_len(q));
-	printf("length: %zu\n", kdgu_len(w));
-	printf("length: %zu\n", kdgu_len(e));
 	printf("length: %zu\n", kdgu_len(r));
 
 	printf("first character: '");
@@ -104,12 +102,9 @@ main(int argc, char **argv)
 	puts("'");
 
 	print_errors(q->errlist, argv[argc - 1]);
-	print_errors(w->errlist, argv[argc - 1]);
-	print_errors(e->errlist, argv[argc - 1]);
+	print_errors(r->errlist, argv[argc - 1]);
 
 	kdgu_free(q);
-	kdgu_free(w);
-	kdgu_free(e);
 	kdgu_free(r);
 	free(text);
 
@@ -117,13 +112,12 @@ main(int argc, char **argv)
 	kdgu *a = kdgu_news("foo ");
 	kdgu *b = kdgu_news("bar");
 	kdgu_uc(b);
-	kdgu *c = kdgu_cat(a, b);
+	kdgu_cat(a, b);
 
-	kdgu_print(c); putchar('\n');
+	kdgu_print(a); putchar('\n');
 
 	kdgu_free(a);
 	kdgu_free(b);
-	kdgu_free(c);
 
 	return EXIT_SUCCESS;
 }
