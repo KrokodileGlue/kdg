@@ -62,18 +62,22 @@ main(int argc, char **argv)
 	kdgu *q = kdgu_new(KDGU_FMT_EBCDIC, text, len);
 	kdgu_chomp(q);
 	kdgu_uc(q);
+	kdgu_reverse(q);
 
 	kdgu *r = kdgu_copy(q);
 	kdgu_convert(r, KDGU_FMT_UTF16);
 	kdgu_convert(r, KDGU_FMT_UTF8);
 
 	assert(kdgu_cmp(q, r));
-	assert(r->len == q->len);
 
 	/*
 	 * TODO: It seems that non shortest form UTF-8 sequences are
 	 * not being properly caught?
 	 *
+	 * This stuff only makes sense if the format of r and q are
+	 * the same, of course.
+	 *
+	 * assert(r->len == q->len);
 	 * assert(!memcmp(r->s, q->s, r->len));
 	 */
 
@@ -111,6 +115,10 @@ main(int argc, char **argv)
 	/* ========================== */
 	kdgu *a = kdgu_news("foo ");
 	kdgu *b = kdgu_news("bar");
+
+	kdgu_convert(a, KDGU_FMT_UTF8);
+	kdgu_convert(b, KDGU_FMT_UTF8);
+
 	kdgu_uc(b);
 	kdgu_cat(a, b);
 

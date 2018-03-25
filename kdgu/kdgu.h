@@ -242,11 +242,14 @@ kdgu *kdgu_copy(kdgu *k);
 bool kdgu_cat(kdgu *k1, kdgu *k2);
 bool kdgu_uc(kdgu *k);
 bool kdgu_lc(kdgu *k);
+bool kdgu_reverse(kdgu *k);
 
 unsigned kdgu_inc(kdgu *k);
 unsigned kdgu_dec(kdgu *k);
 
 kdgu *kdgu_getnth(kdgu *k, unsigned n);
+bool kdgu_setnth(kdgu *k, size_t n, uint32_t c);
+
 bool kdgu_convert(kdgu *k, enum kdgu_fmt fmt);
 
 bool kdgu_cmp(kdgu *k1, kdgu *k2);
@@ -952,18 +955,6 @@ kdgu_nth(kdgu *k, unsigned n)
 	return true;
 }
 
-kdgu *
-kdgu_getnth(kdgu *k, unsigned n)
-{
-	if (!kdgu_nth(k, n)) return NULL;
-
-	kdgu *chr = kdgu_new(k->fmt,
-	                     k->s + k->idx,
-	                     kdgu_chrsize(k));
-
-	return chr;
-}
-
 static void
 overwritechr(kdgu *k, char *b, unsigned l1)
 {
@@ -987,6 +978,39 @@ overwritechr(kdgu *k, char *b, unsigned l1)
 		memcpy(k->s + k->idx, b, l1);
 		k->len -= l2 - l1;
 	}
+}
+
+kdgu *
+kdgu_getnth(kdgu *k, unsigned n)
+{
+	if (!kdgu_nth(k, n)) return NULL;
+
+	kdgu *chr = kdgu_new(k->fmt,
+	                     k->s + k->idx,
+	                     kdgu_chrsize(k));
+
+	return chr;
+}
+
+bool
+kdgu_setnth(kdgu *k, size_t n, uint32_t c)
+{
+	if (!kdgu_nth(k, n)) return false;
+
+	char buf[4];
+	unsigned l;
+
+	struct kdgu_error err =
+		kdgu_encode(k->fmt, c, buf, &l, k->idx);
+
+	if (err.kind) {
+		err.codepoint = c;
+		err.data = format[k->fmt];
+		pusherror(k, err);
+	}
+
+	overwritechr(k, buf, l);
+	return true;
 }
 
 bool
@@ -1020,7 +1044,7 @@ kdgu_convert(kdgu *k, enum kdgu_fmt fmt)
 	}
 
 	k->fmt = fmt;
-	return k;
+	return true;
 }
 
 bool
@@ -1125,10 +1149,13 @@ bool
 kdgu_whitespace(kdgu *k)
 {
 	uint32_t c = kdgu_decode(k);
+
 	for (unsigned i = 0;
 	     i < sizeof whitespace / sizeof *whitespace;
 	     i++)
-		if (c == whitespace[i]) return true;
+		if (c == whitespace[i])
+			return true;
+
 	return false;
 }
 
@@ -1148,6 +1175,7 @@ kdgu_chomp(kdgu *k)
 	return k->len - a;
 }
 
+/* TODO: Should operate on characters, not bytes. */
 void
 kdgu_delete(kdgu *k, size_t a, size_t b)
 {
@@ -1160,16 +1188,7 @@ void
 kdgu_replace_substr(kdgu *k1, size_t a, size_t b, kdgu *k2)
 {
 	assert(b >= a);
-
-	void *p = KDGU_REALLOC(k1->s, k1->len + k2->len);
-	if (!p) {
-		KDGU_FREE(k1->s);
-		k1->s = NULL;
-		return;
-	}
-
-	k1->s = p;
-
+	kdgu_size(k1, k1->len + k2->len);
 	memcpy(k1->s + a, k2->s, k2->len < b - a ? k2->len : b - a);
 	k1->len = k1->len + k2->len - (b - a);
 }
@@ -1512,6 +1531,26 @@ bool
 kdgu_lc(kdgu *k)
 {
 	CHRMANIP(lowerize);
+}
+
+/* TODO: Think about the idx at return for all of these functions. */
+bool
+kdgu_reverse(kdgu *k)
+{
+	if (!k || !k->len) return false;
+	unsigned len = kdgu_len(k);
+
+	for (unsigned i = 0; i < len / 2; i++) {
+		kdgu_nth(k, i);
+		uint32_t c1 = kdgu_decode(k);
+		kdgu_nth(k, len - i - 1);
+		uint32_t c2 = kdgu_decode(k);
+
+		kdgu_setnth(k, len - i - 1, c1);
+		kdgu_setnth(k, i, c2);
+	}
+
+	return true;
 }
 
 void
