@@ -59,7 +59,10 @@ main(int argc, char **argv)
 	char *text = load_file(argv[argc - 1], &len);
 	if (!text) return EXIT_FAILURE;
 
-	kdgu *q = kdgu_new(KDGU_FMT_EBCDIC, text, len);
+	kdgu *q = kdgu_new(KDGU_FMT_UTF8, text, len);
+	kdgu_convert(q, KDGU_FMT_UTF16);
+	kdgu_convert(q, KDGU_FMT_UTF8);
+
 	kdgu_chomp(q);
 	kdgu_uc(q);
 	kdgu_reverse(q);
@@ -92,9 +95,7 @@ main(int argc, char **argv)
 	}
 #endif
 
-	kdgu_print(q); putchar('\n');
 	kdgu_print(r); putchar('\n');
-	printf("length: %zu\n", kdgu_len(q));
 	printf("length: %zu\n", kdgu_len(r));
 
 	printf("first character: '");
@@ -105,8 +106,8 @@ main(int argc, char **argv)
 	kdgu_nth(r, kdgu_len(r) - 1); kdgu_pchr(r, stdout);
 	puts("'");
 
-	print_errors(q->errlist, argv[argc - 1]);
-	print_errors(r->errlist, argv[argc - 1]);
+	/* print_errors(q->errlist, argv[argc - 1]); */
+	/* print_errors(r->errlist, argv[argc - 1]); */
 
 	kdgu_free(q);
 	kdgu_free(r);
