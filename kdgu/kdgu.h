@@ -234,6 +234,19 @@ struct kdgu_codepoint {
 	unsigned bound;
 };
 
+struct kdgu_case {
+	uint32_t c;
+
+	unsigned lower_len;
+	uint32_t lower[5];
+
+	unsigned title_len;
+	uint32_t title[5];
+
+	unsigned upper_len;
+	uint32_t upper[5];
+};
+
 kdgu *kdgu_new(enum kdgu_fmt fmt, const char *s, size_t len);
 kdgu *kdgu_news(const char *s);
 void kdgu_free(kdgu *k);
@@ -243,6 +256,7 @@ bool kdgu_cat(kdgu *k1, kdgu *k2);
 bool kdgu_uc(kdgu *k);
 bool kdgu_lc(kdgu *k);
 bool kdgu_reverse(kdgu *k);
+bool kdgu_whitespace(kdgu *k);
 
 unsigned kdgu_inc(kdgu *k);
 unsigned kdgu_dec(kdgu *k);
@@ -255,7 +269,6 @@ bool kdgu_convert(kdgu *k, enum kdgu_fmt fmt);
 
 bool kdgu_cmp(kdgu *k1, kdgu *k2);
 bool kdgu_nth(kdgu *k, unsigned n);
-bool kdgu_whitespace(kdgu *k);
 bool kdgu_append(kdgu *k, const char *s, size_t l);
 
 void kdgu_delete(kdgu *k, size_t a, size_t b);
@@ -1146,55 +1159,6 @@ kdgu_len(kdgu *k)
 	return l;
 }
 
-static uint32_t whitespace[] = {
-	0x9,    /* CHARACTER TABULATION          */
-	0xA,    /* LINE FEED                     */
-	0xB,    /* LINE TABULATION               */
-	0xC,    /* FORM FEED                     */
-	0xD,    /* CARRIAGE RETURN               */
-	0x20,   /* SPACE                         */
-	0x85,   /* NEXT LINE                     */
-	0xA0,   /* NO-BREAK SPACE                */
-	0x1680, /* OGHAM SPACE MARK              */
-	0x180E, /* MONGOLIAN VOWEL SEPARATOR     */
-	0x2000, /* EN QUAD                       */
-	0x2001, /* EM QUAD                       */
-	0x2002, /* EN SPACE                      */
-	0x2003, /* EM SPACE                      */
-	0x2004, /* THREE-PER-EM SPACE            */
-	0x2005, /* FOUR-PER-EM SPACE             */
-	0x2006, /* SIX-PER-EM SPACE              */
-	0x2007, /* FIGURE SPACE                  */
-	0x2008, /* PUNCTUATION SPACE             */
-	0x2009, /* THIN SPACE                    */
-	0x200A, /* HAIR SPACE                    */
-	0x200B, /* ZERO WIDTH SPACE              */
-	0x200C, /* ZERO WIDTH NON-JOINER         */
-	0x200D, /* ZERO WIDTH JOINER             */
-	0x2028, /* LINE SEPARATOR                */
-	0x2029, /* PARAGRAPH SEPARATOR           */
-	0x202F, /* NARROW NO-BREAK SPACE         */
-	0x205F, /* MEDIUM MATHEMATICAL SPACE     */
-	0x2060, /* WORD JOINER                   */
-	0x3000, /* IDEOGRAPHIC SPACE             */
-	0xFEFF  /* ZERO WIDTH NON-BREAKING SPACE */
-};
-
-bool
-kdgu_whitespace(kdgu *k)
-{
-	if (!k) return false;
-	uint32_t c = kdgu_decode(k);
-
-	for (unsigned i = 0;
-	     i < sizeof whitespace / sizeof *whitespace;
-	     i++)
-		if (c == whitespace[i])
-			return true;
-
-	return false;
-}
-
 size_t
 kdgu_chomp(kdgu *k)
 {
@@ -1500,6 +1464,9 @@ extern uint16_t stage1table[];
 extern uint16_t stage2table[];
 extern struct kdgu_codepoint codepoints[];
 
+extern size_t num_special_case;
+extern struct kdgu_case special_case[];
+
 static uint32_t
 seqindex_decode_index(uint32_t idx)
 {
@@ -1556,9 +1523,83 @@ lowerize(uint32_t c)
 	return ret
 
 bool
+kdgu_delchr(kdgu *k)
+{
+	return !!overwritechr(k, &(char){ 0 }, 0);
+}
+
+int
+kdgu_inschr(kdgu *k, uint32_t c)
+{
+	if (!k) return 0;
+
+	char buf[4];
+	unsigned l;
+
+	struct kdgu_error err =
+		kdgu_encode(k->fmt, c, buf, &l, k->idx);
+
+	if (err.kind) {
+		err.codepoint = c;
+		err.data = format[k->fmt];
+		pusherror(k, err);
+	}
+
+	kdgu_size(k, k->len + l);
+	memmove(k->s + k->idx + l,
+	        k->s + k->idx,
+	        k->len - k->idx);
+	memcpy(k->s + k->idx, buf, l);
+	k->len += l;
+
+	return l;
+}
+
+bool
 kdgu_uc(kdgu *k)
 {
-	CHRMANIP(upperize);
+	if (!k || !k->len) return false;
+
+	bool ret = true;
+	k->idx = 0;
+	unsigned l = kdgu_inc(k);
+	kdgu_dec(k);
+
+	do {
+		uint32_t c = kdgu_decode(k);
+		uint32_t *u = NULL;
+		unsigned len = 0;
+		uint32_t cu = upperize(c);
+
+		if (cu != c) {
+			kdgu_delchr(k);
+			kdgu_inschr(k, cu);
+			continue;
+		}
+
+		for (unsigned i = 0;
+		     i < num_special_case;
+		     i++) {
+			if (special_case[i].c == c) {
+				u = special_case[i].upper;
+				len = special_case[i].upper_len;
+				break;
+			}
+		}
+
+		if (!u || len == 0) continue;
+		kdgu_delchr(k);
+
+		for (unsigned i = 0; i < len; i++) {
+			kdgu_inschr(k, u[i]);
+			kdgu_inc(k);
+		}
+
+		kdgu_dec(k);
+		if (!l) break;
+	} while ((l = kdgu_inc(k)));
+
+	return ret;
 }
 
 bool
@@ -1610,6 +1651,55 @@ kdgu_size(kdgu *k, size_t n)
 	if (!p) return;
 
 	k->s = p;
+}
+
+static uint32_t whitespace[] = {
+	0x9,    /* CHARACTER TABULATION          */
+	0xA,    /* LINE FEED                     */
+	0xB,    /* LINE TABULATION               */
+	0xC,    /* FORM FEED                     */
+	0xD,    /* CARRIAGE RETURN               */
+	0x20,   /* SPACE                         */
+	0x85,   /* NEXT LINE                     */
+	0xA0,   /* NO-BREAK SPACE                */
+	0x1680, /* OGHAM SPACE MARK              */
+	0x180E, /* MONGOLIAN VOWEL SEPARATOR     */
+	0x2000, /* EN QUAD                       */
+	0x2001, /* EM QUAD                       */
+	0x2002, /* EN SPACE                      */
+	0x2003, /* EM SPACE                      */
+	0x2004, /* THREE-PER-EM SPACE            */
+	0x2005, /* FOUR-PER-EM SPACE             */
+	0x2006, /* SIX-PER-EM SPACE              */
+	0x2007, /* FIGURE SPACE                  */
+	0x2008, /* PUNCTUATION SPACE             */
+	0x2009, /* THIN SPACE                    */
+	0x200A, /* HAIR SPACE                    */
+	0x200B, /* ZERO WIDTH SPACE              */
+	0x200C, /* ZERO WIDTH NON-JOINER         */
+	0x200D, /* ZERO WIDTH JOINER             */
+	0x2028, /* LINE SEPARATOR                */
+	0x2029, /* PARAGRAPH SEPARATOR           */
+	0x202F, /* NARROW NO-BREAK SPACE         */
+	0x205F, /* MEDIUM MATHEMATICAL SPACE     */
+	0x2060, /* WORD JOINER                   */
+	0x3000, /* IDEOGRAPHIC SPACE             */
+	0xFEFF  /* ZERO WIDTH NON-BREAKING SPACE */
+};
+
+bool
+kdgu_whitespace(kdgu *k)
+{
+	if (!k) return false;
+	uint32_t c = kdgu_decode(k);
+
+	for (unsigned i = 0;
+	     i < sizeof whitespace / sizeof *whitespace;
+	     i++)
+		if (c == whitespace[i])
+			return true;
+
+	return false;
 }
 
 #endif /* ifdef KDGU_IMPLEMENTATION */

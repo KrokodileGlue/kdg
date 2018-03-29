@@ -52,22 +52,21 @@ print_errors(struct kdgu_errorlist *errlist, char *path)
 	}
 }
 
-int
-main(int argc, char **argv)
-{
-	unsigned len = 0;
-	char *text = load_file(argv[argc - 1], &len);
-	if (!text) return EXIT_FAILURE;
+char *filename = NULL;
 
+void
+demo(char *text, unsigned len)
+{
 	kdgu *q = kdgu_new(KDGU_FMT_UTF8, text, len);
+
 	kdgu_convert(q, KDGU_FMT_UTF16);
 	kdgu_convert(q, KDGU_FMT_UTF8);
-
 	kdgu_chomp(q);
 	kdgu_uc(q);
 	kdgu_reverse(q);
 
 	kdgu *r = kdgu_copy(q);
+
 	kdgu_convert(r, KDGU_FMT_UTF16);
 	kdgu_convert(r, KDGU_FMT_UTF8);
 
@@ -106,12 +105,11 @@ main(int argc, char **argv)
 	kdgu_nth(r, kdgu_len(r) - 1); kdgu_pchr(r, stdout);
 	puts("'");
 
-	/* print_errors(q->errlist, argv[argc - 1]); */
-	/* print_errors(r->errlist, argv[argc - 1]); */
+	print_errors(q->errlist, filename);
+	print_errors(r->errlist, filename);
 
 	kdgu_free(q);
 	kdgu_free(r);
-	free(text);
 
 	/* ========================== */
 	kdgu *a = kdgu_news("foo ");
@@ -127,6 +125,29 @@ main(int argc, char **argv)
 
 	kdgu_free(a);
 	kdgu_free(b);
+}
+
+int
+main(int argc, char **argv)
+{
+	unsigned len = 0;
+	char *text = load_file(argv[argc - 1], &len);
+	if (!text) return EXIT_FAILURE;
+	filename = argv[argc - 1];
+
+#if 1
+	kdgu *k = kdgu_new(KDGU_FMT_UTF8, text, len);
+	kdgu_chomp(k);
+	kdgu_uc(k);
+	kdgu_print(k); putchar('\n');
+	print_errors(k->errlist, filename);
+	free(text);
+	kdgu_free(k);
+#else
+	filename = argv[argc - 1];
+	demo(text, len);
+	free(text);
+#endif
 
 	return EXIT_SUCCESS;
 }
