@@ -1,5 +1,3 @@
-#define KDGU_DEBUG
-#define KDGU_IMPLEMENTATION
 #include "kdgu.h"
 
 #include <stdlib.h>
@@ -7,6 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include <assert.h>
 #include <inttypes.h>
 
 char *
