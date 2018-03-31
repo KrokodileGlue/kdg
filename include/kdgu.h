@@ -65,6 +65,8 @@ kdgu *kdgu_news(const char *s);
 void kdgu_free(kdgu *k);
 
 kdgu *kdgu_copy(kdgu *k);
+kdgu *kdgu_getnth(kdgu *k, unsigned n);
+
 bool kdgu_cat(kdgu *k1, kdgu *k2);
 bool kdgu_uc(kdgu *k);
 bool kdgu_lc(kdgu *k);
@@ -74,9 +76,8 @@ bool kdgu_whitespace(kdgu *k);
 unsigned kdgu_inc(kdgu *k);
 unsigned kdgu_dec(kdgu *k);
 
-kdgu *kdgu_getnth(kdgu *k, unsigned n);
-int kdgu_setchr(kdgu *k, uint32_t c);
-int kdgu_setnth(kdgu *k, size_t n, uint32_t c);
+unsigned kdgu_next(kdgu *k);
+unsigned kdgu_prev(kdgu *k);
 
 bool kdgu_convert(kdgu *k, enum kdgu_fmt fmt);
 

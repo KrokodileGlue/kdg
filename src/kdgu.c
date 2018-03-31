@@ -107,6 +107,14 @@ utf8chr(const char *s, size_t l)
 	return r;
 }
 
+static unsigned
+utf8chrlen(const char *s, unsigned l)
+{
+	unsigned i = 0;
+	while (s++ && ++i < l && UTF8CONT(*s));
+	return i;
+}
+
 #define RANGE(X,Y,Z)	  \
 	(((unsigned char)s[X] >= Y) && ((unsigned char)s[X] <= Z))
 
@@ -721,7 +729,7 @@ overwritechr(kdgu *k, char *b, unsigned l1)
 	}
 
 	/* This should never happen. */
-	return 0;
+	assert(false);
 }
 
 kdgu *
@@ -734,44 +742,6 @@ kdgu_getnth(kdgu *k, unsigned n)
 	                     kdgu_chrsize(k));
 
 	return chr;
-}
-
-int
-kdgu_setnth(kdgu *k, size_t n, uint32_t c)
-{
-	if (!kdgu_nth(k, n)) return false;
-
-	char buf[4];
-	unsigned l;
-
-	struct kdgu_error err =
-		kdgu_encode(k->fmt, c, buf, &l, k->idx);
-
-	if (err.kind) {
-		err.codepoint = c;
-		err.data = format[k->fmt];
-		pusherror(k, err);
-	}
-
-	return overwritechr(k, buf, l);
-}
-
-int
-kdgu_setchr(kdgu *k, uint32_t c)
-{
-	char buf[4];
-	unsigned l;
-
-	struct kdgu_error err =
-		kdgu_encode(k->fmt, c, buf, &l, k->idx);
-
-	if (err.kind) {
-		err.codepoint = c;
-		err.data = format[k->fmt];
-		pusherror(k, err);
-	}
-
-	return overwritechr(k, buf, l);
 }
 
 bool
@@ -858,19 +828,54 @@ kdgu_pchr(kdgu *k, FILE *f)
 		fputc(k->s[k->idx + i], f);
 }
 
-size_t
-kdgu_len(kdgu *k)
+static bool
+grapheme_break(enum boundclass l, enum boundclass r)
 {
-	if (!k || !k->len) return 0;
+	if (l == KDGU_BOUNDCLASS_START) {
+		return true; /* GB1 */
+	} else if (l == KDGU_BOUNDCLASS_CR
+	           && r == KDGU_BOUNDCLASS_LF) {
+		return false; /* GB3 */
+	} else if (l >= KDGU_BOUNDCLASS_CR
+	           && l <= KDGU_BOUNDCLASS_CONTROL) {
+		return true; /* GB4 */
+	} else if (r >= KDGU_BOUNDCLASS_CR
+	           && r <= KDGU_BOUNDCLASS_CONTROL) {
+		return true; /* GB5 */
+	} else if (l == KDGU_BOUNDCLASS_L &&
+	           (r == KDGU_BOUNDCLASS_L ||
+	            r == KDGU_BOUNDCLASS_V ||
+	            r == KDGU_BOUNDCLASS_LV ||
+	            r == KDGU_BOUNDCLASS_LVT)) {
+		return false; /* GB6 */
+	} else if ((l == KDGU_BOUNDCLASS_LV ||
+	            l == KDGU_BOUNDCLASS_V) &&
+	           (r == KDGU_BOUNDCLASS_V ||
+	            r == KDGU_BOUNDCLASS_T)) {
+		return false; /* GB7 */
+	} else if ((l == KDGU_BOUNDCLASS_LVT ||
+	            l == KDGU_BOUNDCLASS_T) &&
+	           r == KDGU_BOUNDCLASS_T) {
+		return false; /* GB8 */
+	} else if (r == KDGU_BOUNDCLASS_EXTEND || /* GB9 */
+	           r == KDGU_BOUNDCLASS_ZWJ ||
+	           r == KDGU_BOUNDCLASS_SPACINGMARK || /* GB9a */
+	           l == KDGU_BOUNDCLASS_PREPEND) {
+		return false; /* GB9b */
+	} else if ((l == KDGU_BOUNDCLASS_E_BASE ||
+	            l == KDGU_BOUNDCLASS_E_BASE_GAZ) &&
+	           r == KDGU_BOUNDCLASS_E_MODIFIER) {
+		return false; /* GB10  */
+	} else if ((l == KDGU_BOUNDCLASS_ZWJ &&
+	            (r == KDGU_BOUNDCLASS_GLUE_AFTER_ZWJ ||
+	             r == KDGU_BOUNDCLASS_E_BASE_GAZ))) {
+		return false; /* GB11 */
+	} else if (l == KDGU_BOUNDCLASS_REGIONAL_INDICATOR &&
+	           r == KDGU_BOUNDCLASS_REGIONAL_INDICATOR) {
+		return false; /* GB12/13 */
+	}
 
-	size_t l = 0;
-	unsigned idx = k->idx;
-
-	k->idx = 0;
-	do l++; while (kdgu_inc(k));
-	k->idx = idx;
-
-	return l;
+	return true; /* GB999 */
 }
 
 size_t
@@ -992,7 +997,8 @@ kdgu_decode(kdgu *k)
 		return (uint32_t)k->s[k->idx];
 
 	case KDGU_FMT_UTF8: {
-		unsigned len = kdgu_chrsize(k);
+		unsigned len = utf8chrlen(k->s + k->idx,
+		                          k->len - k->idx);
 
 		c = (k->s[k->idx] & ((1 << (8 - len)) - 1))
 			<< (len - 1) * 6;
@@ -1132,7 +1138,7 @@ size_t
 kdgu_chrsize(kdgu *k)
 {
 	unsigned idx = k->idx;
-	unsigned c = kdgu_inc(k);
+	unsigned c = kdgu_next(k);
 	if (!c) return k->len - k->idx;
 	k->idx = idx;
 	return c;
@@ -1242,6 +1248,48 @@ kdgu_delchr(kdgu *k)
 	return !!overwritechr(k, &(char){ 0 }, 0);
 }
 
+unsigned
+kdgu_next(kdgu *k)
+{
+	unsigned now = k->idx;
+
+	do {
+		unsigned idx = k->idx;
+		uint32_t c1 = kdgu_decode(k);
+		kdgu_inc(k);
+		uint32_t c2 = kdgu_decode(k);
+		k->idx = idx;
+		if (grapheme_break(codepoint(c1)->bound,
+		                   codepoint(c2)->bound)) {
+			kdgu_inc(k);
+			break;
+		}
+	} while (kdgu_inc(k));
+
+	return k->idx - now;
+}
+
+unsigned
+kdgu_prev(kdgu *k)
+{
+	unsigned now = k->idx;
+
+	do {
+		unsigned idx = k->idx;
+		uint32_t c1 = kdgu_decode(k);
+		kdgu_dec(k);
+		uint32_t c2 = kdgu_decode(k);
+		k->idx = idx;
+		if (grapheme_break(codepoint(c1)->bound,
+		                   codepoint(c2)->bound)) {
+			kdgu_dec(k);
+			break;
+		}
+	} while (kdgu_dec(k));
+
+	return now - k->idx;
+}
+
 int
 kdgu_inschr(kdgu *k, uint32_t c)
 {
@@ -1265,6 +1313,18 @@ kdgu_inschr(kdgu *k, uint32_t c)
 	        k->len - k->idx);
 	memcpy(k->s + k->idx, buf, l);
 	k->len += l;
+
+	return l;
+}
+
+size_t
+kdgu_len(kdgu *k)
+{
+	if (!k || !k->len) return 0;
+
+	k->idx = 0;
+	size_t l = 0;
+	do l++; while (kdgu_next(k));
 
 	return l;
 }
@@ -1329,27 +1389,24 @@ kdgu_reverse(kdgu *k)
 	if (!k || !k->len) return false;
 
 	unsigned end = kdgu_len(k) - 1;
-	k->idx = k->len, kdgu_dec(k);
+	k->idx = k->len, kdgu_prev(k);
 	unsigned a = 0, b = k->idx;
 
 	for (unsigned i = 0; i < end / 2 + 1; i++) {
-		k->idx = a;
-		uint32_t c1 = kdgu_decode(k);
+		k->idx = a; char c1[kdgu_chrsize(k)];
+		k->idx = b; char c2[kdgu_chrsize(k)];
 
-		k->idx = b;
-		uint32_t c2 = kdgu_decode(k);
+		memcpy(c1, k->s + a, sizeof c1);
+		memcpy(c2, k->s + b, sizeof c2);
 
-		k->idx = b;
-		kdgu_setchr(k, c1);
-		kdgu_dec(k), b = k->idx;
+		k->idx = a, b += overwritechr(k, c2, sizeof c2);
+		k->idx = b, overwritechr(k, c1, sizeof c1);
 
-		k->idx = a;
-		b += kdgu_setchr(k, c2);
-		kdgu_inc(k), a = k->idx;
+		k->idx = a, kdgu_next(k), a = k->idx;
+		k->idx = b, kdgu_prev(k), b = k->idx;
 	}
 
 	return true;
-
 }
 
 void

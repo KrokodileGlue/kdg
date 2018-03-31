@@ -52,7 +52,7 @@ enum {
 	KDGU_DECOMP_TYPE_COMPAT,   /* Compat   */
 };
 
-enum {
+enum boundclass {
 	KDGU_BOUNDCLASS_START,              /* Start                   */
 	KDGU_BOUNDCLASS_OTHER,              /* Other                   */
 	KDGU_BOUNDCLASS_CR,                 /* Cr                      */

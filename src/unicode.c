@@ -1,4 +1,5 @@
 #include "kdgu.h"
+#include "unicode.h"
 
 uint16_t sequences[] = {
 	97, 98, 99, 100, 101, 102, 103,

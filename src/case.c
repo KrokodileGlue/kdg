@@ -1,4 +1,6 @@
 #include "kdgu.h"
+#include "unicode.h"
+
 struct kdgu_case special_case[] = {
 	{ 0x00DF, 1, { 0x00DF }, 2, { 0x0053, 0x0073 }, 2, { 0x0053, 0x0053 } }, /* LATIN SMALL LETTER SHARP S */
 	{ 0x0130, 2, { 0x0069, 0x0307 }, 1, { 0x0130 }, 1, { 0x0130 } }, /* LATIN CAPITAL LETTER I WITH DOT ABOVE */
