@@ -150,7 +150,7 @@ main(int argc, char **argv)
 	kdgu_print(k); putchar('\n');
 	kdgu_reverse(k);
 	kdgu_uc(k);
-	kdgu_print(k); putchar('\n');
+	kdgu_debugprint(k); putchar('\n');
 	printf("length: %u\n", kdgu_len(k));
 	print_errors(k->errlist, filename);
 	free(text);
