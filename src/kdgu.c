@@ -473,7 +473,6 @@ kdgu_chomp(kdgu *k)
 	return k->len - k->idx;
 }
 
-/* TODO: Should operate on characters, not bytes. */
 void
 kdgu_delete(kdgu *k, size_t a, size_t b)
 {
@@ -798,38 +797,8 @@ lowerize(uint32_t c)
 	return u != UINT16_MAX ? seqindex_decode_index(u) : c;
 }
 
-#define CHRMANIP(X)	  \
-	if (!k || !k->len) return false; \
-	bool ret = true; \
-	unsigned idx = k->idx; \
-	k->idx = 0; \
-	unsigned l = kdgu_inc(k); \
-	kdgu_dec(k); \
-	do { \
-		uint32_t c = kdgu_decode(k); \
-		char buf[4]; \
-		unsigned len; \
-		c = X(c); \
-		struct kdgu_error err = \
-			kdgu_encode(k->fmt, c, buf, &len, k->idx); \
-		if (err.kind) { \
-			ret = false; \
-			err.codepoint = c; \
-			err.data = format[k->fmt]; \
-			pusherror(k, err); \
-		} \
-		overwritechr(k, buf, len); \
-		if (!l) break; \
-	} while ((l = kdgu_inc(k))); \
-	k->idx = idx; \
-	return ret
-
-/*
- * TODO: This function deletes a codepoint but the other chr functions
- * operate on graphemes.
- */
-bool
-kdgu_delchr(kdgu *k)
+static void
+delete_point(kdgu *k)
 {
 	unsigned idx = k->idx;
 	unsigned l = kdgu_inc(k);
@@ -841,8 +810,6 @@ kdgu_delchr(kdgu *k)
 	        k->s + k->idx + l,
 	        k->len - k->idx + l);
 	k->len -= l;
-
-	return true;
 }
 
 unsigned
@@ -877,25 +844,24 @@ kdgu_prev(kdgu *k)
 		uint32_t c2 = kdgu_decode(k);
 		k->idx = idx;
 		if (grapheme_break(codepoint(c1)->bound,
-		                   codepoint(c2)->bound)) {
-			kdgu_dec(k);
+		                   codepoint(c2)->bound))
 			break;
-		}
 	} while (kdgu_dec(k));
+	if (!kdgu_dec(k)) k->idx = now;
 
 	return now - k->idx;
 }
 
-int
-kdgu_inschr(kdgu *k, uint32_t c)
+static int
+insert_point(kdgu *k, uint32_t c)
 {
 	if (!k) return 0;
 
 	char buf[4];
-	unsigned l;
+	unsigned len;
 
 	struct kdgu_error err =
-		kdgu_encode(k->fmt, c, buf, &l, k->idx);
+		kdgu_encode(k->fmt, c, buf, &len, k->idx);
 
 	if (err.kind) {
 		err.codepoint = c;
@@ -903,14 +869,14 @@ kdgu_inschr(kdgu *k, uint32_t c)
 		pusherror(k, err);
 	}
 
-	kdgu_size(k, k->len + l);
-	memmove(k->s + k->idx + l,
+	kdgu_size(k, k->len + len);
+	memmove(k->s + k->idx + len,
 	        k->s + k->idx,
 	        k->len - k->idx);
-	memcpy(k->s + k->idx, buf, l);
-	k->len += l;
+	memcpy(k->s + k->idx, buf, len);
+	k->len += len;
 
-	return l;
+	return len;
 }
 
 unsigned
@@ -925,58 +891,79 @@ kdgu_len(kdgu *k)
 	return l;
 }
 
+static struct kdgu_case *
+get_special_case(uint32_t c)
+{
+	for (unsigned i = 0; i < num_special_case; i++)
+		if (special_case[i].c == c)
+			return &special_case[i];
+
+	return NULL;
+}
+
 bool
 kdgu_uc(kdgu *k)
 {
 	if (!k || !k->len) return false;
-
-	bool ret = true;
 	k->idx = 0;
-	unsigned l = kdgu_inc(k);
-	kdgu_dec(k);
 
 	do {
 		uint32_t c = kdgu_decode(k);
-		uint32_t *u = NULL;
-		unsigned len = 0;
-		uint32_t cu = upperize(c);
+		uint32_t u = upperize(c);
 
-		if (cu != c) {
-			kdgu_delchr(k);
-			kdgu_inschr(k, cu);
+		if (u != c) {
+			delete_point(k);
+			insert_point(k, u);
 			continue;
 		}
 
-		/* TODO: Move this out. */
-		for (unsigned i = 0;
-		     i < num_special_case;
-		     i++) {
-			if (special_case[i].c == c) {
-				u = special_case[i].upper;
-				len = special_case[i].upper_len;
-				break;
-			}
-		}
+		struct kdgu_case *sc = get_special_case(c);
 
-		if (!u || len == 0) continue;
-		kdgu_delchr(k);
+		if (!sc || sc->upper_len == 0) continue;
+		delete_point(k);
 
-		for (unsigned i = 0; i < len; i++) {
-			kdgu_inschr(k, u[i]);
+		for (unsigned i = 0; i < sc->upper_len; i++) {
+			insert_point(k, sc->upper[i]);
 			kdgu_inc(k);
 		}
 
 		kdgu_dec(k);
-		if (!l) break;
-	} while ((l = kdgu_inc(k)));
+	} while (kdgu_inc(k));
 
-	return ret;
+	return true;
 }
 
 bool
 kdgu_lc(kdgu *k)
 {
-	CHRMANIP(lowerize);
+	if (!k || !k->len) return false;
+	k->idx = 0;
+	while (kdgu_inc(k));
+
+	do {
+		uint32_t c = kdgu_decode(k);
+		uint32_t l = lowerize(c);
+
+		if (l != c) {
+			delete_point(k);
+			insert_point(k, l);
+			continue;
+		}
+
+		struct kdgu_case *sc = get_special_case(c);
+
+		if (!sc || sc->lower_len == 0) continue;
+		delete_point(k);
+
+		for (unsigned i = 0; i < sc->lower_len; i++) {
+			insert_point(k, sc->lower[i]);
+			kdgu_dec(k);
+		}
+
+		kdgu_inc(k);
+	} while (kdgu_dec(k));
+
+	return true;
 }
 
 /* TODO: Think about the idx at return for all of these functions. */
