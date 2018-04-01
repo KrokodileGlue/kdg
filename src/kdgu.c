@@ -824,10 +824,25 @@ lowerize(uint32_t c)
 	k->idx = idx; \
 	return ret
 
+/*
+ * TODO: This function deletes a codepoint but the other chr functions
+ * operate on graphemes.
+ */
 bool
 kdgu_delchr(kdgu *k)
 {
-	return !!overwritechr(k, &(char){ 0 }, 0);
+	unsigned idx = k->idx;
+	unsigned l = kdgu_inc(k);
+
+	if (!l) l = k->len - k->idx;
+
+	k->idx = idx;
+	memmove(k->s + k->idx,
+	        k->s + k->idx + l,
+	        k->len - k->idx + l);
+	k->len -= l;
+
+	return true;
 }
 
 unsigned
@@ -927,7 +942,6 @@ kdgu_uc(kdgu *k)
 		uint32_t cu = upperize(c);
 
 		if (cu != c) {
-			/* This destroys diacritics. */
 			kdgu_delchr(k);
 			kdgu_inschr(k, cu);
 			continue;

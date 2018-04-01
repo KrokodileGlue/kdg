@@ -152,7 +152,7 @@ main(int argc, char **argv)
 	printf("length: %u\n", kdgu_len(k));
 
 	kdgu_reverse(k);
-	/* kdgu_uc(k); */
+	kdgu_uc(k);
 
 	kdgu_print(k); putchar('\n');
 	printf("length: %u\n", kdgu_len(k));
