@@ -144,7 +144,7 @@ main(int argc, char **argv)
 	print_errors(k->errlist, filename);
 	free(text);
 	kdgu_free(k);
-#elif 1
+#elif 0
 	kdgu *k = kdgu_new(KDGU_FMT_UTF8, text, len);
 	kdgu_chomp(k);
 

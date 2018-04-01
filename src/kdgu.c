@@ -86,6 +86,422 @@ ebcdicvalidate(kdgu *k, const char *s, size_t *l)
 	return r;
 }
 
+void
+kdgu_print_error(struct kdgu_error err)
+{
+	if (err.kind == KDGU_ERR_NO_CONVERSION) {
+		printf(err.msg, err.codepoint, err.data);
+	} else {
+		printf("%s", err.msg);
+	}
+}
+
+static uint32_t
+seqindex_decode_entry(uint16_t **entry)
+{
+	uint32_t cp = **entry;
+
+	if ((cp & 0xF800) != 0xD800)
+		return cp;
+
+	(*entry)++;
+	cp = ((cp & 0x03FF) << 10) | (**entry & 0x03FF);
+	cp += 0x10000;
+
+	return cp;
+}
+
+extern uint16_t sequences[];
+extern uint16_t stage1table[];
+extern uint16_t stage2table[];
+extern struct kdgu_codepoint codepoints[];
+
+extern size_t num_special_case;
+extern struct kdgu_case special_case[];
+
+static uint32_t
+seqindex_decode_index(uint32_t idx)
+{
+	return seqindex_decode_entry(&(uint16_t *){sequences + idx});
+}
+
+static struct kdgu_codepoint *
+codepoint(uint32_t u) {
+	if (u == UINT32_MAX || u >= 0x110000) {
+		return codepoints;
+	} else {
+		return codepoints + stage2table[stage1table[u >> 8] + (u & 0xFF)];
+	}
+}
+
+static uint32_t
+upperize(uint32_t c)
+{
+	uint16_t u = codepoint(c)->uc;
+	return u != UINT16_MAX ? seqindex_decode_index(u) : c;
+}
+
+static uint32_t
+lowerize(uint32_t c)
+{
+	uint16_t u = codepoint(c)->lc;
+	return u != UINT16_MAX ? seqindex_decode_index(u) : c;
+}
+
+static void
+delete_point(kdgu *k)
+{
+	unsigned idx = k->idx;
+	unsigned l = kdgu_inc(k);
+
+	if (!l) l = k->len - k->idx;
+
+	k->idx = idx;
+	memmove(k->s + k->idx,
+	        k->s + k->idx + l,
+	        k->len - k->idx + l);
+	k->len -= l;
+}
+
+static int
+overwritechr(kdgu *k, char *b, unsigned l1)
+{
+	unsigned l2 = kdgu_chrsize(k);
+
+	if (l1 == l2) {
+		memcpy(k->s + k->idx, b, l1);
+		return 0;
+	} else if (l1 > l2) {
+		kdgu_size(k, k->len + l1 - l2);
+		memmove(k->s + k->idx + l1,
+		        k->s + k->idx + l2,
+		        k->len - k->idx - l2);
+		memcpy(k->s + k->idx, b, l1);
+		k->len += l1 - l2;
+		return l1 - l2;
+	} else if (l1 < l2) {
+		kdgu_size(k, k->len + l2 - l1);
+		memmove(k->s + k->idx + l1,
+		        k->s + k->idx + l2,
+		        k->len - k->idx - l2);
+		memcpy(k->s + k->idx, b, l1);
+		k->len -= l2 - l1;
+		return l1 - l2;
+	}
+
+	/* This should never happen. */
+	assert(false);
+}
+
+static bool
+grapheme_break(enum boundclass l, enum boundclass r)
+{
+	if (l == KDGU_BOUNDCLASS_START) {
+		return true; /* GB1 */
+	} else if (l == KDGU_BOUNDCLASS_CR
+	           && r == KDGU_BOUNDCLASS_LF) {
+		return false; /* GB3 */
+	} else if (l >= KDGU_BOUNDCLASS_CR
+	           && l <= KDGU_BOUNDCLASS_CONTROL) {
+		return true; /* GB4 */
+	} else if (r >= KDGU_BOUNDCLASS_CR
+	           && r <= KDGU_BOUNDCLASS_CONTROL) {
+		return true; /* GB5 */
+	} else if (l == KDGU_BOUNDCLASS_L &&
+	           (r == KDGU_BOUNDCLASS_L ||
+	            r == KDGU_BOUNDCLASS_V ||
+	            r == KDGU_BOUNDCLASS_LV ||
+	            r == KDGU_BOUNDCLASS_LVT)) {
+		return false; /* GB6 */
+	} else if ((l == KDGU_BOUNDCLASS_LV ||
+	            l == KDGU_BOUNDCLASS_V) &&
+	           (r == KDGU_BOUNDCLASS_V ||
+	            r == KDGU_BOUNDCLASS_T)) {
+		return false; /* GB7 */
+	} else if ((l == KDGU_BOUNDCLASS_LVT ||
+	            l == KDGU_BOUNDCLASS_T) &&
+	           r == KDGU_BOUNDCLASS_T) {
+		return false; /* GB8 */
+	} else if (r == KDGU_BOUNDCLASS_EXTEND || /* GB9 */
+	           r == KDGU_BOUNDCLASS_ZWJ ||
+	           r == KDGU_BOUNDCLASS_SPACINGMARK || /* GB9a */
+	           l == KDGU_BOUNDCLASS_PREPEND) {
+		return false; /* GB9b */
+	} else if ((l == KDGU_BOUNDCLASS_E_BASE ||
+	            l == KDGU_BOUNDCLASS_E_BASE_GAZ) &&
+	           r == KDGU_BOUNDCLASS_E_MODIFIER) {
+		return false; /* GB10  */
+	} else if ((l == KDGU_BOUNDCLASS_ZWJ &&
+	            (r == KDGU_BOUNDCLASS_GLUE_AFTER_ZWJ ||
+	             r == KDGU_BOUNDCLASS_E_BASE_GAZ))) {
+		return false; /* GB11 */
+	} else if (l == KDGU_BOUNDCLASS_REGIONAL_INDICATOR &&
+	           r == KDGU_BOUNDCLASS_REGIONAL_INDICATOR) {
+		return false; /* GB12/13 */
+	}
+
+	return true; /* GB999 */
+}
+
+unsigned
+kdgu_next(kdgu *k)
+{
+	unsigned now = k->idx;
+
+	do {
+		unsigned idx = k->idx;
+		uint32_t c1 = kdgu_decode(k);
+		kdgu_inc(k);
+		uint32_t c2 = kdgu_decode(k);
+		k->idx = idx;
+		if (grapheme_break(codepoint(c1)->bound,
+		                   codepoint(c2)->bound))
+			break;
+	} while (kdgu_inc(k));
+	if (!kdgu_inc(k)) k->idx = now;
+
+	return k->idx - now;
+}
+
+unsigned
+kdgu_prev(kdgu *k)
+{
+	unsigned now = k->idx;
+
+	do {
+		unsigned idx = k->idx;
+		uint32_t c1 = kdgu_decode(k);
+		kdgu_dec(k);
+		uint32_t c2 = kdgu_decode(k);
+		k->idx = idx;
+		if (grapheme_break(codepoint(c1)->bound,
+		                   codepoint(c2)->bound))
+			break;
+	} while (kdgu_dec(k));
+	if (!kdgu_dec(k)) k->idx = now;
+
+	return now - k->idx;
+}
+
+static int
+insert_point(kdgu *k, uint32_t c)
+{
+	if (!k) return 0;
+
+	char buf[4];
+	unsigned len;
+
+	struct kdgu_error err =
+		kdgu_encode(k->fmt, c, buf, &len, k->idx);
+
+	if (err.kind) {
+		err.codepoint = c;
+		err.data = format[k->fmt];
+		pusherror(k, err);
+	}
+
+	kdgu_size(k, k->len + len);
+	memmove(k->s + k->idx + len,
+	        k->s + k->idx,
+	        k->len - k->idx);
+	memcpy(k->s + k->idx, buf, len);
+	k->len += len;
+
+	return len;
+}
+
+static int
+insert_buffer(kdgu *k, char *buf, unsigned len)
+{
+	if (!k) return 0;
+
+	kdgu_size(k, k->len + len);
+	memmove(k->s + k->idx + len,
+	        k->s + k->idx,
+	        k->len - k->idx);
+	memcpy(k->s + k->idx, buf, len);
+	k->len += len;
+
+	return len;
+}
+
+unsigned
+kdgu_len(kdgu *k)
+{
+	if (!k || !k->len) return 0;
+
+	k->idx = 0;
+	size_t l = 0;
+	do l++; while (kdgu_next(k));
+
+	return l;
+}
+
+static struct kdgu_case *
+get_special_case(uint32_t c)
+{
+	for (unsigned i = 0; i < num_special_case; i++)
+		if (special_case[i].c == c)
+			return &special_case[i];
+
+	return NULL;
+}
+
+bool
+kdgu_uc(kdgu *k)
+{
+	if (!k || !k->len) return false;
+	k->idx = 0;
+
+	do {
+		uint32_t c = kdgu_decode(k);
+		uint32_t u = upperize(c);
+
+		if (u != c) {
+			delete_point(k);
+			insert_point(k, u);
+			continue;
+		}
+
+		struct kdgu_case *sc = get_special_case(c);
+
+		if (!sc || sc->upper_len == 0) continue;
+		delete_point(k);
+
+		for (unsigned i = 0; i < sc->upper_len; i++) {
+			insert_point(k, sc->upper[i]);
+			kdgu_inc(k);
+		}
+
+		kdgu_dec(k);
+	} while (kdgu_inc(k));
+
+	return true;
+}
+
+bool
+kdgu_lc(kdgu *k)
+{
+	if (!k || !k->len) return false;
+	k->idx = 0;
+	while (kdgu_inc(k));
+
+	do {
+		uint32_t c = kdgu_decode(k);
+		uint32_t l = lowerize(c);
+
+		if (l != c) {
+			delete_point(k);
+			insert_point(k, l);
+			continue;
+		}
+
+		struct kdgu_case *sc = get_special_case(c);
+
+		if (!sc || sc->lower_len == 0) continue;
+		delete_point(k);
+
+		for (unsigned i = 0; i < sc->lower_len; i++) {
+			insert_point(k, sc->lower[i]);
+			kdgu_dec(k);
+		}
+
+		kdgu_inc(k);
+	} while (kdgu_dec(k));
+
+	return true;
+}
+
+bool
+kdgu_reverse(kdgu *k)
+{
+	if (!k || !k->len || k->len == 1) return false;
+
+	unsigned end = kdgu_len(k) - 1;
+	k->idx = 0; while (kdgu_next(k));
+	unsigned a = 0, b = k->idx;
+
+	for (unsigned i = 0; i < end / 2 + 1; i++) {
+		k->idx = a; char c1[kdgu_chrsize(k)];
+		k->idx = b; char c2[kdgu_chrsize(k)];
+
+		memcpy(c1, k->s + a, sizeof c1);
+		memcpy(c2, k->s + b, sizeof c2);
+
+		k->idx = a, b += overwritechr(k, c2, sizeof c2);
+		k->idx = b, overwritechr(k, c1, sizeof c1);
+
+		k->idx = a, kdgu_next(k), a = k->idx;
+		k->idx = b, kdgu_prev(k), b = k->idx;
+	}
+
+	return true;
+}
+
+void
+kdgu_size(kdgu *k, size_t n)
+{
+	if (n <= k->alloc) return;
+
+	if (!k->alloc) k->alloc = n / 2 + 1;
+	else if (n >= k->alloc * 2) k->alloc = n;
+	else k->alloc *= 2;
+
+	void *p = realloc(k->s, k->alloc);
+	if (!p) return;
+
+	k->s = p;
+}
+
+static uint32_t whitespace[] = {
+	0x9,    /* CHARACTER TABULATION          */
+	0xA,    /* LINE FEED                     */
+	0xB,    /* LINE TABULATION               */
+	0xC,    /* FORM FEED                     */
+	0xD,    /* CARRIAGE RETURN               */
+	0x20,   /* SPACE                         */
+	0x85,   /* NEXT LINE                     */
+	0xA0,   /* NO-BREAK SPACE                */
+	0x1680, /* OGHAM SPACE MARK              */
+	0x180E, /* MONGOLIAN VOWEL SEPARATOR     */
+	0x2000, /* EN QUAD                       */
+	0x2001, /* EM QUAD                       */
+	0x2002, /* EN SPACE                      */
+	0x2003, /* EM SPACE                      */
+	0x2004, /* THREE-PER-EM SPACE            */
+	0x2005, /* FOUR-PER-EM SPACE             */
+	0x2006, /* SIX-PER-EM SPACE              */
+	0x2007, /* FIGURE SPACE                  */
+	0x2008, /* PUNCTUATION SPACE             */
+	0x2009, /* THIN SPACE                    */
+	0x200A, /* HAIR SPACE                    */
+	0x200B, /* ZERO WIDTH SPACE              */
+	0x200C, /* ZERO WIDTH NON-JOINER         */
+	0x200D, /* ZERO WIDTH JOINER             */
+	0x2028, /* LINE SEPARATOR                */
+	0x2029, /* PARAGRAPH SEPARATOR           */
+	0x202F, /* NARROW NO-BREAK SPACE         */
+	0x205F, /* MEDIUM MATHEMATICAL SPACE     */
+	0x2060, /* WORD JOINER                   */
+	0x3000, /* IDEOGRAPHIC SPACE             */
+	0xFEFF  /* ZERO WIDTH NON-BREAKING SPACE */
+};
+
+bool
+kdgu_whitespace(kdgu *k)
+{
+	if (!k) return false;
+	uint32_t c = kdgu_decode(k);
+
+	for (unsigned i = 0;
+	     i < sizeof whitespace / sizeof *whitespace;
+	     i++)
+		if (c == whitespace[i])
+			return true;
+
+	return false;
+}
+
 kdgu *
 kdgu_new(enum kdgu_fmt fmt, const char *s, size_t len)
 {
@@ -163,7 +579,7 @@ kdgu_copy(kdgu *k)
 bool
 kdgu_cat(kdgu *k1, kdgu *k2)
 {
-	if (!k1 || !k2 || k1->fmt != k2->fmt) return NULL;
+	if (!k1 || !k2 || k1->fmt != k2->fmt) return true;
 
 	k1->alloc += k2->len;
 	char *p = realloc(k1->s, k1->alloc);
@@ -277,50 +693,25 @@ kdgu_nth(kdgu *k, unsigned n)
 
 	k->idx = 0;
 	for (unsigned i = 0; i < n; i++)
-		if (!kdgu_inc(k))
+		if (!kdgu_next(k))
 			return false;
 
 	return true;
 }
 
-static int
-overwritechr(kdgu *k, char *b, unsigned l1)
-{
-	unsigned l2 = kdgu_chrsize(k);
-
-	if (l1 == l2) {
-		memcpy(k->s + k->idx, b, l1);
-		return 0;
-	} else if (l1 > l2) {
-		kdgu_size(k, k->len + l1 - l2);
-		memmove(k->s + k->idx + l1,
-		        k->s + k->idx + l2,
-		        k->len - k->idx - l2);
-		memcpy(k->s + k->idx, b, l1);
-		k->len += l1 - l2;
-		return l1 - l2;
-	} else if (l1 < l2) {
-		kdgu_size(k, k->len + l2 - l1);
-		memmove(k->s + k->idx + l1,
-		        k->s + k->idx + l2,
-		        k->len - k->idx - l2);
-		memcpy(k->s + k->idx, b, l1);
-		k->len -= l2 - l1;
-		return l1 - l2;
-	}
-
-	/* This should never happen. */
-	assert(false);
-}
-
 kdgu *
 kdgu_getnth(kdgu *k, unsigned n)
 {
-	if (!kdgu_nth(k, n)) return NULL;
+	if (!k || !k->len) return NULL;
 
-	kdgu *chr = kdgu_new(k->fmt,
-	                     k->s + k->idx,
-	                     kdgu_chrsize(k));
+	unsigned idx = k->idx;
+	kdgu *chr = NULL;
+
+	if (!kdgu_nth(k, n)) return NULL;
+	chr = kdgu_new(k->fmt,
+	               k->s + k->idx,
+	               kdgu_chrsize(k));
+	k->idx = idx;
 
 	return chr;
 }
@@ -334,15 +725,15 @@ kdgu_convert(kdgu *k, enum kdgu_fmt fmt)
 		return true;
 	}
 
-	unsigned l;
 	k->idx = 0;
 
 	while (true) {
+		unsigned len;
 		uint32_t c = kdgu_decode(k);
 		char buf[4];
 
 		struct kdgu_error err =
-			kdgu_encode(fmt, c, buf, &l, k->idx);
+			kdgu_encode(fmt, c, buf, &len, k->idx);
 
 		if (err.kind) {
 			err.codepoint = c;
@@ -350,8 +741,9 @@ kdgu_convert(kdgu *k, enum kdgu_fmt fmt)
 			pusherror(k, err);
 		}
 
-		overwritechr(k, buf, l);
-		k->idx += l;
+		delete_point(k);
+		insert_buffer(k, buf, len);
+		k->idx += len;
 
 		if (k->idx >= k->len) break;
 	}
@@ -407,56 +799,6 @@ kdgu_pchr(kdgu *k, FILE *f)
 	unsigned len = kdgu_chrsize(k);
 	for (unsigned i = 0; i < len; i++)
 		fputc(k->s[k->idx + i], f);
-}
-
-static bool
-grapheme_break(enum boundclass l, enum boundclass r)
-{
-	if (l == KDGU_BOUNDCLASS_START) {
-		return true; /* GB1 */
-	} else if (l == KDGU_BOUNDCLASS_CR
-	           && r == KDGU_BOUNDCLASS_LF) {
-		return false; /* GB3 */
-	} else if (l >= KDGU_BOUNDCLASS_CR
-	           && l <= KDGU_BOUNDCLASS_CONTROL) {
-		return true; /* GB4 */
-	} else if (r >= KDGU_BOUNDCLASS_CR
-	           && r <= KDGU_BOUNDCLASS_CONTROL) {
-		return true; /* GB5 */
-	} else if (l == KDGU_BOUNDCLASS_L &&
-	           (r == KDGU_BOUNDCLASS_L ||
-	            r == KDGU_BOUNDCLASS_V ||
-	            r == KDGU_BOUNDCLASS_LV ||
-	            r == KDGU_BOUNDCLASS_LVT)) {
-		return false; /* GB6 */
-	} else if ((l == KDGU_BOUNDCLASS_LV ||
-	            l == KDGU_BOUNDCLASS_V) &&
-	           (r == KDGU_BOUNDCLASS_V ||
-	            r == KDGU_BOUNDCLASS_T)) {
-		return false; /* GB7 */
-	} else if ((l == KDGU_BOUNDCLASS_LVT ||
-	            l == KDGU_BOUNDCLASS_T) &&
-	           r == KDGU_BOUNDCLASS_T) {
-		return false; /* GB8 */
-	} else if (r == KDGU_BOUNDCLASS_EXTEND || /* GB9 */
-	           r == KDGU_BOUNDCLASS_ZWJ ||
-	           r == KDGU_BOUNDCLASS_SPACINGMARK || /* GB9a */
-	           l == KDGU_BOUNDCLASS_PREPEND) {
-		return false; /* GB9b */
-	} else if ((l == KDGU_BOUNDCLASS_E_BASE ||
-	            l == KDGU_BOUNDCLASS_E_BASE_GAZ) &&
-	           r == KDGU_BOUNDCLASS_E_MODIFIER) {
-		return false; /* GB10  */
-	} else if ((l == KDGU_BOUNDCLASS_ZWJ &&
-	            (r == KDGU_BOUNDCLASS_GLUE_AFTER_ZWJ ||
-	             r == KDGU_BOUNDCLASS_E_BASE_GAZ))) {
-		return false; /* GB11 */
-	} else if (l == KDGU_BOUNDCLASS_REGIONAL_INDICATOR &&
-	           r == KDGU_BOUNDCLASS_REGIONAL_INDICATOR) {
-		return false; /* GB12/13 */
-	}
-
-	return true; /* GB999 */
 }
 
 unsigned
@@ -733,326 +1075,4 @@ kdgu_append(kdgu *k, const char *s, size_t l)
 	k->len = k->len + l;
 
 	return true;
-}
-
-void
-kdgu_print_error(struct kdgu_error err)
-{
-	if (err.kind == KDGU_ERR_NO_CONVERSION) {
-		printf(err.msg, err.codepoint, err.data);
-	} else {
-		printf("%s", err.msg);
-	}
-}
-
-static uint32_t
-seqindex_decode_entry(uint16_t **entry)
-{
-	uint32_t cp = **entry;
-
-	if ((cp & 0xF800) != 0xD800)
-		return cp;
-
-	(*entry)++;
-	cp = ((cp & 0x03FF) << 10) | (**entry & 0x03FF);
-	cp += 0x10000;
-
-	return cp;
-}
-
-extern uint16_t sequences[];
-extern uint16_t stage1table[];
-extern uint16_t stage2table[];
-extern struct kdgu_codepoint codepoints[];
-
-extern size_t num_special_case;
-extern struct kdgu_case special_case[];
-
-static uint32_t
-seqindex_decode_index(uint32_t idx)
-{
-	return seqindex_decode_entry(&(uint16_t *){sequences + idx});
-}
-
-static struct kdgu_codepoint *
-codepoint(uint32_t u) {
-	if (u == UINT32_MAX || u >= 0x110000) {
-		return codepoints;
-	} else {
-		return codepoints + stage2table[stage1table[u >> 8] + (u & 0xFF)];
-	}
-}
-
-static uint32_t
-upperize(uint32_t c)
-{
-	uint16_t u = codepoint(c)->uc;
-	return u != UINT16_MAX ? seqindex_decode_index(u) : c;
-}
-
-static uint32_t
-lowerize(uint32_t c)
-{
-	uint16_t u = codepoint(c)->lc;
-	return u != UINT16_MAX ? seqindex_decode_index(u) : c;
-}
-
-static void
-delete_point(kdgu *k)
-{
-	unsigned idx = k->idx;
-	unsigned l = kdgu_inc(k);
-
-	if (!l) l = k->len - k->idx;
-
-	k->idx = idx;
-	memmove(k->s + k->idx,
-	        k->s + k->idx + l,
-	        k->len - k->idx + l);
-	k->len -= l;
-}
-
-unsigned
-kdgu_next(kdgu *k)
-{
-	unsigned now = k->idx;
-
-	do {
-		unsigned idx = k->idx;
-		uint32_t c1 = kdgu_decode(k);
-		kdgu_inc(k);
-		uint32_t c2 = kdgu_decode(k);
-		k->idx = idx;
-		if (grapheme_break(codepoint(c1)->bound,
-		                   codepoint(c2)->bound))
-			break;
-	} while (kdgu_inc(k));
-	if (!kdgu_inc(k)) k->idx = now;
-
-	return k->idx - now;
-}
-
-unsigned
-kdgu_prev(kdgu *k)
-{
-	unsigned now = k->idx;
-
-	do {
-		unsigned idx = k->idx;
-		uint32_t c1 = kdgu_decode(k);
-		kdgu_dec(k);
-		uint32_t c2 = kdgu_decode(k);
-		k->idx = idx;
-		if (grapheme_break(codepoint(c1)->bound,
-		                   codepoint(c2)->bound))
-			break;
-	} while (kdgu_dec(k));
-	if (!kdgu_dec(k)) k->idx = now;
-
-	return now - k->idx;
-}
-
-static int
-insert_point(kdgu *k, uint32_t c)
-{
-	if (!k) return 0;
-
-	char buf[4];
-	unsigned len;
-
-	struct kdgu_error err =
-		kdgu_encode(k->fmt, c, buf, &len, k->idx);
-
-	if (err.kind) {
-		err.codepoint = c;
-		err.data = format[k->fmt];
-		pusherror(k, err);
-	}
-
-	kdgu_size(k, k->len + len);
-	memmove(k->s + k->idx + len,
-	        k->s + k->idx,
-	        k->len - k->idx);
-	memcpy(k->s + k->idx, buf, len);
-	k->len += len;
-
-	return len;
-}
-
-unsigned
-kdgu_len(kdgu *k)
-{
-	if (!k || !k->len) return 0;
-
-	k->idx = 0;
-	size_t l = 0;
-	do l++; while (kdgu_next(k));
-
-	return l;
-}
-
-static struct kdgu_case *
-get_special_case(uint32_t c)
-{
-	for (unsigned i = 0; i < num_special_case; i++)
-		if (special_case[i].c == c)
-			return &special_case[i];
-
-	return NULL;
-}
-
-bool
-kdgu_uc(kdgu *k)
-{
-	if (!k || !k->len) return false;
-	k->idx = 0;
-
-	do {
-		uint32_t c = kdgu_decode(k);
-		uint32_t u = upperize(c);
-
-		if (u != c) {
-			delete_point(k);
-			insert_point(k, u);
-			continue;
-		}
-
-		struct kdgu_case *sc = get_special_case(c);
-
-		if (!sc || sc->upper_len == 0) continue;
-		delete_point(k);
-
-		for (unsigned i = 0; i < sc->upper_len; i++) {
-			insert_point(k, sc->upper[i]);
-			kdgu_inc(k);
-		}
-
-		kdgu_dec(k);
-	} while (kdgu_inc(k));
-
-	return true;
-}
-
-bool
-kdgu_lc(kdgu *k)
-{
-	if (!k || !k->len) return false;
-	k->idx = 0;
-	while (kdgu_inc(k));
-
-	do {
-		uint32_t c = kdgu_decode(k);
-		uint32_t l = lowerize(c);
-
-		if (l != c) {
-			delete_point(k);
-			insert_point(k, l);
-			continue;
-		}
-
-		struct kdgu_case *sc = get_special_case(c);
-
-		if (!sc || sc->lower_len == 0) continue;
-		delete_point(k);
-
-		for (unsigned i = 0; i < sc->lower_len; i++) {
-			insert_point(k, sc->lower[i]);
-			kdgu_dec(k);
-		}
-
-		kdgu_inc(k);
-	} while (kdgu_dec(k));
-
-	return true;
-}
-
-/* TODO: Think about the idx at return for all of these functions. */
-bool
-kdgu_reverse(kdgu *k)
-{
-	if (!k || !k->len || k->len == 1) return false;
-
-	unsigned end = kdgu_len(k) - 1;
-	k->idx = 0; while (kdgu_next(k));
-	unsigned a = 0, b = k->idx;
-
-	for (unsigned i = 0; i < end / 2 + 1; i++) {
-		k->idx = a; char c1[kdgu_chrsize(k)];
-		k->idx = b; char c2[kdgu_chrsize(k)];
-
-		memcpy(c1, k->s + a, sizeof c1);
-		memcpy(c2, k->s + b, sizeof c2);
-
-		k->idx = a, b += overwritechr(k, c2, sizeof c2);
-		k->idx = b, overwritechr(k, c1, sizeof c1);
-
-		k->idx = a, kdgu_next(k), a = k->idx;
-		k->idx = b, kdgu_prev(k), b = k->idx;
-	}
-
-	return true;
-}
-
-void
-kdgu_size(kdgu *k, size_t n)
-{
-	if (n <= k->alloc) return;
-
-	if (!k->alloc) k->alloc = n / 2 + 1;
-	else if (n >= k->alloc * 2) k->alloc = n;
-	else k->alloc *= 2;
-
-	void *p = realloc(k->s, k->alloc);
-	if (!p) return;
-
-	k->s = p;
-}
-
-static uint32_t whitespace[] = {
-	0x9,    /* CHARACTER TABULATION          */
-	0xA,    /* LINE FEED                     */
-	0xB,    /* LINE TABULATION               */
-	0xC,    /* FORM FEED                     */
-	0xD,    /* CARRIAGE RETURN               */
-	0x20,   /* SPACE                         */
-	0x85,   /* NEXT LINE                     */
-	0xA0,   /* NO-BREAK SPACE                */
-	0x1680, /* OGHAM SPACE MARK              */
-	0x180E, /* MONGOLIAN VOWEL SEPARATOR     */
-	0x2000, /* EN QUAD                       */
-	0x2001, /* EM QUAD                       */
-	0x2002, /* EN SPACE                      */
-	0x2003, /* EM SPACE                      */
-	0x2004, /* THREE-PER-EM SPACE            */
-	0x2005, /* FOUR-PER-EM SPACE             */
-	0x2006, /* SIX-PER-EM SPACE              */
-	0x2007, /* FIGURE SPACE                  */
-	0x2008, /* PUNCTUATION SPACE             */
-	0x2009, /* THIN SPACE                    */
-	0x200A, /* HAIR SPACE                    */
-	0x200B, /* ZERO WIDTH SPACE              */
-	0x200C, /* ZERO WIDTH NON-JOINER         */
-	0x200D, /* ZERO WIDTH JOINER             */
-	0x2028, /* LINE SEPARATOR                */
-	0x2029, /* PARAGRAPH SEPARATOR           */
-	0x202F, /* NARROW NO-BREAK SPACE         */
-	0x205F, /* MEDIUM MATHEMATICAL SPACE     */
-	0x2060, /* WORD JOINER                   */
-	0x3000, /* IDEOGRAPHIC SPACE             */
-	0xFEFF  /* ZERO WIDTH NON-BREAKING SPACE */
-};
-
-bool
-kdgu_whitespace(kdgu *k)
-{
-	if (!k) return false;
-	uint32_t c = kdgu_decode(k);
-
-	for (unsigned i = 0;
-	     i < sizeof whitespace / sizeof *whitespace;
-	     i++)
-		if (c == whitespace[i])
-			return true;
-
-	return false;
 }
