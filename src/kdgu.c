@@ -459,7 +459,7 @@ grapheme_break(enum boundclass l, enum boundclass r)
 	return true; /* GB999 */
 }
 
-size_t
+unsigned
 kdgu_chomp(kdgu *k)
 {
 	k->idx = 0;
@@ -715,14 +715,15 @@ kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
 	return err;
 }
 
-size_t
+unsigned
 kdgu_chrsize(kdgu *k)
 {
 	unsigned idx = k->idx;
 	unsigned c = kdgu_next(k);
-	if (!c) return k->len - k->idx;
+	unsigned ret = k->len - k->idx;
 	k->idx = idx;
-	return c;
+	if (c) ret = c;
+	return ret;
 }
 
 bool
@@ -841,11 +842,10 @@ kdgu_next(kdgu *k)
 		uint32_t c2 = kdgu_decode(k);
 		k->idx = idx;
 		if (grapheme_break(codepoint(c1)->bound,
-		                   codepoint(c2)->bound)) {
-			kdgu_inc(k);
+		                   codepoint(c2)->bound))
 			break;
-		}
 	} while (kdgu_inc(k));
+	if (!kdgu_inc(k)) k->idx = now;
 
 	return k->idx - now;
 }
@@ -898,7 +898,7 @@ kdgu_inschr(kdgu *k, uint32_t c)
 	return l;
 }
 
-size_t
+unsigned
 kdgu_len(kdgu *k)
 {
 	if (!k || !k->len) return 0;
@@ -927,11 +927,13 @@ kdgu_uc(kdgu *k)
 		uint32_t cu = upperize(c);
 
 		if (cu != c) {
+			/* This destroys diacritics. */
 			kdgu_delchr(k);
 			kdgu_inschr(k, cu);
 			continue;
 		}
 
+		/* TODO: Move this out. */
 		for (unsigned i = 0;
 		     i < num_special_case;
 		     i++) {
@@ -967,10 +969,10 @@ kdgu_lc(kdgu *k)
 bool
 kdgu_reverse(kdgu *k)
 {
-	if (!k || !k->len) return false;
+	if (!k || !k->len || k->len == 1) return false;
 
 	unsigned end = kdgu_len(k) - 1;
-	k->idx = k->len, kdgu_prev(k);
+	k->idx = 0; while (kdgu_next(k));
 	unsigned a = 0, b = k->idx;
 
 	for (unsigned i = 0; i < end / 2 + 1; i++) {

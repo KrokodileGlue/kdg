@@ -67,9 +67,9 @@ uint32_t kdgu_decode(kdgu *k);
 struct kdgu_error kdgu_encode(enum kdgu_fmt fmt, uint32_t c,
                               char *buf, unsigned *len, unsigned idx);
 
-size_t kdgu_len(kdgu *k);
-size_t kdgu_chrsize(kdgu *k);
-size_t kdgu_chomp(kdgu *k);
+unsigned kdgu_len(kdgu *k);
+unsigned kdgu_chrsize(kdgu *k);
+unsigned kdgu_chomp(kdgu *k);
 
 void kdgu_size(kdgu *k, size_t n);
 

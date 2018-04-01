@@ -147,11 +147,16 @@ main(int argc, char **argv)
 #elif 1
 	kdgu *k = kdgu_new(KDGU_FMT_UTF8, text, len);
 	kdgu_chomp(k);
+
 	kdgu_print(k); putchar('\n');
-	kdgu_reverse(k);
-	kdgu_uc(k);
-	kdgu_debugprint(k); putchar('\n');
 	printf("length: %u\n", kdgu_len(k));
+
+	kdgu_reverse(k);
+	/* kdgu_uc(k); */
+
+	kdgu_print(k); putchar('\n');
+	printf("length: %u\n", kdgu_len(k));
+
 	print_errors(k->errlist, filename);
 	free(text);
 	kdgu_free(k);
