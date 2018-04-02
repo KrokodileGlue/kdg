@@ -1,16 +1,19 @@
-#include "kdgu.h"
-#include "unicode.h"
-#include "encoding.h"
-#include "utf8.h"
-#include "utf16.h"
-#include "error.h"
-
 #include <stdint.h>
 #include <limits.h>
 #include <string.h>
 #include <ctype.h>
 #include <assert.h>
 #include <inttypes.h>
+
+#include "kdgu.h"
+
+#include "unicode.h"
+#include "encoding.h"
+#include "error.h"
+
+#include "utf8.h"
+#include "utf16.h"
+#include "utf32.h"
 
 /*
  * VOLATILE: This table must be kept up-to-date with the order of enum
@@ -127,11 +130,9 @@ seqindex_decode_index(uint32_t idx)
 
 static struct kdgu_codepoint *
 codepoint(uint32_t u) {
-	if (u == UINT32_MAX || u >= 0x110000) {
-		return codepoints;
-	} else {
-		return codepoints + stage2table[stage1table[u >> 8] + (u & 0xFF)];
-	}
+	if (u >= 0x110000) return codepoints;
+	else return &codepoints[stage2table[stage1table[u >> 8]
+	                                    + (u & 0xFF)]];
 }
 
 static uint32_t
@@ -159,7 +160,7 @@ delete_point(kdgu *k)
 	k->idx = idx;
 	memmove(k->s + k->idx,
 	        k->s + k->idx + l,
-	        k->len - k->idx + l);
+	        k->len - k->idx - l);
 	k->len -= l;
 }
 
@@ -533,8 +534,14 @@ kdgu_new(enum kdgu_fmt fmt, const char *s, size_t len)
 	case KDGU_FMT_UTF16BE: if (!endian) endian = ENDIAN_BIG;
 	case KDGU_FMT_UTF16LE: if (!endian) endian = ENDIAN_LITTLE;
 	case KDGU_FMT_UTF16:
-		if (!endian) endian = ENDIAN_BIG;
 		k->s = utf16validate(k, s, &len, endian);
+		k->endian = endian;
+		break;
+
+	case KDGU_FMT_UTF32BE: if (!endian) endian = ENDIAN_BIG;
+	case KDGU_FMT_UTF32LE: if (!endian) endian = ENDIAN_LITTLE;
+	case KDGU_FMT_UTF32:
+		k->s = utf32validate(k, s, &len, endian);
 		k->endian = endian;
 		break;
 	}
@@ -624,13 +631,19 @@ kdgu_inc(kdgu *k)
 		} while (idx < k->len && UTF8CONT(k->s[idx]));
 		break;
 
-	case KDGU_FMT_UTF16BE: endian = ENDIAN_BIG;
+	case KDGU_FMT_UTF16BE: if (!endian) endian = ENDIAN_BIG;
 	case KDGU_FMT_UTF16LE: if (!endian) endian = ENDIAN_LITTLE;
 	case KDGU_FMT_UTF16: {
 		if (UTF16HIGH_SURROGATE(READUTF16(k->s + idx)))
 			idx += 4;
 		else idx += 2;
 	} break;
+
+	case KDGU_FMT_UTF32BE:
+	case KDGU_FMT_UTF32LE:
+	case KDGU_FMT_UTF32:
+		idx += 4;
+		break;
 	}
 
 	if (idx >= k->len) return 0;
@@ -669,6 +682,12 @@ kdgu_dec(kdgu *k)
 			idx -= 4;
 		else idx -= 2;
 	} break;
+
+	case KDGU_FMT_UTF32BE:
+	case KDGU_FMT_UTF32LE:
+	case KDGU_FMT_UTF32:
+		idx -= 4;
+		break;
 	}
 
 	unsigned r = k->idx - idx;
@@ -939,6 +958,11 @@ kdgu_decode(kdgu *k)
 		uint16_t e = READUTF16(k->s + k->idx + 2);
 		c = (d - 0xD800) * 0x400 + e - 0xDC00 + 0x10000;
 	} break;
+
+	case KDGU_FMT_UTF32BE:
+	case KDGU_FMT_UTF32LE:
+	case KDGU_FMT_UTF32:
+		return READUTF32(k->s + k->idx);
 	}
 
 	return c;
@@ -1049,6 +1073,23 @@ kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
 			buf[0] = high & 0xFF;
 			buf[3] = (low >> 8) & 0xFF;
 			buf[2] = low & 0xFF;
+		}
+		break;
+
+	case KDGU_FMT_UTF32BE: if (!endian) endian = ENDIAN_BIG;
+	case KDGU_FMT_UTF32LE: if (!endian) endian = ENDIAN_LITTLE;
+	case KDGU_FMT_UTF32:
+		if (!endian) endian = ENDIAN_BIG;
+		if (endian == ENDIAN_BIG) {
+			buf[0] = c & 0xFF;
+			buf[1] = (c >> 8) & 0xFF;
+			buf[2] = (c >> 16) & 0xFF;
+			buf[3] = (c >> 24) & 0xFF;
+		} else {
+			buf[3] = c & 0xFF;
+			buf[2] = (c >> 8) & 0xFF;
+			buf[1] = (c >> 16) & 0xFF;
+			buf[0] = (c >> 24) & 0xFF;
 		}
 		break;
 	}

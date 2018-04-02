@@ -56,7 +56,7 @@ char *filename = NULL;
 void
 demo(char *text, unsigned len)
 {
-	kdgu *q = kdgu_new(KDGU_FMT_UTF8, text, len);
+	kdgu *q = kdgu_new(KDGU_FMT_UTF32, text, len);
 
 	kdgu_convert(q, KDGU_FMT_UTF16);
 	kdgu_convert(q, KDGU_FMT_UTF8);
@@ -145,7 +145,8 @@ main(int argc, char **argv)
 	free(text);
 	kdgu_free(k);
 #elif 0
-	kdgu *k = kdgu_new(KDGU_FMT_UTF8, text, len);
+	kdgu *k = kdgu_new(KDGU_FMT_UTF32, text, len);
+	kdgu_convert(k, KDGU_FMT_UTF8);
 	kdgu_chomp(k);
 
 	kdgu_print(k); putchar('\n');
