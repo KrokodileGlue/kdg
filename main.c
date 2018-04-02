@@ -58,11 +58,11 @@ demo(char *text, unsigned len)
 {
 	kdgu *q = kdgu_new(KDGU_FMT_UTF32, text, len);
 
-	kdgu_convert(q, KDGU_FMT_UTF16);
-	kdgu_convert(q, KDGU_FMT_UTF8);
 	kdgu_chomp(q);
 	kdgu_uc(q);
+	/* kdgu_lc(q); */
 	kdgu_reverse(q);
+	kdgu_convert(q, KDGU_FMT_UTF8);
 
 	kdgu *r = kdgu_copy(q);
 

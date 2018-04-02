@@ -299,6 +299,7 @@ insert_point(kdgu *k, uint32_t c)
 		err.codepoint = c;
 		err.data = format[k->fmt];
 		pusherror(k, err);
+		return 0;
 	}
 
 	kdgu_size(k, k->len + len);
@@ -701,12 +702,17 @@ kdgu_nth(kdgu *k, unsigned n)
 {
 	if (!k) return false;
 
-	/* TODO: UTF-32 */
 	if (k->fmt == KDGU_FMT_ASCII
 	    || k->fmt == KDGU_FMT_EBCDIC
 	    || k->fmt == KDGU_FMT_CP1252) {
 		if (n >= k->len) return false;
 		k->idx = n;
+		return true;
+	}
+
+	if (k->fmt == KDGU_FMT_UTF32) {
+		if (n >= k->len / 4) return false;
+		k->idx = n * 4;
 		return true;
 	}
 
@@ -1091,6 +1097,7 @@ kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
 			buf[1] = (c >> 16) & 0xFF;
 			buf[0] = (c >> 24) & 0xFF;
 		}
+		*len = 4;
 		break;
 	}
 
