@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <string.h>
 
+#include "error.h"
 #include "kdgu.h"
 #include "utf8.h"
 
@@ -31,13 +32,13 @@ utf8chrlen(const char *s, unsigned l)
 #define ASSERTRANGE(X,Y,Z)	  \
 	do { \
 		if (RANGE(X,Y,Z)) break; \
-		err = ERR(KDGU_ERR_UTF8_INVALID_CONTRANGE, *i); \
+		err = ERR(ERR_UTF8_INVALID_CONTRANGE, *i); \
 		goto error; \
 	} while (false)
 
 #define CHECKLEN(X)	  \
 	if (len != X) { \
-		err = ERR(KDGU_ERR_UTF8_RANGE_LENGTH_MISMATCH, *i); \
+		err = ERR(ERR_UTF8_RANGE_LENGTH_MISMATCH, *i); \
 		goto error; \
 	}
 
@@ -84,11 +85,11 @@ is_noncharacter(const char *s, unsigned len)
 		goto error; \
 	} while (false)
 
-static struct kdgu_error
+static struct error
 utf8validatechar(const char *s, char *r, unsigned *i,
                  unsigned *idx, size_t *l)
 {
-	struct kdgu_error err = ERR(KDGU_ERR_NO_ERROR, *i);
+	struct error err = ERR(ERR_NO_ERROR, *i);
 
 	/*
 	 * Misplaced continuation byte. It's not a mistake that a
@@ -98,7 +99,7 @@ utf8validatechar(const char *s, char *r, unsigned *i,
 	if (UTF8CONT(s[*i])) {
 		r[(*idx)++] = KDGU_REPLACEMENT;
 		(*i)++;
-		return ERR(KDGU_ERR_UTF8_STRAY_CONTINUATION_BYTE, *i);
+		return ERR(ERR_UTF8_STRAY_CONTINUATION_BYTE, *i);
 	}
 
 	/* This is just a regular ASCII character. */
@@ -106,7 +107,7 @@ utf8validatechar(const char *s, char *r, unsigned *i,
 	    && UTF8VALID((unsigned char)s[*i])) {
 		r[(*idx)++] = s[*i];
 		(*i)++;
-		return ERR(KDGU_ERR_NO_ERROR, *i);
+		return ERR(ERR_NO_ERROR, *i);
 	}
 
 	int len = -1;
@@ -122,10 +123,10 @@ utf8validatechar(const char *s, char *r, unsigned *i,
 	}
 
 	if (!UTF8VALID((unsigned char)s[*i]))
-		FAIL(KDGU_ERR_UTF8_INVALID_BYTE);
+		FAIL(ERR_UTF8_INVALID_BYTE);
 
 	if (len < 0 || len > 4)
-		FAIL(KDGU_ERR_UTF8_INVALID_LENGTH);
+		FAIL(ERR_UTF8_INVALID_LENGTH);
 
 	/*
 	 * We're looking at the leading byte and we need to
@@ -137,20 +138,20 @@ utf8validatechar(const char *s, char *r, unsigned *i,
 	 * sequence of the expected length.
 	 */
 	if (*i + len >= *l)
-		FAIL(KDGU_ERR_UTF8_INCORRECT_LENGTH);
+		FAIL(ERR_UTF8_INCORRECT_LENGTH);
 
 	/* Make sure they're all valid continuation bytes. */
 	for (int j = 0; j < len; j++) {
 		if (!UTF8VALID((unsigned char)s[*i + j + 1]))
-			FAIL(KDGU_ERR_UTF8_INVALID_BYTE);
+			FAIL(ERR_UTF8_INVALID_BYTE);
 
 		if (!UTF8CONT(s[*i + j + 1]))
-			FAIL(KDGU_ERR_UTF8_MISSING_CONTINUATION);
+			FAIL(ERR_UTF8_MISSING_CONTINUATION);
 	}
 
 	/* Quickly check for noncharacters. */
 	if (is_noncharacter(s + *i, len))
-		FAIL(KDGU_ERR_UTF8_NONCHARACTER);
+		FAIL(ERR_UTF8_NONCHARACTER);
 
 	/* Now we need to check the ranges. */
 
@@ -194,14 +195,14 @@ utf8validatechar(const char *s, char *r, unsigned *i,
 		ASSERTRANGE(*i + 2, 0x80, 0xbf);
 		ASSERTRANGE(*i + 3, 0x80, 0xbf);
 	} else {
-		err = ERR(KDGU_ERR_UTF8_INVALID_RANGE, *i);
+		err = ERR(ERR_UTF8_INVALID_RANGE, *i);
 		goto error;
 	}
 
 	memcpy(r + *idx, s + *i, len + 1);
 	*idx += len + 1;
 	*i += len + 1;
-	return ERR(KDGU_ERR_NO_ERROR, *i);
+	return ERR(ERR_NO_ERROR, *i);
 
  error:
 	(*i)++;
@@ -230,7 +231,7 @@ utf8validate(kdgu *k, const char *s, size_t *l)
 		s += 3;
 
 	for (unsigned i = 0; i < *l;) {
-		struct kdgu_error err =
+		struct error err =
 			utf8validatechar(s, r, &i, &idx, l);
 
 		if (!err.kind) continue;

@@ -10,35 +10,35 @@ typedef struct kdgu {
 	unsigned alloc, len, idx;
 	char *s;
 
-	struct kdgu_errorlist {
-		struct kdgu_error *err;
+	struct errorlist {
+		struct error *err;
 		unsigned num;
 	} *errlist;
 
-	enum kdgu_fmt {
-		KDGU_FMT_CP1252,
-		KDGU_FMT_EBCDIC,
-		KDGU_FMT_ASCII,
+	enum fmt {
+		FMT_CP1252,
+		FMT_EBCDIC,
+		FMT_ASCII,
 
-		KDGU_FMT_UTF8,
+		FMT_UTF8,
 
-		KDGU_FMT_UTF16,
-		KDGU_FMT_UTF16BE,
-		KDGU_FMT_UTF16LE,
+		FMT_UTF16,
+		FMT_UTF16BE,
+		FMT_UTF16LE,
 
-		KDGU_FMT_UTF32,
-		KDGU_FMT_UTF32LE,
-		KDGU_FMT_UTF32BE
+		FMT_UTF32,
+		FMT_UTF32LE,
+		FMT_UTF32BE
 	} fmt;
 
-	enum kdgu_endian {
+	enum endian {
 		ENDIAN_NONE,
 		ENDIAN_BIG,
 		ENDIAN_LITTLE
 	} endian;
 } kdgu;
 
-kdgu *kdgu_new(enum kdgu_fmt fmt, const char *s, size_t len);
+kdgu *kdgu_new(enum fmt fmt, const char *s, size_t len);
 kdgu *kdgu_news(const char *s);
 void kdgu_free(kdgu *k);
 
@@ -57,7 +57,7 @@ unsigned kdgu_dec(kdgu *k);
 unsigned kdgu_next(kdgu *k);
 unsigned kdgu_prev(kdgu *k);
 
-bool kdgu_convert(kdgu *k, enum kdgu_fmt fmt);
+bool kdgu_convert(kdgu *k, enum fmt fmt);
 
 bool kdgu_cmp(kdgu *k1, kdgu *k2);
 bool kdgu_nth(kdgu *k, unsigned n);
@@ -67,12 +67,12 @@ void kdgu_delete(kdgu *k, size_t a, size_t b);
 void kdgu_print(kdgu *k);
 void kdgu_debugprint(kdgu *k);
 void kdgu_pchr(kdgu *k, FILE *f);
-void kdgu_print_error(struct kdgu_error err);
+void kdgu_print_error(struct error err);
 
 uint32_t kdgu_decode(kdgu *k);
-struct kdgu_error kdgu_encode(enum kdgu_fmt fmt, uint32_t c,
-                              char *buf, unsigned *len,
-                              unsigned idx, int endian);
+struct error kdgu_encode(enum fmt fmt, uint32_t c,
+                         char *buf, unsigned *len,
+                         unsigned idx, int endian);
 
 unsigned kdgu_len(kdgu *k);
 unsigned kdgu_chrsize(kdgu *k);

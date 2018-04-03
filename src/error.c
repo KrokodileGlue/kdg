@@ -6,7 +6,7 @@
 #include "error.h"
 
 bool
-pusherror(kdgu *k, struct kdgu_error err)
+pusherror(kdgu *k, struct error err)
 {
 	if (!k->errlist) {
 		k->errlist = malloc(sizeof *k->errlist);
@@ -33,7 +33,7 @@ pusherror(kdgu *k, struct kdgu_error err)
  * VOLATILE: This table must be kept up-to-date with the order of enum
  * kdgu_errorcode.
  */
-char *error[] = {
+char *error_str[] = {
 	"no error",
 
 	"a continuation byte cannot be the start of a well-formed"

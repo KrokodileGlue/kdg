@@ -38,7 +38,7 @@ load_file(const char *p, unsigned *l)
 }
 
 void
-print_errors(struct kdgu_errorlist *errlist, char *path)
+print_errors(struct errorlist *errlist, char *path)
 {
 	if (!errlist) return;
 
@@ -56,19 +56,19 @@ char *filename = NULL;
 void
 demo(char *text, unsigned len)
 {
-	kdgu *q = kdgu_new(KDGU_FMT_UTF8, text, len);
-	kdgu_convert(q, KDGU_FMT_UTF16);
+	kdgu *q = kdgu_new(FMT_UTF8, text, len);
+	kdgu_convert(q, FMT_UTF16);
 
 	kdgu_chomp(q);
 	kdgu_uc(q);
 	/* kdgu_lc(q); */
 	kdgu_reverse(q);
-	kdgu_convert(q, KDGU_FMT_UTF8);
+	kdgu_convert(q, FMT_UTF8);
 
 	kdgu *r = kdgu_copy(q);
 
-	kdgu_convert(r, KDGU_FMT_UTF16);
-	kdgu_convert(r, KDGU_FMT_UTF8);
+	kdgu_convert(r, FMT_UTF16);
+	kdgu_convert(r, FMT_UTF8);
 
 	/* assert(kdgu_cmp(q, r)); */
 
@@ -115,8 +115,8 @@ demo(char *text, unsigned len)
 	kdgu *a = kdgu_news("foo ");
 	kdgu *b = kdgu_news("bar");
 
-	kdgu_convert(a, KDGU_FMT_UTF8);
-	kdgu_convert(b, KDGU_FMT_UTF8);
+	kdgu_convert(a, FMT_UTF8);
+	kdgu_convert(b, FMT_UTF8);
 
 	kdgu_uc(b);
 	kdgu_cat(a, b);
@@ -136,21 +136,21 @@ main(int argc, char **argv)
 	filename = argv[argc - 1];
 
 #if 1
-	kdgu *k = kdgu_new(KDGU_FMT_UTF8, text, len);
-	kdgu_convert(k, KDGU_FMT_UTF32);
+	kdgu *k = kdgu_new(FMT_UTF8, text, len);
+	kdgu_convert(k, FMT_UTF32);
 
 	kdgu_chomp(k);
 	kdgu_uc(k);
 	kdgu_reverse(k);
-	kdgu_convert(k, KDGU_FMT_UTF8);
+	kdgu_convert(k, FMT_UTF8);
 	kdgu_print(k); putchar('\n');
 
 	/* print_errors(k->errlist, filename); */
 	free(text);
 	kdgu_free(k);
 #elif 0
-	kdgu *k = kdgu_new(KDGU_FMT_UTF32, text, len);
-	kdgu_convert(k, KDGU_FMT_UTF8);
+	kdgu *k = kdgu_new(FMT_UTF32, text, len);
+	kdgu_convert(k, FMT_UTF8);
 	kdgu_chomp(k);
 
 	kdgu_print(k); putchar('\n');

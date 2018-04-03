@@ -5,15 +5,15 @@
 #include "utf32.h"
 #include "error.h"
 
-static struct kdgu_error
+static struct error
 utf32validatechar(const char *s, char *r, unsigned *i,
                   unsigned *idx, size_t buflen, int endian)
 {
-	struct kdgu_error err = ERR(KDGU_ERR_NO_ERROR, *i);
+	struct error err = ERR(ERR_NO_ERROR, *i);
 
 	if (buflen - *i < 4) {
 		*i = buflen;
-		return ERR(KDGU_ERR_UTF32_EOS, *i);
+		return ERR(ERR_UTF32_EOS, *i);
 	}
 
 	uint32_t c = READUTF32(endian, s + *i);
@@ -55,7 +55,7 @@ utf32validate(kdgu *k, const char *s, size_t *l, int endian)
 	}
 
 	for (unsigned i = 0; i < buflen;) {
-		struct kdgu_error err =
+		struct error err =
 			utf32validatechar(s, r, &i,
 			                  &idx, buflen, endian);
 

@@ -4,15 +4,15 @@
 #include "utf16.h"
 #include "error.h"
 
-static struct kdgu_error
+static struct error
 utf16validatechar(const char *s, char *r, unsigned *i,
                   unsigned *idx, size_t buflen, int endian)
 {
-	struct kdgu_error err = ERR(KDGU_ERR_NO_ERROR, *i);
+	struct error err = ERR(ERR_NO_ERROR, *i);
 
 	if (buflen - *i < 2) {
 		if (buflen - *i == 1) (*i)++;
-		return ERR(KDGU_ERR_UTF16_EOS, *i);
+		return ERR(ERR_UTF16_EOS, *i);
 	}
 
 	uint16_t c = READUTF16(endian, s + *i);
@@ -26,7 +26,7 @@ utf16validatechar(const char *s, char *r, unsigned *i,
 	}
 
 	if (buflen - *i < 4)
-		return (*i) += 2, ERR(KDGU_ERR_UTF16_EOS, *i);
+		return (*i) += 2, ERR(ERR_UTF16_EOS, *i);
 
 	/* It's in the surrogate pair range. */
 	uint16_t c2 = READUTF16(endian, s + *i + 2);
@@ -34,7 +34,7 @@ utf16validatechar(const char *s, char *r, unsigned *i,
 
 	if (!UTF16LOW_SURROGATE(c2)) {
 		r[(*idx)++] = KDGU_REPLACEMENT;
-		return ERR(KDGU_ERR_UTF16_MISSING_SURROGATE, *i);
+		return ERR(ERR_UTF16_MISSING_SURROGATE, *i);
 	}
 
 	memcpy(r + *idx, &c, sizeof c);
@@ -78,7 +78,7 @@ utf16validate(kdgu *k, const char *s, size_t *l, int endian)
 	}
 
 	for (unsigned i = 0; i < buflen;) {
-		struct kdgu_error err =
+		struct error err =
 			utf16validatechar(s, r, &i,
 			                  &idx, buflen, endian);
 

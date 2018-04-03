@@ -17,7 +17,7 @@
 
 /*
  * VOLATILE: This table must be kept up-to-date with the order of enum
- * kdgu_fmt.
+ * fmt.
  */
 static char *format[] = {
 	"CP1252",
@@ -56,7 +56,7 @@ cp1252validate(kdgu *k, const char *s, size_t *l)
 	 */
 	for (unsigned i = 0; i < k->len; i++)
 		if (!IS_VALID_CP1252((unsigned char)r[i])) {
-			pusherror(k, ERR(KDGU_ERR_INVALID_CP1252, i));
+			pusherror(k, ERR(ERR_INVALID_CP1252, i));
 			r[i] = KDGU_REPLACEMENT;
 		}
 
@@ -72,7 +72,7 @@ asciivalidate(kdgu *k, const char *s, size_t *l)
 
 	for (unsigned i = 0; i < k->len; i++)
 		if ((unsigned char)s[i] > 128)
-			pusherror(k, ERR(KDGU_ERR_INVALID_ASCII, i));
+			pusherror(k, ERR(ERR_INVALID_ASCII, i));
 
 	return r;
 }
@@ -87,18 +87,18 @@ ebcdicvalidate(kdgu *k, const char *s, size_t *l)
 	for (unsigned i = 0; i < k->len; i++)
 		if ((unsigned char)s[i] == 48
 		    || (unsigned char)s[i] == 49)
-			pusherror(k, ERR(KDGU_ERR_INVALID_EBCDIC, i));
+			pusherror(k, ERR(ERR_INVALID_EBCDIC, i));
 
 	return r;
 }
 
 void
-kdgu_print_error(struct kdgu_error err)
+kdgu_print_error(struct error err)
 {
-	if (err.kind == KDGU_ERR_NO_CONVERSION) {
-		printf(error[err.kind], err.codepoint, err.data);
+	if (err.kind == ERR_NO_CONVERSION) {
+		printf(error_str[err.kind], err.codepoint, err.data);
 	} else {
-		printf("%s", error[err.kind]);
+		printf("%s", error_str[err.kind]);
 	}
 }
 
@@ -120,10 +120,10 @@ seqindex_decode_entry(uint16_t **entry)
 extern uint16_t sequences[];
 extern uint16_t stage1table[];
 extern uint16_t stage2table[];
-extern struct kdgu_codepoint codepoints[];
+extern struct codepoint codepoints[];
 
 extern size_t num_special_case;
-extern struct kdgu_case special_case[];
+extern struct special_case special_case[];
 
 static uint32_t
 seqindex_decode_index(uint32_t idx)
@@ -131,7 +131,7 @@ seqindex_decode_index(uint32_t idx)
 	return seqindex_decode_entry(&(uint16_t *){sequences + idx});
 }
 
-static struct kdgu_codepoint *
+static struct codepoint *
 codepoint(uint32_t u) {
 	if (u >= 0x110000) return codepoints;
 	else return &codepoints[stage2table[stage1table[u >> 8]
@@ -201,47 +201,47 @@ overwritechr(kdgu *k, char *b, unsigned l1)
 static bool
 grapheme_break(enum boundclass l, enum boundclass r)
 {
-	if (l == KDGU_BOUNDCLASS_START) {
+	if (l == BOUNDCLASS_START) {
 		return true; /* GB1 */
-	} else if (l == KDGU_BOUNDCLASS_CR
-	           && r == KDGU_BOUNDCLASS_LF) {
+	} else if (l == BOUNDCLASS_CR
+	           && r == BOUNDCLASS_LF) {
 		return false; /* GB3 */
-	} else if (l >= KDGU_BOUNDCLASS_CR
-	           && l <= KDGU_BOUNDCLASS_CONTROL) {
+	} else if (l >= BOUNDCLASS_CR
+	           && l <= BOUNDCLASS_CONTROL) {
 		return true; /* GB4 */
-	} else if (r >= KDGU_BOUNDCLASS_CR
-	           && r <= KDGU_BOUNDCLASS_CONTROL) {
+	} else if (r >= BOUNDCLASS_CR
+	           && r <= BOUNDCLASS_CONTROL) {
 		return true; /* GB5 */
-	} else if (l == KDGU_BOUNDCLASS_L &&
-	           (r == KDGU_BOUNDCLASS_L ||
-	            r == KDGU_BOUNDCLASS_V ||
-	            r == KDGU_BOUNDCLASS_LV ||
-	            r == KDGU_BOUNDCLASS_LVT)) {
+	} else if (l == BOUNDCLASS_L &&
+	           (r == BOUNDCLASS_L ||
+	            r == BOUNDCLASS_V ||
+	            r == BOUNDCLASS_LV ||
+	            r == BOUNDCLASS_LVT)) {
 		return false; /* GB6 */
-	} else if ((l == KDGU_BOUNDCLASS_LV ||
-	            l == KDGU_BOUNDCLASS_V) &&
-	           (r == KDGU_BOUNDCLASS_V ||
-	            r == KDGU_BOUNDCLASS_T)) {
+	} else if ((l == BOUNDCLASS_LV ||
+	            l == BOUNDCLASS_V) &&
+	           (r == BOUNDCLASS_V ||
+	            r == BOUNDCLASS_T)) {
 		return false; /* GB7 */
-	} else if ((l == KDGU_BOUNDCLASS_LVT ||
-	            l == KDGU_BOUNDCLASS_T) &&
-	           r == KDGU_BOUNDCLASS_T) {
+	} else if ((l == BOUNDCLASS_LVT ||
+	            l == BOUNDCLASS_T) &&
+	           r == BOUNDCLASS_T) {
 		return false; /* GB8 */
-	} else if (r == KDGU_BOUNDCLASS_EXTEND || /* GB9 */
-	           r == KDGU_BOUNDCLASS_ZWJ ||
-	           r == KDGU_BOUNDCLASS_SPACINGMARK || /* GB9a */
-	           l == KDGU_BOUNDCLASS_PREPEND) {
+	} else if (r == BOUNDCLASS_EXTEND || /* GB9 */
+	           r == BOUNDCLASS_ZWJ ||
+	           r == BOUNDCLASS_SPACINGMARK || /* GB9a */
+	           l == BOUNDCLASS_PREPEND) {
 		return false; /* GB9b */
-	} else if ((l == KDGU_BOUNDCLASS_E_BASE ||
-	            l == KDGU_BOUNDCLASS_E_BASE_GAZ) &&
-	           r == KDGU_BOUNDCLASS_E_MODIFIER) {
+	} else if ((l == BOUNDCLASS_E_BASE ||
+	            l == BOUNDCLASS_E_BASE_GAZ) &&
+	           r == BOUNDCLASS_E_MODIFIER) {
 		return false; /* GB10  */
-	} else if ((l == KDGU_BOUNDCLASS_ZWJ &&
-	            (r == KDGU_BOUNDCLASS_GLUE_AFTER_ZWJ ||
-	             r == KDGU_BOUNDCLASS_E_BASE_GAZ))) {
+	} else if ((l == BOUNDCLASS_ZWJ &&
+	            (r == BOUNDCLASS_GLUE_AFTER_ZWJ ||
+	             r == BOUNDCLASS_E_BASE_GAZ))) {
 		return false; /* GB11 */
-	} else if (l == KDGU_BOUNDCLASS_REGIONAL_INDICATOR &&
-	           r == KDGU_BOUNDCLASS_REGIONAL_INDICATOR) {
+	} else if (l == BOUNDCLASS_REGIONAL_INDICATOR &&
+	           r == BOUNDCLASS_REGIONAL_INDICATOR) {
 		return false; /* GB12/13 */
 	}
 
@@ -296,7 +296,7 @@ insert_point(kdgu *k, uint32_t c)
 	char buf[4];
 	unsigned len;
 
-	struct kdgu_error err =
+	struct error err =
 		kdgu_encode(k->fmt, c, buf, &len, k->idx, k->endian);
 
 	if (err.kind) {
@@ -343,7 +343,7 @@ kdgu_len(kdgu *k)
 	return l;
 }
 
-static struct kdgu_case *
+static struct special_case *
 get_special_case(uint32_t c)
 {
 	for (unsigned i = 0; i < num_special_case; i++)
@@ -369,7 +369,7 @@ kdgu_uc(kdgu *k)
 			continue;
 		}
 
-		struct kdgu_case *sc = get_special_case(c);
+		struct special_case *sc = get_special_case(c);
 
 		if (!sc || !sc->upper_len) continue;
 		delete_point(k);
@@ -401,7 +401,7 @@ kdgu_lc(kdgu *k)
 			continue;
 		}
 
-		struct kdgu_case *sc = get_special_case(c);
+		struct special_case *sc = get_special_case(c);
 
 		if (!sc || !sc->lower_len) continue;
 		delete_point(k);
@@ -508,7 +508,7 @@ kdgu_whitespace(kdgu *k)
 }
 
 kdgu *
-kdgu_new(enum kdgu_fmt fmt, const char *s, size_t len)
+kdgu_new(enum fmt fmt, const char *s, size_t len)
 {
 	kdgu *k = malloc(sizeof *k);
 	if (!k) return NULL;
@@ -519,31 +519,31 @@ kdgu_new(enum kdgu_fmt fmt, const char *s, size_t len)
 	int endian = ENDIAN_NONE;
 
 	switch (fmt) {
-	case KDGU_FMT_CP1252:
+	case FMT_CP1252:
 		k->s = cp1252validate(k, s, &len);
 		break;
 
-	case KDGU_FMT_ASCII:
+	case FMT_ASCII:
 		k->s = asciivalidate(k, s, &len);
 		break;
 
-	case KDGU_FMT_EBCDIC:
+	case FMT_EBCDIC:
 		k->s = ebcdicvalidate(k, s, &len);
 		break;
 
-	case KDGU_FMT_UTF8:
+	case FMT_UTF8:
 		k->s = utf8validate(k, s, &len);
 		break;
 
-	case KDGU_FMT_UTF16LE: endian = ENDIAN_LITTLE;
-	case KDGU_FMT_UTF16BE: if (!endian) endian = ENDIAN_BIG;
-	case KDGU_FMT_UTF16:
+	case FMT_UTF16LE: endian = ENDIAN_LITTLE;
+	case FMT_UTF16BE: if (!endian) endian = ENDIAN_BIG;
+	case FMT_UTF16:
 		k->s = utf16validate(k, s, &len, endian);
 		break;
 
-	case KDGU_FMT_UTF32LE: endian = ENDIAN_LITTLE;
-	case KDGU_FMT_UTF32BE: if (!endian) endian = ENDIAN_BIG;
-	case KDGU_FMT_UTF32:
+	case FMT_UTF32LE: endian = ENDIAN_LITTLE;
+	case FMT_UTF32BE: if (!endian) endian = ENDIAN_BIG;
+	case FMT_UTF32:
 		k->s = utf32validate(k, s, &len, endian);
 		break;
 	}
@@ -562,7 +562,7 @@ kdgu_new(enum kdgu_fmt fmt, const char *s, size_t len)
 kdgu *
 kdgu_news(const char *s)
 {
-	return kdgu_new(KDGU_FMT_ASCII, s, strlen(s));
+	return kdgu_new(FMT_ASCII, s, strlen(s));
 }
 
 kdgu *
@@ -619,21 +619,21 @@ kdgu_inc(kdgu *k)
 	unsigned idx = k->idx;
 
 	switch (k->fmt) {
-	case KDGU_FMT_CP1252:
-	case KDGU_FMT_EBCDIC:
-	case KDGU_FMT_ASCII:
+	case FMT_CP1252:
+	case FMT_EBCDIC:
+	case FMT_ASCII:
 		idx++;
 		break;
 
-	case KDGU_FMT_UTF8:
+	case FMT_UTF8:
 		do {
 			idx++;
 		} while (idx < k->len && UTF8CONT(k->s[idx]));
 		break;
 
-	case KDGU_FMT_UTF16BE:
-	case KDGU_FMT_UTF16LE:
-	case KDGU_FMT_UTF16:
+	case FMT_UTF16BE:
+	case FMT_UTF16LE:
+	case FMT_UTF16:
 		idx += 2;
 		if (idx >= k->len) break;
 		if (UTF16HIGH_SURROGATE(READUTF16(k->endian,
@@ -641,9 +641,9 @@ kdgu_inc(kdgu *k)
 			idx += 2;
 		break;
 
-	case KDGU_FMT_UTF32BE:
-	case KDGU_FMT_UTF32LE:
-	case KDGU_FMT_UTF32:
+	case FMT_UTF32BE:
+	case FMT_UTF32LE:
+	case FMT_UTF32:
 		idx += 4;
 		break;
 	}
@@ -663,30 +663,30 @@ kdgu_dec(kdgu *k)
 	unsigned idx = k->idx;
 
 	switch (k->fmt) {
-	case KDGU_FMT_CP1252:
-	case KDGU_FMT_EBCDIC:
-	case KDGU_FMT_ASCII:
+	case FMT_CP1252:
+	case FMT_EBCDIC:
+	case FMT_ASCII:
 		idx--;
 		break;
 
-	case KDGU_FMT_UTF8:
+	case FMT_UTF8:
 		do {
 			idx--;
 		} while (idx && UTF8CONT(k->s[idx]));
 		break;
 
-	case KDGU_FMT_UTF16BE:
-	case KDGU_FMT_UTF16LE:
-	case KDGU_FMT_UTF16:
+	case FMT_UTF16BE:
+	case FMT_UTF16LE:
+	case FMT_UTF16:
 		idx -= 2;
 		if (UTF16LOW_SURROGATE(READUTF16(k->endian,
 		                                 k->s + idx - 2)))
 			idx -= 2;
 		break;
 
-	case KDGU_FMT_UTF32BE:
-	case KDGU_FMT_UTF32LE:
-	case KDGU_FMT_UTF32:
+	case FMT_UTF32BE:
+	case FMT_UTF32LE:
+	case FMT_UTF32:
 		idx -= 4;
 		break;
 	}
@@ -702,15 +702,15 @@ kdgu_nth(kdgu *k, unsigned n)
 {
 	if (!k) return false;
 
-	if (k->fmt == KDGU_FMT_ASCII
-	    || k->fmt == KDGU_FMT_EBCDIC
-	    || k->fmt == KDGU_FMT_CP1252) {
+	if (k->fmt == FMT_ASCII
+	    || k->fmt == FMT_EBCDIC
+	    || k->fmt == FMT_CP1252) {
 		if (n >= k->len) return false;
 		k->idx = n;
 		return true;
 	}
 
-	if (k->fmt == KDGU_FMT_UTF32) {
+	if (k->fmt == FMT_UTF32) {
 		if (n >= k->len / 4) return false;
 		k->idx = n * 4;
 		return true;
@@ -742,7 +742,7 @@ kdgu_getnth(kdgu *k, unsigned n)
 }
 
 bool
-kdgu_convert(kdgu *k, enum kdgu_fmt fmt)
+kdgu_convert(kdgu *k, enum fmt fmt)
 {
 	if (!k) return false;
 	if (!k->len || k->fmt == fmt) {
@@ -759,7 +759,7 @@ kdgu_convert(kdgu *k, enum kdgu_fmt fmt)
 		uint32_t c = kdgu_decode(k);
 		char buf[4];
 
-		struct kdgu_error err =
+		struct error err =
 			kdgu_encode(fmt, c, buf,
 			            &len, k->idx, endian);
 
@@ -941,16 +941,16 @@ kdgu_decode(kdgu *k)
 	uint32_t c = 0;
 
 	switch (k->fmt) {
-	case KDGU_FMT_CP1252:
+	case FMT_CP1252:
 		return cp1252[(unsigned char)k->s[k->idx]];
 
-	case KDGU_FMT_EBCDIC:
+	case FMT_EBCDIC:
 		return ebcdic[(unsigned char)k->s[k->idx]];
 
-	case KDGU_FMT_ASCII:
+	case FMT_ASCII:
 		return (uint32_t)k->s[k->idx];
 
-	case KDGU_FMT_UTF8: {
+	case FMT_UTF8: {
 		unsigned len = utf8chrlen(k->s + k->idx,
 		                          k->len - k->idx);
 
@@ -961,9 +961,9 @@ kdgu_decode(kdgu *k)
 				<< (len - i - 1) * 6;
 	} break;
 
-	case KDGU_FMT_UTF16BE:
-	case KDGU_FMT_UTF16LE:
-	case KDGU_FMT_UTF16: {
+	case FMT_UTF16BE:
+	case FMT_UTF16LE:
+	case FMT_UTF16: {
 		uint16_t d = READUTF16(k->endian, k->s + k->idx);
 		if (d <= 0xD7FF || d >= 0xE000) return d;
 
@@ -972,9 +972,9 @@ kdgu_decode(kdgu *k)
 		c = (d - 0xD800) * 0x400 + e - 0xDC00 + 0x10000;
 	} break;
 
-	case KDGU_FMT_UTF32BE:
-	case KDGU_FMT_UTF32LE:
-	case KDGU_FMT_UTF32:
+	case FMT_UTF32BE:
+	case FMT_UTF32LE:
+	case FMT_UTF32:
 		return READUTF32(k->endian, k->s + k->idx);
 	}
 
@@ -983,25 +983,25 @@ kdgu_decode(kdgu *k)
 
 /* TODO: Make sure NO_CONVERSION errors are consistent. */
 /* TODO: KDGU_REPLACEMENT doesn't work for most encodings. */
-struct kdgu_error
-kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
+struct error
+kdgu_encode(enum fmt fmt, uint32_t c, char *buf,
             unsigned *len, unsigned idx, int endian)
 {
-	struct kdgu_error err = ERR(KDGU_ERR_NO_ERROR, 0);
+	struct error err = ERR(ERR_NO_ERROR, 0);
 
 	switch (fmt) {
-	case KDGU_FMT_CP1252:
+	case FMT_CP1252:
 		*len = 1;
 		buf[0] = c & 0x7F;
 
 		if (!IS_VALID_CP1252(c)) {
-			err = ERR(KDGU_ERR_NO_CONVERSION, idx);
+			err = ERR(ERR_NO_CONVERSION, idx);
 			buf[0] = KDGU_REPLACEMENT;
 		}
 		break;
 
 	/* TODO: Move this stuff out. */
-	case KDGU_FMT_EBCDIC:
+	case FMT_EBCDIC:
 		*len = 1;
 
 		for (unsigned i = 0; i < 256; i++) {
@@ -1011,17 +1011,17 @@ kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
 			}
 
 			if (i == 255) {
-				err = ERR(KDGU_ERR_NO_CONVERSION,
+				err = ERR(ERR_NO_CONVERSION,
 				          idx);
 				buf[0] = KDGU_REPLACEMENT;
 			}
 		}
 		break;
 
-	case KDGU_FMT_ASCII:
+	case FMT_ASCII:
 		*len = 1;
 		if (c > 127) {
-			err = ERR(KDGU_ERR_NO_CONVERSION, idx);
+			err = ERR(ERR_NO_CONVERSION, idx);
 			buf[0] = KDGU_REPLACEMENT;
 			break;
 		}
@@ -1029,7 +1029,7 @@ kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
 		buf[0] = c & 0xFF;
 		break;
 
-	case KDGU_FMT_UTF8:
+	case FMT_UTF8:
 		if (c <= 0x7F) {
 			*len = 1;
 
@@ -1053,14 +1053,14 @@ kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
 			buf[2] = 0x80 | ((c >> 6) & 0x3F);
 			buf[3] = 0x80 | (c & 0x3F);
 		} else {
-			err = ERR(KDGU_ERR_NO_CONVERSION, idx);
+			err = ERR(ERR_NO_CONVERSION, idx);
 			*len = 1;
 		}
 		break;
 
-	case KDGU_FMT_UTF16LE:
-	case KDGU_FMT_UTF16BE:
-	case KDGU_FMT_UTF16:
+	case FMT_UTF16LE:
+	case FMT_UTF16BE:
+	case FMT_UTF16:
 		*len = 2;
 		if (c <= 0xD7FF || (c >= 0xE000 && c <= 0xFFFF)) {
 			if (endian == ENDIAN_BIG) {
@@ -1092,9 +1092,9 @@ kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
 		}
 		break;
 
-	case KDGU_FMT_UTF32LE:
-	case KDGU_FMT_UTF32BE:
-	case KDGU_FMT_UTF32:
+	case FMT_UTF32LE:
+	case FMT_UTF32BE:
+	case FMT_UTF32:
 		*len = 4;
 		if (endian == ENDIAN_LITTLE) {
 			buf[0] = c & 0xFF;
