@@ -57,6 +57,7 @@ void
 demo(char *text, unsigned len)
 {
 	kdgu *q = kdgu_new(KDGU_FMT_UTF32, text, len);
+	kdgu_convert(q, KDGU_FMT_UTF16);
 
 	kdgu_chomp(q);
 	kdgu_uc(q);
@@ -69,7 +70,7 @@ demo(char *text, unsigned len)
 	kdgu_convert(r, KDGU_FMT_UTF16);
 	kdgu_convert(r, KDGU_FMT_UTF8);
 
-	assert(kdgu_cmp(q, r));
+	/* assert(kdgu_cmp(q, r)); */
 
 	/*
 	 * TODO: It seems that non shortest form UTF-8 sequences are
@@ -135,13 +136,15 @@ main(int argc, char **argv)
 	filename = argv[argc - 1];
 
 #if 0
-	kdgu *k = kdgu_new(KDGU_FMT_UTF8, text, len);
+	kdgu *k = kdgu_new(KDGU_FMT_UTF32, text, len);
+
 	kdgu_chomp(k);
-	kdgu_reverse(k);
-	kdgu_print(k); putchar('\n');
 	kdgu_uc(k);
+	kdgu_reverse(k);
+	kdgu_convert(k, KDGU_FMT_UTF8);
 	kdgu_print(k); putchar('\n');
-	print_errors(k->errlist, filename);
+
+	/* print_errors(k->errlist, filename); */
 	free(text);
 	kdgu_free(k);
 #elif 0

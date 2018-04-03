@@ -25,8 +25,11 @@ static char *format[] = {
 	"ASCII",
 	"UTF-8",
 	"UTF-16",
-	"UTF-16BE",
-	"UTF-16LE"
+	"UTF-16-BE",
+	"UTF-16-LE",
+	"UTF-32",
+	"UTF-32-LE",
+	"UTF-32-BE"
 };
 
 _Static_assert(CHAR_BIT == 8,
@@ -93,9 +96,9 @@ void
 kdgu_print_error(struct kdgu_error err)
 {
 	if (err.kind == KDGU_ERR_NO_CONVERSION) {
-		printf(err.msg, err.codepoint, err.data);
+		printf(error[err.kind], err.codepoint, err.data);
 	} else {
-		printf("%s", err.msg);
+		printf("%s", error[err.kind]);
 	}
 }
 
@@ -156,6 +159,7 @@ delete_point(kdgu *k)
 	unsigned l = kdgu_inc(k);
 
 	if (!l) l = k->len - k->idx;
+	if (!l) return;
 
 	k->idx = idx;
 	memmove(k->s + k->idx,
@@ -293,7 +297,7 @@ insert_point(kdgu *k, uint32_t c)
 	unsigned len;
 
 	struct kdgu_error err =
-		kdgu_encode(k->fmt, c, buf, &len, k->idx);
+		kdgu_encode(k->fmt, c, buf, &len, k->idx, k->endian);
 
 	if (err.kind) {
 		err.codepoint = c;
@@ -367,7 +371,7 @@ kdgu_uc(kdgu *k)
 
 		struct kdgu_case *sc = get_special_case(c);
 
-		if (!sc || sc->upper_len == 0) continue;
+		if (!sc || !sc->upper_len) continue;
 		delete_point(k);
 
 		for (unsigned i = 0; i < sc->upper_len; i++) {
@@ -386,30 +390,29 @@ kdgu_lc(kdgu *k)
 {
 	if (!k || !k->len) return false;
 	k->idx = 0;
-	while (kdgu_inc(k));
 
 	do {
 		uint32_t c = kdgu_decode(k);
-		uint32_t l = lowerize(c);
+		uint32_t u = lowerize(c);
 
-		if (l != c) {
+		if (u != c) {
 			delete_point(k);
-			insert_point(k, l);
+			insert_point(k, u);
 			continue;
 		}
 
 		struct kdgu_case *sc = get_special_case(c);
 
-		if (!sc || sc->lower_len == 0) continue;
+		if (!sc || !sc->lower_len) continue;
 		delete_point(k);
 
 		for (unsigned i = 0; i < sc->lower_len; i++) {
 			insert_point(k, sc->lower[i]);
-			kdgu_dec(k);
+			kdgu_inc(k);
 		}
 
-		kdgu_inc(k);
-	} while (kdgu_dec(k));
+		kdgu_dec(k);
+	} while (kdgu_inc(k));
 
 	return true;
 }
@@ -532,18 +535,16 @@ kdgu_new(enum kdgu_fmt fmt, const char *s, size_t len)
 		k->s = utf8validate(k, s, &len);
 		break;
 
+	case KDGU_FMT_UTF16LE: endian = ENDIAN_LITTLE;
 	case KDGU_FMT_UTF16BE: if (!endian) endian = ENDIAN_BIG;
-	case KDGU_FMT_UTF16LE: if (!endian) endian = ENDIAN_LITTLE;
 	case KDGU_FMT_UTF16:
 		k->s = utf16validate(k, s, &len, endian);
-		k->endian = endian;
 		break;
 
+	case KDGU_FMT_UTF32LE: endian = ENDIAN_LITTLE;
 	case KDGU_FMT_UTF32BE: if (!endian) endian = ENDIAN_BIG;
-	case KDGU_FMT_UTF32LE: if (!endian) endian = ENDIAN_LITTLE;
 	case KDGU_FMT_UTF32:
 		k->s = utf32validate(k, s, &len, endian);
-		k->endian = endian;
 		break;
 	}
 
@@ -615,9 +616,7 @@ kdgu_inc(kdgu *k)
 {
 	if (!k) return 0;
 	if (k->idx >= k->len) return 0;
-
 	unsigned idx = k->idx;
-	int endian = ENDIAN_NONE;
 
 	switch (k->fmt) {
 	case KDGU_FMT_CP1252:
@@ -632,13 +631,15 @@ kdgu_inc(kdgu *k)
 		} while (idx < k->len && UTF8CONT(k->s[idx]));
 		break;
 
-	case KDGU_FMT_UTF16BE: if (!endian) endian = ENDIAN_BIG;
-	case KDGU_FMT_UTF16LE: if (!endian) endian = ENDIAN_LITTLE;
-	case KDGU_FMT_UTF16: {
-		if (UTF16HIGH_SURROGATE(READUTF16(k->s + idx)))
-			idx += 4;
-		else idx += 2;
-	} break;
+	case KDGU_FMT_UTF16BE:
+	case KDGU_FMT_UTF16LE:
+	case KDGU_FMT_UTF16:
+		idx += 2;
+		if (idx >= k->len) break;
+		if (UTF16HIGH_SURROGATE(READUTF16(k->endian,
+		                                  k->s + idx)))
+			idx += 2;
+		break;
 
 	case KDGU_FMT_UTF32BE:
 	case KDGU_FMT_UTF32LE:
@@ -659,9 +660,7 @@ unsigned
 kdgu_dec(kdgu *k)
 {
 	if (!k || !k->idx) return 0;
-
 	unsigned idx = k->idx;
-	int endian = ENDIAN_NONE;
 
 	switch (k->fmt) {
 	case KDGU_FMT_CP1252:
@@ -676,13 +675,14 @@ kdgu_dec(kdgu *k)
 		} while (idx && UTF8CONT(k->s[idx]));
 		break;
 
-	case KDGU_FMT_UTF16BE: if (!endian) endian = ENDIAN_BIG;
-	case KDGU_FMT_UTF16LE: if (!endian) endian = ENDIAN_LITTLE;
-	case KDGU_FMT_UTF16: {
-		if (UTF16LOW_SURROGATE(READUTF16(k->s + idx - 2)))
-			idx -= 4;
-		else idx -= 2;
-	} break;
+	case KDGU_FMT_UTF16BE:
+	case KDGU_FMT_UTF16LE:
+	case KDGU_FMT_UTF16:
+		idx -= 2;
+		if (UTF16LOW_SURROGATE(READUTF16(k->endian,
+		                                 k->s + idx - 2)))
+			idx -= 2;
+		break;
 
 	case KDGU_FMT_UTF32BE:
 	case KDGU_FMT_UTF32LE:
@@ -758,12 +758,16 @@ kdgu_convert(kdgu *k, enum kdgu_fmt fmt)
 		char buf[4];
 
 		struct kdgu_error err =
-			kdgu_encode(fmt, c, buf, &len, k->idx);
+			kdgu_encode(fmt, c, buf, &len,
+			            k->idx, k->endian);
 
 		if (err.kind) {
 			err.codepoint = c;
 			err.data = format[fmt];
 			pusherror(k, err);
+
+			buf[0] = KDGU_REPLACEMENT;
+			len = 1;
 		}
 
 		delete_point(k);
@@ -931,7 +935,6 @@ uint32_t
 kdgu_decode(kdgu *k)
 {
 	uint32_t c = 0;
-	int endian = k->endian;
 
 	switch (k->fmt) {
 	case KDGU_FMT_CP1252:
@@ -954,32 +957,33 @@ kdgu_decode(kdgu *k)
 				<< (len - i - 1) * 6;
 	} break;
 
-	case KDGU_FMT_UTF16BE: if (!endian) endian = ENDIAN_BIG;
-	case KDGU_FMT_UTF16LE: if (!endian) endian = ENDIAN_LITTLE;
+	case KDGU_FMT_UTF16BE:
+	case KDGU_FMT_UTF16LE:
 	case KDGU_FMT_UTF16: {
-		uint16_t d = READUTF16(k->s + k->idx);
+		uint16_t d = READUTF16(k->endian, k->s + k->idx);
 		if (d <= 0xD7FF || d >= 0xE000) return d;
 
 		/* It's a surrogate upper byte. */
-		uint16_t e = READUTF16(k->s + k->idx + 2);
+		uint16_t e = READUTF16(k->endian, k->s + k->idx + 2);
 		c = (d - 0xD800) * 0x400 + e - 0xDC00 + 0x10000;
 	} break;
 
 	case KDGU_FMT_UTF32BE:
 	case KDGU_FMT_UTF32LE:
 	case KDGU_FMT_UTF32:
-		return READUTF32(k->s + k->idx);
+		return READUTF32(k->endian, k->s + k->idx);
 	}
 
 	return c;
 }
 
+/* TODO: Make sure NO_CONVERSION errors are consistent. */
+/* TODO: KDGU_REPLACEMENT doesn't work for most encodings. */
 struct kdgu_error
 kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
-            unsigned *len, unsigned idx)
+            unsigned *len, unsigned idx, int endian)
 {
 	struct kdgu_error err = ERR(KDGU_ERR_NO_ERROR, 0);
-	int endian = ENDIAN_NONE;
 
 	switch (fmt) {
 	case KDGU_FMT_CP1252:
@@ -992,6 +996,7 @@ kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
 		}
 		break;
 
+	/* TODO: Move this stuff out. */
 	case KDGU_FMT_EBCDIC:
 		*len = 1;
 
@@ -1010,19 +1015,20 @@ kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
 		break;
 
 	case KDGU_FMT_ASCII:
+		*len = 1;
 		if (c > 127) {
 			err = ERR(KDGU_ERR_NO_CONVERSION, idx);
 			buf[0] = KDGU_REPLACEMENT;
 			break;
 		}
 
-		*len = 1;
 		buf[0] = c & 0xFF;
 		break;
 
 	case KDGU_FMT_UTF8:
 		if (c <= 0x7F) {
 			*len = 1;
+
 			buf[0] = c & 0xFF;
 		} else if (c >= 0x80 && c <= 0x7FF) {
 			*len = 2;
@@ -1042,16 +1048,17 @@ kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
 			buf[1] = 0x80 | ((c >> 12) & 0x3F);
 			buf[2] = 0x80 | ((c >> 6) & 0x3F);
 			buf[3] = 0x80 | (c & 0x3F);
+		} else {
+			err = ERR(KDGU_ERR_NO_CONVERSION, idx);
+			*len = 1;
 		}
 		break;
 
-	case KDGU_FMT_UTF16BE: if (!endian) endian = ENDIAN_BIG;
-	case KDGU_FMT_UTF16LE: if (!endian) endian = ENDIAN_LITTLE;
+	case KDGU_FMT_UTF16LE:
+	case KDGU_FMT_UTF16BE:
 	case KDGU_FMT_UTF16:
-		if (!endian) endian = ENDIAN_BIG;
-
+		*len = 2;
 		if (c <= 0xD7FF || (c >= 0xE000 && c <= 0xFFFF)) {
-			*len = 2;
 			if (endian == ENDIAN_BIG) {
 				buf[1] = (c >> 8) & 0xFF;
 				buf[0] = c & 0xFF;
@@ -1067,7 +1074,6 @@ kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
 		uint16_t low = (c & 0x3FF) + 0xDC00;
 
 		if (UTF16HIGH_SURROGATE(high)) *len = 4;
-		else *len = 2;
 
 		if (endian == ENDIAN_BIG) {
 			buf[0] = (high >> 8) & 0xFF;
@@ -1082,22 +1088,21 @@ kdgu_encode(enum kdgu_fmt fmt, uint32_t c, char *buf,
 		}
 		break;
 
-	case KDGU_FMT_UTF32BE: if (!endian) endian = ENDIAN_BIG;
-	case KDGU_FMT_UTF32LE: if (!endian) endian = ENDIAN_LITTLE;
+	case KDGU_FMT_UTF32LE:
+	case KDGU_FMT_UTF32BE:
 	case KDGU_FMT_UTF32:
-		if (!endian) endian = ENDIAN_BIG;
-		if (endian == ENDIAN_BIG) {
+		*len = 4;
+		if (endian == ENDIAN_LITTLE) {
 			buf[0] = c & 0xFF;
 			buf[1] = (c >> 8) & 0xFF;
 			buf[2] = (c >> 16) & 0xFF;
 			buf[3] = (c >> 24) & 0xFF;
 		} else {
-			buf[3] = c & 0xFF;
-			buf[2] = (c >> 8) & 0xFF;
-			buf[1] = (c >> 16) & 0xFF;
 			buf[0] = (c >> 24) & 0xFF;
+			buf[1] = (c >> 16) & 0xFF;
+			buf[2] = (c >> 8) & 0xFF;
+			buf[3] = c & 0xFF;
 		}
-		*len = 4;
 		break;
 	}
 

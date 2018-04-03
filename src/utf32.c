@@ -1,4 +1,5 @@
 #include <string.h>
+#include <assert.h>
 
 #include "kdgu.h"
 #include "utf32.h"
@@ -13,8 +14,13 @@ utf32validatechar(const char *s, char *r, unsigned *i,
 	if (buflen - *i < 4)
 		return ERR(KDGU_ERR_UTF32_EOS, *i);
 
-	uint32_t c = READUTF32(s + *i);
-	memcpy(r + *idx, &c, sizeof c);
+	uint32_t c = READUTF32(endian, s + *i);
+	if (c == (uint32_t)-1) {
+		/* TODO: Check for non-characters n stuff. */
+		assert(false);
+	}
+
+	memcpy(r + *idx, s + *i, 4);
 	*idx += 4, *i += 4;
 
 	return err;
@@ -29,19 +35,20 @@ utf32validate(kdgu *k, const char *s, size_t *l, int endian)
 	unsigned idx = 0;
 	size_t buflen = *l;
 
-	if (!endian && buflen >= 2) {
+	if (!endian && buflen >= 4) {
 		/* Check the BOM. */
-		endian = ENDIAN_BIG;
-		uint32_t c = READUTF32(s);
+		uint32_t c = READUTF32(ENDIAN_BIG, s);
 
-		if (c == (uint32_t)0xFFFE0000) {
-			endian = ENDIAN_LITTLE;
-			s += 4;
-			buflen -= 4;
-		} else if (c == (uint32_t)0xFEFF) {
+		if (c == (uint32_t)0xFEFF) {
 			endian = ENDIAN_BIG;
 			s += 4;
 			buflen -= 4;
+		} else if (c == (uint32_t)0xFFFE0000) {
+			endian = ENDIAN_LITTLE;
+			s += 4;
+			buflen -= 4;
+		} else {
+			endian = ENDIAN_BIG;
 		}
 	}
 
@@ -53,11 +60,13 @@ utf32validate(kdgu *k, const char *s, size_t *l, int endian)
 		if (!err.kind) continue;
 
 		if (!pusherror(k, err)) {
-			free(r), free(r);
+			free(r);
 			return NULL;
 		}
 	}
 
+	k->endian = endian;
 	*l = idx;
+
 	return r;
 }

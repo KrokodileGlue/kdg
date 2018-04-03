@@ -1,6 +1,8 @@
 #include <inttypes.h>
 #include <string.h>
 #include <stdbool.h>
+
+#include "kdgu.h"
 #include "error.h"
 
 bool
@@ -63,9 +65,13 @@ char *error[] = {
 
 	"sequences contains an invalid low surrogate byte",
 
+	"buffer contains a trailing sequence of byte",
+
 	"invalid byte in CP1252",
 
 	"ASCII character is out-of-range",
+
+	"EBCDIC character is out-of-range",
 
 	"no representation for character U+%02"PRIX32
 	" in encoding '%s'",

@@ -71,7 +71,8 @@ void kdgu_print_error(struct kdgu_error err);
 
 uint32_t kdgu_decode(kdgu *k);
 struct kdgu_error kdgu_encode(enum kdgu_fmt fmt, uint32_t c,
-                              char *buf, unsigned *len, unsigned idx);
+                              char *buf, unsigned *len,
+                              unsigned idx, int endian);
 
 unsigned kdgu_len(kdgu *k);
 unsigned kdgu_chrsize(kdgu *k);

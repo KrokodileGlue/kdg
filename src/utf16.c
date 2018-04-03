@@ -15,7 +15,7 @@ utf16validatechar(const char *s, char *r, unsigned *i,
 		return ERR(KDGU_ERR_UTF16_EOS, *i);
 	}
 
-	uint16_t c = READUTF16(s + *i);
+	uint16_t c = READUTF16(endian, s + *i);
 
 	/* It's not in the surrogate pair range. */
 	if (!UTF16HIGH_SURROGATE(c)) {
@@ -29,7 +29,7 @@ utf16validatechar(const char *s, char *r, unsigned *i,
 		return (*i) += 2, ERR(KDGU_ERR_UTF16_EOS, *i);
 
 	/* It's in the surrogate pair range. */
-	uint16_t c2 = READUTF16(s + *i + 2);
+	uint16_t c2 = READUTF16(endian, s + *i + 2);
 	*i += 4;
 
 	if (!UTF16LOW_SURROGATE(c2)) {
@@ -85,7 +85,7 @@ utf16validate(kdgu *k, const char *s, size_t *l, int endian)
 		if (!err.kind) continue;
 
 		if (!pusherror(k, err)) {
-			free(r), free(r);
+			free(r);
 			return NULL;
 		}
 	}

@@ -33,14 +33,12 @@ typedef struct kdgu_error {
 	} kind;
 
 	unsigned loc;
-	char *msg;
-
 	uint32_t codepoint;
 	char *data;
 } kdgu_error;
 
 #define ERR(X,Y)	  \
-	(struct kdgu_error){.kind = (X), .loc = (Y), .msg = error[X]}
+	(struct kdgu_error){.kind = (X), .loc = (Y), .data = NULL}
 
 extern char *error[];
 bool pusherror(kdgu *k, struct kdgu_error err);
