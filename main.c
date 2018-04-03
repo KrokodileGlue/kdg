@@ -56,7 +56,7 @@ char *filename = NULL;
 void
 demo(char *text, unsigned len)
 {
-	kdgu *q = kdgu_new(KDGU_FMT_UTF32, text, len);
+	kdgu *q = kdgu_new(KDGU_FMT_UTF8, text, len);
 	kdgu_convert(q, KDGU_FMT_UTF16);
 
 	kdgu_chomp(q);
@@ -135,8 +135,9 @@ main(int argc, char **argv)
 	if (!text) return EXIT_FAILURE;
 	filename = argv[argc - 1];
 
-#if 0
-	kdgu *k = kdgu_new(KDGU_FMT_UTF32, text, len);
+#if 1
+	kdgu *k = kdgu_new(KDGU_FMT_UTF8, text, len);
+	kdgu_convert(k, KDGU_FMT_UTF32);
 
 	kdgu_chomp(k);
 	kdgu_uc(k);

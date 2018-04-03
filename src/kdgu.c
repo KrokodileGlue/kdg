@@ -751,6 +751,8 @@ kdgu_convert(kdgu *k, enum kdgu_fmt fmt)
 	}
 
 	k->idx = 0;
+	int endian = k->endian;
+	if (!endian) endian = ENDIAN_BIG;
 
 	while (true) {
 		unsigned len;
@@ -758,16 +760,16 @@ kdgu_convert(kdgu *k, enum kdgu_fmt fmt)
 		char buf[4];
 
 		struct kdgu_error err =
-			kdgu_encode(fmt, c, buf, &len,
-			            k->idx, k->endian);
+			kdgu_encode(fmt, c, buf,
+			            &len, k->idx, endian);
 
 		if (err.kind) {
 			err.codepoint = c;
 			err.data = format[fmt];
 			pusherror(k, err);
 
-			buf[0] = KDGU_REPLACEMENT;
-			len = 1;
+			kdgu_encode(fmt, KDGU_REPLACEMENT, buf,
+			            &len, k->idx, endian);
 		}
 
 		delete_point(k);
@@ -778,6 +780,8 @@ kdgu_convert(kdgu *k, enum kdgu_fmt fmt)
 	}
 
 	k->fmt = fmt;
+	k->endian = endian;
+
 	return true;
 }
 

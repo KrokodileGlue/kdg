@@ -11,8 +11,10 @@ utf32validatechar(const char *s, char *r, unsigned *i,
 {
 	struct kdgu_error err = ERR(KDGU_ERR_NO_ERROR, *i);
 
-	if (buflen - *i < 4)
+	if (buflen - *i < 4) {
+		*i = buflen;
 		return ERR(KDGU_ERR_UTF32_EOS, *i);
+	}
 
 	uint32_t c = READUTF32(endian, s + *i);
 	if (c == (uint32_t)-1) {
