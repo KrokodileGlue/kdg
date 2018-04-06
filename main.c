@@ -137,15 +137,18 @@ main(int argc, char **argv)
 
 #if 1
 	kdgu *k = kdgu_new(FMT_UTF8, text, len);
-	kdgu_convert(k, FMT_UTF32);
 
 	kdgu_chomp(k);
-	kdgu_uc(k);
-	kdgu_reverse(k);
-	kdgu_convert(k, FMT_UTF8);
+	kdgu_debugprint(k); putchar('\n');
 	kdgu_print(k); putchar('\n');
 
-	/* print_errors(k->errlist, filename); */
+	kdgu_normalize(k, NORM_NFKD);
+	kdgu_debugprint(k); putchar('\n');
+	kdgu_print(k); putchar('\n');
+
+	printf("length: %u\n", kdgu_len(k));
+
+	print_errors(k->errlist, filename);
 	free(text);
 	kdgu_free(k);
 #elif 0

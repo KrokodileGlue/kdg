@@ -6,9 +6,12 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "unicode.h"
+
 typedef struct kdgu {
 	unsigned alloc, len, idx;
 	char *s;
+	enum normalization norm;
 
 	struct errorlist {
 		struct error *err;
@@ -58,6 +61,7 @@ unsigned kdgu_next(kdgu *k);
 unsigned kdgu_prev(kdgu *k);
 
 bool kdgu_convert(kdgu *k, enum fmt fmt);
+bool kdgu_normalize(kdgu *k, enum normalization norm);
 
 bool kdgu_cmp(kdgu *k1, kdgu *k2);
 bool kdgu_nth(kdgu *k, unsigned n);

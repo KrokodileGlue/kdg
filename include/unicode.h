@@ -1,6 +1,10 @@
+#ifndef UNICODE_H
+#define UNICODE_H
+
+#include <stdlib.h>
 #include <stdint.h>
 
-enum {
+enum category {
 	CATEGORY_CN, /* Other - not assigned        */
 	CATEGORY_LU, /* Letter - uppercase          */
 	CATEGORY_LL, /* Letter - lowercase          */
@@ -49,7 +53,7 @@ enum {
 	DECOMP_TYPE_SMALL,    /* Small    */
 	DECOMP_TYPE_SQUARE,   /* Square   */
 	DECOMP_TYPE_FRACTION, /* Fraction */
-	DECOMP_TYPE_COMPAT,   /* Compat   */
+	DECOMP_TYPE_COMPAT    /* Compat   */
 };
 
 enum boundclass {
@@ -101,6 +105,7 @@ enum {
 };
 
 enum normalization {
+	NORM_NONE,
 	NORM_NFD,
 	NORM_NFC,
 	NORM_NFKD,
@@ -111,9 +116,10 @@ struct codepoint {
 	uint16_t category;
 	uint16_t combining;
 	uint16_t bidi;
-	uint16_t decomp_type;
 
+	uint16_t decomp_type;
 	uint16_t decomp;
+
 	uint16_t casefold;
 
 	uint16_t uc;
@@ -124,7 +130,9 @@ struct codepoint {
 
 	unsigned bidi_mirrored;
 	unsigned comp_exclusion;
+
 	unsigned ignorable;
+
 	unsigned control_boundary;
 	unsigned width;
 	unsigned pad;
@@ -143,3 +151,33 @@ struct special_case {
 	unsigned upper_len;
 	uint32_t *upper;
 };
+
+extern uint16_t sequences[];
+extern uint16_t stage1table[];
+extern uint16_t stage2table[];
+extern struct codepoint codepoints[];
+
+extern size_t num_special_case;
+extern struct special_case special_case[];
+
+#define HANGUL_SBASE  0xAC00
+#define HANGUL_LBASE  0x1100
+#define HANGUL_VBASE  0x1161
+#define HANGUL_TBASE  0x11A7
+#define HANGUL_LCOUNT 19
+#define HANGUL_VCOUNT 21
+#define HANGUL_TCOUNT 28
+#define HANGUL_NCOUNT 588
+#define HANGUL_SCOUNT 11172
+
+#define HANGUL_L_START  0x1100
+#define HANGUL_L_END    0x115A
+#define HANGUL_L_FILLER 0x115F
+#define HANGUL_V_START  0x1160
+#define HANGUL_V_END    0x11A3
+#define HANGUL_T_START  0x11A8
+#define HANGUL_T_END    0x11FA
+#define HANGUL_S_START  0xAC00
+#define HANGUL_S_END    0xD7A4
+
+#endif

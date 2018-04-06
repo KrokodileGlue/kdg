@@ -117,14 +117,6 @@ seqindex_decode_entry(uint16_t **entry)
 	return cp;
 }
 
-extern uint16_t sequences[];
-extern uint16_t stage1table[];
-extern uint16_t stage2table[];
-extern struct codepoint codepoints[];
-
-extern size_t num_special_case;
-extern struct special_case special_case[];
-
 static uint32_t
 seqindex_decode_index(uint32_t idx)
 {
@@ -132,10 +124,10 @@ seqindex_decode_index(uint32_t idx)
 }
 
 static struct codepoint *
-codepoint(uint32_t u) {
-	if (u >= 0x110000) return codepoints;
-	else return &codepoints[stage2table[stage1table[u >> 8]
-	                                    + (u & 0xFF)]];
+codepoint(uint32_t c) {
+	if (c >= 0x110000) return codepoints;
+	return &codepoints[stage2table[stage1table[c >> 8]
+	                               + (c & 0xFF)]];
 }
 
 static uint32_t
@@ -338,7 +330,7 @@ kdgu_len(kdgu *k)
 
 	k->idx = 0;
 	size_t l = 0;
-	do l++; while (kdgu_next(k));
+	while (kdgu_next(k)) l++;
 
 	return l;
 }
@@ -423,7 +415,7 @@ kdgu_reverse(kdgu *k)
 	if (!k || !k->len || k->len == 1) return false;
 
 	unsigned end = kdgu_len(k) - 1;
-	k->idx = 0; while (kdgu_next(k));
+	k->idx = 0; while (kdgu_next(k)); kdgu_prev(k);
 	unsigned a = 0, b = k->idx;
 
 	for (unsigned i = 0; i < end / 2 + 1; i++) {
@@ -588,7 +580,8 @@ kdgu_copy(kdgu *k)
 bool
 kdgu_cat(kdgu *k1, kdgu *k2)
 {
-	if (!k1 || !k2 || k1->fmt != k2->fmt) return true;
+	if (!k1 || !k2 || k1->fmt != k2->fmt)
+		return false;
 
 	k1->alloc += k2->len;
 	char *p = realloc(k1->s, k1->alloc);
@@ -648,7 +641,7 @@ kdgu_inc(kdgu *k)
 		break;
 	}
 
-	if (idx >= k->len) return 0;
+	if (idx > k->len) return 0;
 
 	unsigned r = idx - k->idx;
 	k->idx = idx;
@@ -768,8 +761,8 @@ kdgu_convert(kdgu *k, enum fmt fmt)
 			err.data = format[fmt];
 			pusherror(k, err);
 
-			kdgu_encode(fmt, KDGU_REPLACEMENT, buf,
-			            &len, k->idx, endian);
+			kdgu_encode(fmt, KDGU_REPLACEMENT,
+			            buf, &len, k->idx, endian);
 		}
 
 		delete_point(k);
@@ -781,6 +774,215 @@ kdgu_convert(kdgu *k, enum fmt fmt)
 
 	k->fmt = fmt;
 	k->endian = endian;
+
+	return true;
+}
+static unsigned write_decomposed(uint16_t c,
+                                 uint32_t *buf,
+                                 unsigned buflen,
+                                 enum boundclass *bc);
+
+unsigned
+decompose_char(uint32_t uc,
+               uint32_t *buf,
+               unsigned buflen,
+               enum boundclass *bc)
+{
+	struct codepoint *cp = codepoint(uc);
+	int32_t hangul_s_index = uc - HANGUL_SBASE;
+
+	if (hangul_s_index >= 0
+	    && hangul_s_index < HANGUL_SCOUNT) {
+		uint32_t hangul_t_index;
+
+		if (buflen >= 1)
+			buf[0] = HANGUL_LBASE +
+				hangul_s_index / HANGUL_NCOUNT;
+
+		if (buflen >= 2)
+			buf[1] = HANGUL_VBASE +
+				(hangul_s_index % HANGUL_NCOUNT)
+				/ HANGUL_TCOUNT;
+
+		hangul_t_index = hangul_s_index % HANGUL_TCOUNT;
+
+		if (!hangul_t_index)
+			return 2;
+
+		if (buflen >= 3)
+			buf[2] = HANGUL_TBASE + hangul_t_index;
+
+		return 3;
+	}
+
+	if (cp->decomp != UINT16_MAX)
+		return write_decomposed(cp->decomp,
+		                        buf,
+		                        buflen,
+		                        bc);
+
+	if (buflen >= 1)
+		*buf = uc;
+
+	return 1;
+}
+
+static unsigned
+write_decomposed(uint16_t c,
+                 uint32_t *buf,
+                 unsigned buflen,
+                 enum boundclass *bc)
+{
+	unsigned written = 0, len = c >> 13;
+	uint16_t *entry = &sequences[c & 0x1FFF];
+
+	if (len >= 7) {
+		len = *entry;
+		entry++;
+	}
+
+	/* Iterate over the characters in the decomposition. */
+	for (unsigned i = 0; i <= len; entry++, i++) {
+		/* Look up the current codepoint in the entry. */
+		uint32_t dc = seqindex_decode_entry(&entry);
+
+		written += decompose_char(dc,
+		                          buf + written,
+		                          buflen - written,
+		                          bc);
+	}
+
+	return written;
+}
+
+/*
+ * Uses bubble sort to organize the code points in `buf' according to
+ * their Canonical_Combining_Class (ccc) properties.
+ */
+static void
+sort_combining_marks(uint32_t *buf, unsigned len)
+{
+	bool running = false;
+
+	do {
+		running = false;
+
+		for (unsigned i = 0; i < len - 1; i++) {
+			struct codepoint *c1 = codepoint(buf[i]);
+			struct codepoint *c2 = codepoint(buf[i + 1]);
+
+			if (!c2->combining || !c1->combining)
+				continue;
+
+			if (c2->combining > c1->combining) {
+				uint32_t t = buf[i + 1];
+				buf[i + 1] = buf[i];
+				buf[i] = t;
+				running = true;
+			}
+		}
+	} while (running);
+}
+
+/*
+ * This function does two things: it converts all decomposable code
+ * points into their decomposed forms, then it sorts all sequences of
+ * combining marks according to the Canonical Ordering Algorithm
+ * described in Standard Annex #15.
+ */
+static void
+decompose(kdgu *k, bool compat)
+{
+	if (k->norm == NORM_NFD) return;
+
+	/* TODO: Make sure this buffer is never overrun. */
+	uint32_t buf[100];
+	unsigned len;
+
+	k->idx = 0;
+
+	/* This first loop decomposes all decomposable characters. */
+	do {
+		uint32_t c = kdgu_decode(k);
+		if (c == UINT32_MAX) break;
+		struct codepoint *cp = codepoint(c);
+
+		/*
+		 * We don't need to continue if the character has no
+		 * decomposition.
+		 */
+		if (cp->decomp == UINT16_MAX) continue;
+		if (!compat && cp->decomp_type != DECOMP_TYPE_FONT)
+			continue;
+
+		len = write_decomposed(cp->decomp,
+		                       buf,
+		                       sizeof buf * sizeof *buf,
+		                       NULL);
+
+		delete_point(k);
+		for (unsigned i = 0; i < len; i++) {
+			insert_point(k, buf[i]);
+			kdgu_inc(k);
+		}
+	} while (kdgu_inc(k));
+
+	k->idx = 0;
+
+	/* This loop sorts all sequences of combining marks. */
+	do {
+		uint32_t c = kdgu_decode(k);
+		struct codepoint *cp = codepoint(c);
+
+		/* It's a starter. No sequence here! */
+		if (!cp->combining) continue;
+
+		unsigned idx = k->idx;
+		len = 0;
+
+		/* Search for the end of the sequence. */
+		do {
+			buf[len++] = c;
+			kdgu_inc(k);
+
+			c = kdgu_decode(k);
+			cp = codepoint(c);
+		} while (cp->combining);
+
+		sort_combining_marks(buf, len);
+
+		/* Delete the sequence. */
+		kdgu_delete(k, idx, k->idx);
+		k->idx = idx;
+
+		for (unsigned i = 0; i < len; i++)
+			insert_point(k, buf[i]);
+	} while (kdgu_inc(k));
+}
+
+static void
+compose(kdgu *k, bool compat)
+{
+	if (k->norm == NORM_NFC && !compat) return;
+	if (k->norm == NORM_NFKC && compat) return;
+
+	decompose(k, compat);
+}
+
+bool
+kdgu_normalize(kdgu *k, enum normalization norm)
+{
+	if (!k || !k->len) return false;
+
+	switch (norm) {
+	case NORM_NONE:                      break;
+	case NORM_NFD:  decompose(k, false); break;
+	case NORM_NFC:  compose(k, false);   break;
+	case NORM_NFKD: decompose(k, true);  break;
+	case NORM_NFKC: compose(k, true);    break;
+	}
+
+	k->norm = norm;
 
 	return true;
 }
@@ -840,6 +1042,7 @@ kdgu_chomp(kdgu *k)
 	k->idx = 0;
 
 	while (kdgu_inc(k));
+	kdgu_dec(k);
 	while (kdgu_whitespace(k) && kdgu_dec(k));
 	kdgu_inc(k);
 
@@ -938,6 +1141,7 @@ static uint32_t ebcdic[] = {
 uint32_t
 kdgu_decode(kdgu *k)
 {
+	if (!k->len || k->idx >= k->len) return UINT32_MAX;
 	uint32_t c = 0;
 
 	switch (k->fmt) {
@@ -1000,7 +1204,7 @@ kdgu_encode(enum fmt fmt, uint32_t c, char *buf,
 		}
 		break;
 
-	/* TODO: Move this stuff out. */
+		/* TODO: Move this stuff out. */
 	case FMT_EBCDIC:
 		*len = 1;
 
