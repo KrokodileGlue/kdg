@@ -874,7 +874,7 @@ sort_combining_marks(uint32_t *buf, unsigned len)
 			if (!c2->combining || !c1->combining)
 				continue;
 
-			if (c2->combining > c1->combining) {
+			if (c2->combining < c1->combining) {
 				uint32_t t = buf[i + 1];
 				buf[i + 1] = buf[i];
 				buf[i] = t;
@@ -955,8 +955,10 @@ decompose(kdgu *k, bool compat)
 		kdgu_delete(k, idx, k->idx);
 		k->idx = idx;
 
-		for (unsigned i = 0; i < len; i++)
+		for (unsigned i = 0; i < len; i++) {
 			insert_point(k, buf[i]);
+			kdgu_inc(k);
+		}
 	} while (kdgu_inc(k));
 }
 
