@@ -779,59 +779,42 @@ kdgu_convert(kdgu *k, enum fmt fmt)
 }
 static unsigned write_decomposed(uint16_t c,
                                  uint32_t *buf,
-                                 unsigned buflen,
-                                 enum boundclass *bc);
+                                 unsigned buflen);
 
 unsigned
-decompose_char(uint32_t uc,
+decompose_char(uint32_t c,
                uint32_t *buf,
-               unsigned buflen,
-               enum boundclass *bc)
+               unsigned buflen)
 {
-	struct codepoint *cp = codepoint(uc);
-	int32_t hangul_s_index = uc - HANGUL_SBASE;
+	assert(buflen >= 3);
+	struct codepoint *cp = codepoint(c);
+	int32_t hangul_s = c - HANGUL_SBASE;
 
-	if (hangul_s_index >= 0
-	    && hangul_s_index < HANGUL_SCOUNT) {
-		uint32_t hangul_t_index;
+	if (hangul_s >= 0 && hangul_s < HANGUL_SCOUNT) {
+		buf[0] = HANGUL_LBASE +
+			hangul_s / HANGUL_NCOUNT;
 
-		if (buflen >= 1)
-			buf[0] = HANGUL_LBASE +
-				hangul_s_index / HANGUL_NCOUNT;
+		buf[1] = HANGUL_VBASE +
+			(hangul_s % HANGUL_NCOUNT)
+			/ HANGUL_TCOUNT;
 
-		if (buflen >= 2)
-			buf[1] = HANGUL_VBASE +
-				(hangul_s_index % HANGUL_NCOUNT)
-				/ HANGUL_TCOUNT;
-
-		hangul_t_index = hangul_s_index % HANGUL_TCOUNT;
-
-		if (!hangul_t_index)
-			return 2;
-
-		if (buflen >= 3)
-			buf[2] = HANGUL_TBASE + hangul_t_index;
-
-		return 3;
+		uint32_t hangul_t = hangul_s % HANGUL_TCOUNT;
+		if (!hangul_t) return 2;
+		return buf[2] = HANGUL_TBASE + hangul_t, 3;
 	}
 
 	if (cp->decomp != UINT16_MAX)
 		return write_decomposed(cp->decomp,
 		                        buf,
-		                        buflen,
-		                        bc);
+		                        buflen);
 
-	if (buflen >= 1)
-		*buf = uc;
-
-	return 1;
+	return *buf = c, 1;
 }
 
 static unsigned
 write_decomposed(uint16_t c,
                  uint32_t *buf,
-                 unsigned buflen,
-                 enum boundclass *bc)
+                 unsigned buflen)
 {
 	unsigned written = 0, len = c >> 13;
 	uint16_t *entry = &sequences[c & 0x1FFF];
@@ -848,8 +831,7 @@ write_decomposed(uint16_t c,
 
 		written += decompose_char(dc,
 		                          buf + written,
-		                          buflen - written,
-		                          bc);
+		                          buflen - written);
 	}
 
 	return written;
@@ -918,8 +900,7 @@ decompose(kdgu *k, bool compat)
 
 		len = write_decomposed(cp->decomp,
 		                       buf,
-		                       sizeof buf * sizeof *buf,
-		                       NULL);
+		                       sizeof buf);
 
 		delete_point(k);
 		for (unsigned i = 0; i < len; i++) {
