@@ -13426,7 +13426,7 @@ struct codepoint codepoints[] = {
 	{ CATEGORY_LO, 0, BIDI_L, 0, 7975, UINT16_MAX, UINT16_MAX, UINT16_MAX, UINT16_MAX, UINT16_MAX, false, false, false, false, 2, 0, BOUNDCLASS_OTHER },
 };
 
-uint16_t combinations[] = {
+uint16_t compositions[] = {
 	0, 46, 192, 193, 194, 195, 196, 197, 0,
 	256, 258, 260, 550, 461, 0, 0, 512,
 	514, 0, 0, 0, 0, 0, 0, 0,

@@ -153,7 +153,7 @@ struct special_case {
 };
 
 extern uint16_t sequences[];
-extern uint16_t combinations[];
+extern uint16_t compositions[];
 extern uint16_t stage1table[];
 extern uint16_t stage2table[];
 extern struct codepoint codepoints[];

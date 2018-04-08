@@ -1024,16 +1024,16 @@ compose(kdgu *k, bool compat)
 		int idx1 = cp1->comb;
 		int idx2 = cp2->comb & 0x3FFF;
 
-		int idx = idx2 - combinations[idx1];
+		int idx = idx2 - compositions[idx1];
 
-		if (idx < 0 || idx > combinations[idx1 + 1])
+		if (idx < 0 || idx > compositions[idx1 + 1])
 			continue;
 
 		idx += idx1 + 2;
 		uint32_t composition = cp2->comb & 0x4000
-			? (combinations[idx] << 16)
-			| combinations[idx + 1]
-			: combinations[idx];
+			? (compositions[idx] << 16)
+			| compositions[idx + 1]
+			: compositions[idx];
 
 		if (codepoint(composition)->comp_exclusion)
 			continue;
