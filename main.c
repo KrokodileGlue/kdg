@@ -139,11 +139,14 @@ main(int argc, char **argv)
 	kdgu *k = kdgu_new(FMT_UTF8, text, len);
 
 	kdgu_chomp(k);
-	kdgu_debugprint(k); putchar('\n');
+	kdgu_debugprint1(k); putchar('\n');
+	kdgu_debugprint2(k); putchar('\n');
 	kdgu_print(k); putchar('\n');
 
-	kdgu_normalize(k, NORM_NFKD);
-	kdgu_debugprint(k); putchar('\n');
+	kdgu_normalize(k, NORM_NFC);
+	kdgu_uc(k);
+	kdgu_debugprint1(k); putchar('\n');
+	kdgu_debugprint2(k); putchar('\n');
 	kdgu_print(k); putchar('\n');
 
 	printf("length: %u\n", kdgu_len(k));

@@ -69,7 +69,8 @@ bool kdgu_append(kdgu *k, const char *s, size_t l);
 
 void kdgu_delete(kdgu *k, size_t a, size_t b);
 void kdgu_print(kdgu *k);
-void kdgu_debugprint(kdgu *k);
+void kdgu_debugprint1(kdgu *k);
+void kdgu_debugprint2(kdgu *k);
 void kdgu_pchr(kdgu *k, FILE *f);
 void kdgu_print_error(struct error err);
 

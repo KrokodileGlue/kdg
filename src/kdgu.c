@@ -890,6 +890,7 @@ sort_combining_marks(uint32_t *buf, unsigned len)
  * combining marks according to the Canonical Ordering Algorithm
  * described in Standard Annex #15.
  */
+
 static void
 decompose(kdgu *k, bool compat)
 {
@@ -962,13 +963,98 @@ decompose(kdgu *k, bool compat)
 	} while (kdgu_inc(k));
 }
 
+#if 0
+static void
+load_index(uint32_t *buf, unsigned *len, uint16_t idx)
+{
+	*len = idx >> 13;
+	uint16_t *entry = &sequences[idx & 0x1FFF];
+
+	if (*len >= 7) {
+		*len = *entry;
+		entry++;
+	}
+
+	for (unsigned i = 0; i <= *len; entry++, i++)
+		buf[i] = seqindex_decode_entry(&entry);
+}
+#endif
+
+/*
+ * This function will first decompose all decomposable code points and
+ * sort all combining marks with `decompose()'. Then it will read
+ * pairs of code points and use the trie sequence indices to look up
+ * possible compositions. If it successfully finds a composition for
+ * any pair of characters it will delete that pair and insert the
+ * composition at that point.
+ *
+ * It's worth noting that NFC and NFKC have identical compositions
+ * (only their decompositions differ), so this function's composition
+ * code has no additional logic for NFKC.
+ */
+
 static void
 compose(kdgu *k, bool compat)
 {
-	if (k->norm == NORM_NFC && !compat) return;
-	if (k->norm == NORM_NFKC && compat) return;
+	if (k->norm == NORM_NFC || k->norm == NORM_NFKC)
+		return;
 
 	decompose(k, compat);
+	k->idx = 0;
+
+	do {
+		unsigned beginning = k->idx;
+
+		/* Read the pair of code points. */
+		uint32_t c1 = kdgu_decode(k);
+		if (!kdgu_inc(k) || k->idx == k->len) break;
+		uint32_t c2 = kdgu_decode(k);
+
+		k->idx = beginning;
+
+		struct codepoint *cp1 = codepoint(c1);
+		struct codepoint *cp2 = codepoint(c2);
+
+		/* No valid composition exists; do nothing. */
+		if (cp1->comb >= 0x8000
+		      || cp2->comb == UINT16_MAX
+		      || cp2->comb < 0x8000)
+			continue;
+
+		int idx1 = cp1->comb;
+		int idx2 = cp2->comb & 0x3FFF;
+
+		int idx = idx2 - combinations[idx1];
+
+		if (idx < 0 || idx > combinations[idx1 + 1])
+			continue;
+
+		idx += idx1 + 2;
+		uint32_t composition = cp2->comb & 0x4000
+			? (combinations[idx] << 16)
+			| combinations[idx + 1]
+			: combinations[idx];
+
+		if (codepoint(composition)->comp_exclusion)
+			continue;
+
+		kdgu_inc(k), kdgu_inc(k);
+		unsigned end = k->idx;
+		k->idx = beginning;
+
+		kdgu_delete(k, beginning, end);
+		insert_point(k, composition);
+
+		/*
+		 * We decrement here to offset the increment that will
+		 * occur in the next iteration of the loop. This is
+		 * done so that when a successful composition occurs
+		 * the next pair will include the new composition code
+		 * point; this correctly composes longer sequences of
+		 * combining marks on a single starter code point.
+		 */
+		kdgu_dec(k);
+	} while (kdgu_inc(k) && k->idx != k->len);
 }
 
 bool
@@ -1017,15 +1103,44 @@ kdgu_print(kdgu *k)
 }
 
 void
-kdgu_debugprint(kdgu *k)
+kdgu_debugprint1(kdgu *k)
 {
 	if (!k) return;
 
-	printf("<{%u}", k->len);
+	printf("{%u} <", k->len);
+
 	for (unsigned i = 0; i < k->len; i++) {
 		printf("%02X", (unsigned char)k->s[i]);
 		if (i != k->len - 1) putchar(' ');
 	}
+
+	putchar('>');
+}
+
+void
+kdgu_debugprint2(kdgu *k)
+{
+	if (!k) return;
+
+	printf("{%u} <", kdgu_len(k));
+	k->idx = 0;
+
+	do {
+		uint32_t c1 = kdgu_decode(k);
+		if (c1 == UINT32_MAX) break;
+
+		kdgu_inc(k);
+		uint32_t c2 = kdgu_decode(k);
+
+		printf("U+%02"PRIX32, c1);
+		if (c2 == UINT32_MAX) break;
+
+		if (grapheme_break(codepoint(c1)->bound,
+		                   codepoint(c2)->bound))
+			printf(" | ");
+		else putchar(' ');
+	} while (true);
+
 	putchar('>');
 }
 
@@ -1041,13 +1156,10 @@ kdgu_pchr(kdgu *k, FILE *f)
 unsigned
 kdgu_chomp(kdgu *k)
 {
-	k->idx = 0;
+	k->idx = k->len;
+	while (kdgu_dec(k) && kdgu_whitespace(k));
 
-	while (kdgu_inc(k));
-	kdgu_dec(k);
-	while (kdgu_whitespace(k) && kdgu_dec(k));
 	kdgu_inc(k);
-
 	kdgu_delete(k, k->idx, k->len);
 
 	return k->len - k->idx;
