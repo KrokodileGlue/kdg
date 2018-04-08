@@ -841,29 +841,27 @@ write_decomposed(uint16_t c,
  * Uses bubble sort to organize the code points in `buf' according to
  * their Canonical_Combining_Class (ccc) properties.
  */
+
 static void
 sort_combining_marks(uint32_t *buf, unsigned len)
 {
-	bool running = false;
+ sort:
+	for (unsigned i = 0; i < len - 1; i++) {
+		struct codepoint *cp1 = codepoint(buf[i]);
+		struct codepoint *cp2 = codepoint(buf[i + 1]);
 
-	do {
-		running = false;
+		if (!cp2->combining
+		    || !cp1->combining
+		    || cp2->combining >= cp1->combining)
+			continue;
 
-		for (unsigned i = 0; i < len - 1; i++) {
-			struct codepoint *c1 = codepoint(buf[i]);
-			struct codepoint *c2 = codepoint(buf[i + 1]);
+		uint32_t temp = buf[i + 1];
 
-			if (!c2->combining || !c1->combining)
-				continue;
+		buf[i + 1] = buf[i];
+		buf[i] = temp;
 
-			if (c2->combining < c1->combining) {
-				uint32_t t = buf[i + 1];
-				buf[i + 1] = buf[i];
-				buf[i] = t;
-				running = true;
-			}
-		}
-	} while (running);
+		goto sort;
+	}
 }
 
 /*
@@ -1299,23 +1297,26 @@ kdgu_encode(enum fmt fmt, uint32_t c, char *buf,
 		}
 		break;
 
-		/* TODO: Move this stuff out. */
-	case FMT_EBCDIC:
+	case FMT_EBCDIC: {
+		uint32_t o = 255;
+
+		for (unsigned i = 0; i < 256 && o == 255; i++)
+			o = (c == ebcdic[i]) ? ebcdic[i] : c;
+
 		*len = 1;
+		buf[0] = o;
 
-		for (unsigned i = 0; i < 256; i++) {
-			if (ebcdic[i] == c) {
-				buf[0] = i;
-				break;
-			}
+		if (o != 255) break;
 
-			if (i == 255) {
-				err = ERR(ERR_NO_CONVERSION,
-				          idx);
-				buf[0] = KDGU_REPLACEMENT;
-			}
-		}
-		break;
+		err = ERR(ERR_NO_CONVERSION, idx);
+		/* TODO: Infinite recursion if KDGU_REPLACEMENT == 255. */
+		kdgu_encode(FMT_EBCDIC,
+		            KDGU_REPLACEMENT,
+		            buf,
+		            len,
+		            0,
+		            ENDIAN_NONE);
+	} break;
 
 	case FMT_ASCII:
 		*len = 1;
@@ -1361,16 +1362,17 @@ kdgu_encode(enum fmt fmt, uint32_t c, char *buf,
 	case FMT_UTF16BE:
 	case FMT_UTF16:
 		*len = 2;
-		if (c <= 0xD7FF || (c >= 0xE000 && c <= 0xFFFF)) {
-			if (endian == ENDIAN_BIG) {
-				buf[1] = (c >> 8) & 0xFF;
-				buf[0] = c & 0xFF;
-			} else {
-				buf[0] = (c >> 8) & 0xFF;
-				buf[1] = c & 0xFF;
-			}
-			break;
+
+		if (endian == ENDIAN_BIG) {
+			buf[1] = (c >> 8) & 0xFF;
+			buf[0] = c & 0xFF;
+		} else {
+			buf[0] = (c >> 8) & 0xFF;
+			buf[1] = c & 0xFF;
 		}
+
+		if ((c >= 0xE000 && c <= 0xFFFF) || c <= 0xD7FF)
+			break;
 
 		c -= 0x10000;
 		uint16_t high = (c >> 10) + 0xD800;
