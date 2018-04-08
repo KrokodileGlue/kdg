@@ -685,6 +685,7 @@ kdgu_dec(kdgu *k)
 	}
 
 	unsigned r = k->idx - idx;
+	if (k->idx >= k->len) return 0;
 	k->idx = idx;
 
 	return r;
