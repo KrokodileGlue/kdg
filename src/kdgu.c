@@ -1280,6 +1280,18 @@ kdgu_decode(kdgu *k)
 	return c;
 }
 
+#define ENCERR(X)	  \
+	do { \
+		err = ERR(ERR_NO_CONVERSION, idx); \
+		kdgu_encode(X, \
+		            KDGU_REPLACEMENT, \
+		            buf, \
+		            len, \
+		            0, \
+		            ENDIAN_NONE); \
+	} while (false)
+
+
 /* TODO: Make sure NO_CONVERSION errors are consistent. */
 /* TODO: KDGU_REPLACEMENT doesn't work for most encodings. */
 struct error
@@ -1293,10 +1305,8 @@ kdgu_encode(enum fmt fmt, uint32_t c, char *buf,
 		*len = 1;
 		buf[0] = c & 0x7F;
 
-		if (!IS_VALID_CP1252(c)) {
-			err = ERR(ERR_NO_CONVERSION, idx);
-			buf[0] = KDGU_REPLACEMENT;
-		}
+		if (!IS_VALID_CP1252(c))
+			ENCERR(FMT_CP1252);
 		break;
 
 	case FMT_EBCDIC: {
@@ -1310,25 +1320,14 @@ kdgu_encode(enum fmt fmt, uint32_t c, char *buf,
 
 		if (o != 255) break;
 
-		err = ERR(ERR_NO_CONVERSION, idx);
 		/* TODO: Infinite recursion if KDGU_REPLACEMENT == 255. */
-		kdgu_encode(FMT_EBCDIC,
-		            KDGU_REPLACEMENT,
-		            buf,
-		            len,
-		            0,
-		            ENDIAN_NONE);
+		ENCERR(FMT_EBCDIC);
 	} break;
 
 	case FMT_ASCII:
 		*len = 1;
-		if (c > 127) {
-			err = ERR(ERR_NO_CONVERSION, idx);
-			buf[0] = KDGU_REPLACEMENT;
-			break;
-		}
-
 		buf[0] = c & 0xFF;
+		if (c > 127) ENCERR(FMT_ASCII);
 		break;
 
 	case FMT_UTF8:
@@ -1354,10 +1353,7 @@ kdgu_encode(enum fmt fmt, uint32_t c, char *buf,
 			buf[1] = 0x80 | ((c >> 12) & 0x3F);
 			buf[2] = 0x80 | ((c >> 6) & 0x3F);
 			buf[3] = 0x80 | (c & 0x3F);
-		} else {
-			err = ERR(ERR_NO_CONVERSION, idx);
-			*len = 1;
-		}
+		} else ENCERR(FMT_ASCII);
 		break;
 
 	case FMT_UTF16LE:
@@ -1375,6 +1371,11 @@ kdgu_encode(enum fmt fmt, uint32_t c, char *buf,
 
 		if ((c >= 0xE000 && c <= 0xFFFF) || c <= 0xD7FF)
 			break;
+
+		/*
+		 * TODO: Properly check all noncharacters etc. in
+		 * these unicode encodings.
+		 */
 
 		c -= 0x10000;
 		uint16_t high = (c >> 10) + 0xD800;
@@ -1399,6 +1400,7 @@ kdgu_encode(enum fmt fmt, uint32_t c, char *buf,
 	case FMT_UTF32BE:
 	case FMT_UTF32:
 		*len = 4;
+
 		if (endian == ENDIAN_LITTLE) {
 			buf[0] = c & 0xFF;
 			buf[1] = (c >> 8) & 0xFF;
