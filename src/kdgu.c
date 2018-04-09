@@ -749,7 +749,7 @@ kdgu_convert(kdgu *k, enum fmt fmt)
 	int endian = k->endian;
 	if (!endian) endian = ENDIAN_BIG;
 
-	while (true) {
+	while (k->idx < k->len) {
 		unsigned len;
 		uint32_t c = kdgu_decode(k);
 		char buf[4];
@@ -770,8 +770,6 @@ kdgu_convert(kdgu *k, enum fmt fmt)
 		delete_point(k);
 		insert_buffer(k, buf, len);
 		k->idx += len;
-
-		if (k->idx >= k->len) break;
 	}
 
 	k->fmt = fmt;
@@ -882,10 +880,8 @@ decompose(kdgu *k, bool compat)
 	uint32_t buf[100];
 	unsigned len;
 
-	k->idx = 0;
-
 	/* This first loop decomposes all decomposable characters. */
-	do {
+	for (k->idx = 0; k->idx < k->len; kdgu_inc(k)) {
 		uint32_t c = kdgu_decode(k);
 		if (c == UINT32_MAX) break;
 		struct codepoint *cp = codepoint(c);
@@ -902,27 +898,25 @@ decompose(kdgu *k, bool compat)
 		                       buf,
 		                       sizeof buf);
 
+		if (!len) continue;
+
 		delete_point(k);
 
 		for (unsigned i = 0; i < len; i++) {
 			insert_point(k, buf[i]);
-			kdgu_inc(k);
+			if (i != len - 1) kdgu_inc(k);
 		}
-
-		kdgu_dec(k);
-	} while (kdgu_inc(k));
-
-	k->idx = 0;
+	}
 
 	/* This loop sorts all sequences of combining marks. */
-	do {
+	for (k->idx = 0; k->idx < k->len; kdgu_inc(k)) {
 		uint32_t c = kdgu_decode(k);
 		struct codepoint *cp = codepoint(c);
 
 		/* It's a starter. No sequence here! */
 		if (!cp->combining) continue;
 
-		unsigned idx = k->idx;
+		unsigned beginning = k->idx;
 		len = 0;
 
 		/* Search for the end of the sequence. */
@@ -937,16 +931,14 @@ decompose(kdgu *k, bool compat)
 		sort_combining_marks(buf, len);
 
 		/* Delete the sequence. */
-		kdgu_delete(k, idx, k->idx);
-		k->idx = idx;
+		kdgu_delete(k, beginning, k->idx);
+		k->idx = beginning;
 
 		for (unsigned i = 0; i < len; i++) {
 			insert_point(k, buf[i]);
-			kdgu_inc(k);
+			if (i != len - 1) kdgu_inc(k);
 		}
-
-		kdgu_dec(k);
-	} while (kdgu_inc(k));
+	}
 }
 
 #if 0

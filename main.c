@@ -144,7 +144,7 @@ main(int argc, char **argv)
 	kdgu_print(k); putchar('\n');
 
 	kdgu_normalize(k, NORM_NFKC);
-	kdgu_uc(k);
+	/* kdgu_uc(k); */
 	kdgu_debugprint1(k); putchar('\n');
 	kdgu_debugprint2(k); putchar('\n');
 	kdgu_print(k); putchar('\n');
