@@ -903,10 +903,13 @@ decompose(kdgu *k, bool compat)
 		                       sizeof buf);
 
 		delete_point(k);
+
 		for (unsigned i = 0; i < len; i++) {
 			insert_point(k, buf[i]);
 			kdgu_inc(k);
 		}
+
+		kdgu_dec(k);
 	} while (kdgu_inc(k));
 
 	k->idx = 0;
@@ -941,6 +944,8 @@ decompose(kdgu *k, bool compat)
 			insert_point(k, buf[i]);
 			kdgu_inc(k);
 		}
+
+		kdgu_dec(k);
 	} while (kdgu_inc(k));
 }
 
