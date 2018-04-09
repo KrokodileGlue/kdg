@@ -684,8 +684,9 @@ kdgu_dec(kdgu *k)
 		break;
 	}
 
+	if (idx >= k->len) return 0;
+
 	unsigned r = k->idx - idx;
-	if (k->idx >= k->len) return 0;
 	k->idx = idx;
 
 	return r;
@@ -1137,8 +1138,8 @@ unsigned
 kdgu_chomp(kdgu *k)
 {
 	k->idx = k->len;
-	while (kdgu_dec(k) && kdgu_whitespace(k));
 
+	while (kdgu_dec(k) && kdgu_whitespace(k));
 	kdgu_inc(k);
 	kdgu_delete(k, k->idx, k->len);
 
