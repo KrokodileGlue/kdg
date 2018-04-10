@@ -874,7 +874,9 @@ sort_combining_marks(uint32_t *buf, unsigned len)
 static void
 decompose(kdgu *k, bool compat)
 {
-	if (k->norm == NORM_NFD) return;
+	if ((k->norm == NORM_NFD && !compat)
+	    || (k->norm == NORM_NFKD && compat))
+		return;
 
 	/* TODO: Make sure this buffer is never overrun. */
 	uint32_t buf[100];
@@ -939,6 +941,8 @@ decompose(kdgu *k, bool compat)
 			if (i != len - 1) kdgu_inc(k);
 		}
 	}
+
+	k->norm = compat ? NORM_NFKD : NORM_NFD;
 }
 
 #if 0
@@ -974,13 +978,13 @@ load_index(uint32_t *buf, unsigned *len, uint16_t idx)
 static void
 compose(kdgu *k, bool compat)
 {
-	if (k->norm == NORM_NFC || k->norm == NORM_NFKC)
+	if ((k->norm == NORM_NFC && !compat)
+	    || (k->norm == NORM_NFKC && compat))
 		return;
 
 	decompose(k, compat);
-	k->idx = 0;
 
-	do {
+	for (k->idx = 0; k->idx < k->len; kdgu_inc(k)) {
 		unsigned beginning = k->idx;
 
 		/* Read the pair of code points. */
@@ -1031,8 +1035,13 @@ compose(kdgu *k, bool compat)
 		 * point; this correctly composes longer sequences of
 		 * combining marks on a single starter code point.
 		 */
-		kdgu_dec(k);
-	} while (kdgu_inc(k) && k->idx != k->len);
+		if (!kdgu_dec(k)) {
+			compose(k, compat);
+			break;
+		}
+	}
+
+	k->norm = compat ? NORM_NFKC : NORM_NFC;
 }
 
 bool
@@ -1047,8 +1056,6 @@ kdgu_normalize(kdgu *k, enum normalization norm)
 	case NORM_NFKD: decompose(k, true);  break;
 	case NORM_NFKC: compose(k, true);    break;
 	}
-
-	k->norm = norm;
 
 	return true;
 }
