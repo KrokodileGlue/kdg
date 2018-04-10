@@ -846,6 +846,7 @@ static void
 sort_combining_marks(uint32_t *buf, unsigned len)
 {
  sort:
+	/* We use `len - 1' because we read pairs of numbers here. */
 	for (unsigned i = 0; i < len - 1; i++) {
 		struct codepoint *cp1 = codepoint(buf[i]);
 		struct codepoint *cp2 = codepoint(buf[i + 1]);
@@ -1020,6 +1021,11 @@ compose(kdgu *k, bool compat)
 		if (codepoint(composition)->comp_exclusion)
 			continue;
 
+		/*
+		 * Only at this point are we sure we have a fully
+		 * valid composition.
+		 */
+
 		kdgu_inc(k), kdgu_inc(k);
 		unsigned end = k->idx;
 		k->idx = beginning;
@@ -1060,6 +1066,10 @@ kdgu_normalize(kdgu *k, enum normalization norm)
 	return true;
 }
 
+/*
+ * TODO: This thing should make correct usage of normalization forms
+ * for comparison.
+ */
 bool
 kdgu_cmp(kdgu *k1, kdgu *k2)
 {
@@ -1084,7 +1094,7 @@ kdgu_print(kdgu *k)
 	if (!k) return;
 
 	for (unsigned i = 0; i < k->len; i++)
-		putchar(k->s[i]);
+		putchar((unsigned char)k->s[i]);
 }
 
 void
