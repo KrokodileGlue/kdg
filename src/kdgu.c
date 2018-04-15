@@ -499,6 +499,126 @@ kdgu_whitespace(kdgu *k)
 	return false;
 }
 
+static unsigned
+decomp_len(uint16_t c)
+{
+	unsigned len = c >> 13;
+	if (len >= 7) len = sequences[c & 0x1FFF];
+	return len;
+}
+
+static unsigned write_decomposed(uint16_t c,
+                                 uint32_t *buf,
+                                 unsigned buflen);
+
+unsigned
+decompose_char(uint32_t c,
+               uint32_t *buf,
+               unsigned buflen)
+{
+	struct codepoint *cp = codepoint(c);
+	int32_t hangul_s = c - HANGUL_SBASE;
+
+	if (hangul_s >= 0 && hangul_s < HANGUL_SCOUNT) {
+		uint32_t hangul_t = hangul_s % HANGUL_TCOUNT;
+
+		if (!buf || !buflen)
+			return hangul_t ? 3 : 2;
+
+		buf[0] = HANGUL_LBASE +
+			hangul_s / HANGUL_NCOUNT;
+
+		buf[1] = HANGUL_VBASE +
+			(hangul_s % HANGUL_NCOUNT)
+			/ HANGUL_TCOUNT;
+
+		if (!hangul_t) return 2;
+		return buf[2] = HANGUL_TBASE + hangul_t, 3;
+	}
+
+	if (cp->decomp != UINT16_MAX)
+		return write_decomposed(cp->decomp,
+		                        buf,
+		                        buflen);
+
+	return *buf = c, 1;
+}
+
+static unsigned
+write_decomposed(uint16_t c,
+                 uint32_t *buf,
+                 unsigned buflen)
+{
+	unsigned written = 0, len = decomp_len(c);
+	uint16_t *entry = &sequences[c & 0x1FFF];
+	if (c >> 13 >= 7) entry++;
+
+	/* Iterate over the characters in the decomposition. */
+	for (unsigned i = 0; i <= len; entry++, i++) {
+		/* Look up the current codepoint in the entry. */
+		uint32_t dc = seqindex_decode_entry(&entry);
+
+		written += decompose_char(dc,
+		                          buf ? buf + written : NULL,
+		                          buf ? buflen - written : 0);
+	}
+
+	return written;
+}
+
+/*
+ * Only `safenize()' uses these two functions. They return the number
+ * of leading non-starter code points and trailing non-starter code
+ * points in `buf', respectively.
+ */
+
+static unsigned
+leading_nonstarters(uint32_t *buf, unsigned len)
+{
+	unsigned n = 0;
+	while (n < len && codepoint(buf[n])->combining) n++;
+	return n;
+}
+
+static unsigned
+trailing_nonstarters(uint32_t *buf, unsigned len)
+{
+	int n = len - 1;
+	while (n >= 0 && codepoint(buf[n])->combining) n--;
+	return len - n;
+}
+
+/*
+ * This function ensures that `k' is in Stream-Safe Text Format by the
+ * algorithm described in http://unicode.org/reports/tr15/#UAX15-D4
+ */
+
+static void
+safenize(kdgu *k)
+{
+	unsigned non_starter_count = 0;
+
+	for (k->idx = 0; k->idx < k->len; kdgu_inc(k)) {
+		uint32_t c = kdgu_decode(k);
+		uint32_t buf[100];
+		unsigned len = decompose_char(c, buf, 100);
+
+		if (leading_nonstarters(buf, len)
+		    + non_starter_count > 5) {
+			/* Insert the combining grapheme joiner. */
+			/* insert_point(k, 0x34F); */
+			insert_point(k, 'a');
+			kdgu_inc(k);
+			non_starter_count = 0;
+		}
+
+		unsigned trailing = trailing_nonstarters(buf, len);
+		non_starter_count = trailing == len
+			? trailing
+			: non_starter_count + len;
+	}
+}
+
 kdgu *
 kdgu_new(enum fmt fmt, const char *s, size_t len)
 {
@@ -547,6 +667,8 @@ kdgu_new(enum fmt fmt, const char *s, size_t len)
 
 	k->len = len;
 	k->alloc = k->len;
+
+	safenize(k);
 
 	return k;
 }
@@ -777,65 +899,7 @@ kdgu_convert(kdgu *k, enum fmt fmt)
 
 	return true;
 }
-static unsigned write_decomposed(uint16_t c,
-                                 uint32_t *buf,
-                                 unsigned buflen);
 
-unsigned
-decompose_char(uint32_t c,
-               uint32_t *buf,
-               unsigned buflen)
-{
-	assert(buflen >= 3);
-	struct codepoint *cp = codepoint(c);
-	int32_t hangul_s = c - HANGUL_SBASE;
-
-	if (hangul_s >= 0 && hangul_s < HANGUL_SCOUNT) {
-		buf[0] = HANGUL_LBASE +
-			hangul_s / HANGUL_NCOUNT;
-
-		buf[1] = HANGUL_VBASE +
-			(hangul_s % HANGUL_NCOUNT)
-			/ HANGUL_TCOUNT;
-
-		uint32_t hangul_t = hangul_s % HANGUL_TCOUNT;
-		if (!hangul_t) return 2;
-		return buf[2] = HANGUL_TBASE + hangul_t, 3;
-	}
-
-	if (cp->decomp != UINT16_MAX)
-		return write_decomposed(cp->decomp,
-		                        buf,
-		                        buflen);
-
-	return *buf = c, 1;
-}
-
-static unsigned
-write_decomposed(uint16_t c,
-                 uint32_t *buf,
-                 unsigned buflen)
-{
-	unsigned written = 0, len = c >> 13;
-	uint16_t *entry = &sequences[c & 0x1FFF];
-
-	if (len >= 7) {
-		len = *entry;
-		entry++;
-	}
-
-	/* Iterate over the characters in the decomposition. */
-	for (unsigned i = 0; i <= len; entry++, i++) {
-		/* Look up the current codepoint in the entry. */
-		uint32_t dc = seqindex_decode_entry(&entry);
-
-		written += decompose_char(dc,
-		                          buf + written,
-		                          buflen - written);
-	}
-
-	return written;
-}
 
 /*
  * Uses bubble sort to organize the code points in `buf' according to
@@ -879,8 +943,13 @@ decompose(kdgu *k, bool compat)
 	    || (k->norm == NORM_NFKD && compat))
 		return;
 
-	/* TODO: Make sure this buffer is never overrun. */
-	uint32_t buf[100];
+	/*
+	 * KDGU strings are in Stream-Safe Text Format, so there will
+	 * never be any sequences of starters and non-starters longer
+	 * than 32 code points long:
+	 * http://unicode.org/reports/tr15/#Stream_Safe_Text_Format
+	 */
+	uint32_t buf[32];
 	unsigned len;
 
 	/* This first loop decomposes all decomposable characters. */
@@ -899,10 +968,9 @@ decompose(kdgu *k, bool compat)
 
 		len = write_decomposed(cp->decomp,
 		                       buf,
-		                       sizeof buf);
+		                       sizeof buf / sizeof *buf);
 
 		if (!len) continue;
-
 		delete_point(k);
 
 		for (unsigned i = 0; i < len; i++) {
@@ -929,7 +997,8 @@ decompose(kdgu *k, bool compat)
 
 			c = kdgu_decode(k);
 			cp = codepoint(c);
-		} while (cp->combining);
+		} while (cp->combining
+		         && len < sizeof buf / sizeof *buf);
 
 		sort_combining_marks(buf, len);
 
@@ -976,6 +1045,7 @@ load_index(uint32_t *buf, unsigned *len, uint16_t idx)
  * code has no additional logic for NFKC.
  */
 
+/* TODO: Use faster checks to reduce unnecessary processing. */
 static void
 compose(kdgu *k, bool compat)
 {
@@ -984,6 +1054,7 @@ compose(kdgu *k, bool compat)
 		return;
 
 	decompose(k, compat);
+	int max_combining_class = -1;
 
 	for (k->idx = 0; k->idx < k->len; kdgu_inc(k)) {
 		unsigned beginning = k->idx;
@@ -998,6 +1069,8 @@ compose(kdgu *k, bool compat)
 		struct codepoint *cp1 = codepoint(c1);
 		struct codepoint *cp2 = codepoint(c2);
 
+		if (!cp1 || !cp2) continue;
+
 		/* No valid composition exists; do nothing. */
 		if (cp1->comb >= 0x8000
 		      || cp2->comb == UINT16_MAX
@@ -1006,7 +1079,6 @@ compose(kdgu *k, bool compat)
 
 		int idx1 = cp1->comb;
 		int idx2 = cp2->comb & 0x3FFF;
-
 		int idx = idx2 - compositions[idx1];
 
 		if (idx < 0 || idx > compositions[idx1 + 1])
@@ -1018,7 +1090,8 @@ compose(kdgu *k, bool compat)
 			| compositions[idx + 1]
 			: compositions[idx];
 
-		if (codepoint(composition)->comp_exclusion)
+		if (codepoint(composition)->comp_exclusion
+		    || cp2->combining <= max_combining_class)
 			continue;
 
 		/*
@@ -1032,6 +1105,11 @@ compose(kdgu *k, bool compat)
 
 		kdgu_delete(k, beginning, end);
 		insert_point(k, composition);
+
+		max_combining_class = cp2->combining
+			&& cp2->combining > max_combining_class
+			? cp2->combining
+			: -1;
 
 		/*
 		 * We decrement here to offset the increment that will
