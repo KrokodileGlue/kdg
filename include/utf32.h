@@ -11,6 +11,9 @@
 	 : (uint8_t)*(Y+3) << 24 | (uint8_t)*(Y+2) << 16 | \
 	 (uint8_t)*(Y+1)   << 8  | (uint8_t)*(Y))
 
-char *utf32validate(kdgu *k, const char *s, size_t *l, int endian);
+uint8_t *utf32validate(kdgu *k,
+                       const uint8_t *s,
+                       size_t *l,
+                       int endian);
 
 #endif

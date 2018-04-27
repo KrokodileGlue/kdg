@@ -8,9 +8,9 @@
                           && X != 0xc1	\
                           && X < 0xf5)
 
-#define UTF8CONT(X) (((unsigned char)(X) & 0xc0) == 0x80)
+#define UTF8CONT(X) (((uint8_t)(X) & 0xc0) == 0x80)
 
-char *utf8validate(kdgu *k, const char *s, size_t *l);
-unsigned utf8chrlen(const char *s, unsigned l);
+uint8_t *utf8validate(kdgu *k, const uint8_t *s, size_t *l);
+unsigned utf8chrlen(const uint8_t *s, unsigned l);
 
 #endif

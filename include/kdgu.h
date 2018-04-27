@@ -6,11 +6,11 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "unicode.h"
+#include "unicode_data.h"
 
 typedef struct kdgu {
 	unsigned alloc, len, idx;
-	char *s;
+	uint8_t *s;
 	enum normalization norm;
 
 	struct errorlist {
@@ -41,8 +41,8 @@ typedef struct kdgu {
 	} endian;
 } kdgu;
 
-kdgu *kdgu_new(enum fmt fmt, const char *s, size_t len);
-kdgu *kdgu_news(const char *s);
+kdgu *kdgu_new(enum fmt fmt, const uint8_t *s, size_t len);
+kdgu *kdgu_news(const uint8_t *s);
 void kdgu_free(kdgu *k);
 
 kdgu *kdgu_copy(kdgu *k);
@@ -65,7 +65,7 @@ bool kdgu_normalize(kdgu *k, enum normalization norm);
 
 bool kdgu_cmp(kdgu *k1, kdgu *k2);
 bool kdgu_nth(kdgu *k, unsigned n);
-bool kdgu_append(kdgu *k, const char *s, size_t l);
+bool kdgu_append(kdgu *k, const uint8_t *s, size_t l);
 
 void kdgu_delete(kdgu *k, size_t a, size_t b);
 void kdgu_print(kdgu *k);
@@ -76,7 +76,7 @@ void kdgu_print_error(struct error err);
 
 uint32_t kdgu_decode(kdgu *k);
 struct error kdgu_encode(enum fmt fmt, uint32_t c,
-                         char *buf, unsigned *len,
+                         uint8_t *buf, unsigned *len,
                          unsigned idx, int endian);
 
 unsigned kdgu_len(kdgu *k);

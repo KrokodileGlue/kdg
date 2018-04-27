@@ -7,13 +7,28 @@
 
 #include "kdgu.h"
 
-#include "unicode.h"
+#include "unicode_data.h"
 #include "encoding.h"
 #include "error.h"
 
 #include "utf8.h"
 #include "utf16.h"
 #include "utf32.h"
+
+/*
+ * TODO: Case folding will need to specially consider U+0345:
+ *
+ * "The invocations of normalization before case folding in the
+ * preceding definitions are to catch very infrequent edge
+ * cases. Normalization is not required before case folding, except
+ * for the character U+0345 n combining greek ypogegrammeni and any
+ * characters that have it as part of their decomposition, such as
+ * U+1FC3 o greek small letter eta with ypogegrammeni.  In practice,
+ * optimized versions of implementations can catch these special
+ * cases, thereby avoiding an extra normalization."
+ *
+ * http://www.unicode.org/versions/Unicode5.0.0/ch03.pdf
+ */
 
 /*
  * VOLATILE: This table must be kept up-to-date with the order of enum
@@ -32,10 +47,6 @@ static char *format[] = {
 	"UTF-32-BE"
 };
 
-_Static_assert(CHAR_BIT == 8,
-               "kdgu only supports systems on"
-               " which CHAR_BIT == 8 is true.");
-
 #define IS_VALID_CP1252(X)	  \
 	((X) == 0x81 \
 	 || (X) == 0x8D \
@@ -43,10 +54,10 @@ _Static_assert(CHAR_BIT == 8,
 	 || (X) == 0x90 \
 	 || (X) == 0x9D)
 
-static char *
-cp1252validate(kdgu *k, const char *s, size_t *l)
+static uint8_t *
+cp1252validate(kdgu *k, const uint8_t *s, size_t *l)
 {
-	char *r = malloc(*l);
+	uint8_t *r = malloc(*l);
 	if (!r) return NULL;
 	memcpy(r, s, *l);
 
@@ -55,7 +66,7 @@ cp1252validate(kdgu *k, const char *s, size_t *l)
 	 * https://en.wikipedia.org/wiki/Windows-1252
 	 */
 	for (unsigned i = 0; i < k->len; i++)
-		if (!IS_VALID_CP1252((unsigned char)r[i])) {
+		if (!IS_VALID_CP1252((uint8_t)r[i])) {
 			pusherror(k, ERR(ERR_INVALID_CP1252, i));
 			r[i] = KDGU_REPLACEMENT;
 		}
@@ -63,30 +74,30 @@ cp1252validate(kdgu *k, const char *s, size_t *l)
 	return r;
 }
 
-static char *
-asciivalidate(kdgu *k, const char *s, size_t *l)
+static uint8_t *
+asciivalidate(kdgu *k, const uint8_t *s, size_t *l)
 {
-	char *r = malloc(*l);
+	uint8_t *r = malloc(*l);
 	if (!r) return NULL;
 	memcpy(r, s, *l);
 
 	for (unsigned i = 0; i < k->len; i++)
-		if ((unsigned char)s[i] > 128)
+		if ((uint8_t)s[i] > 128)
 			pusherror(k, ERR(ERR_INVALID_ASCII, i));
 
 	return r;
 }
 
-static char *
-ebcdicvalidate(kdgu *k, const char *s, size_t *l)
+static uint8_t *
+ebcdicvalidate(kdgu *k, const uint8_t *s, size_t *l)
 {
-	char *r = malloc(*l);
+	uint8_t *r = malloc(*l);
 	if (!r) return NULL;
 	memcpy(r, s, *l);
 
 	for (unsigned i = 0; i < k->len; i++)
-		if ((unsigned char)s[i] == 48
-		    || (unsigned char)s[i] == 49)
+		if ((uint8_t)s[i] == 48
+		    || (uint8_t)s[i] == 49)
 			pusherror(k, ERR(ERR_INVALID_EBCDIC, i));
 
 	return r;
@@ -161,7 +172,7 @@ delete_point(kdgu *k)
 }
 
 static int
-overwritechr(kdgu *k, char *b, unsigned l1)
+overwritechr(kdgu *k, uint8_t *b, unsigned l1)
 {
 	unsigned l2 = kdgu_chrsize(k);
 
@@ -285,7 +296,7 @@ insert_point(kdgu *k, uint32_t c)
 {
 	if (!k) return 0;
 
-	char buf[4];
+	uint8_t buf[4];
 	unsigned len;
 
 	struct error err =
@@ -309,7 +320,7 @@ insert_point(kdgu *k, uint32_t c)
 }
 
 static int
-insert_buffer(kdgu *k, char *buf, unsigned len)
+insert_buffer(kdgu *k, uint8_t *buf, unsigned len)
 {
 	if (!k) return 0;
 
@@ -335,14 +346,71 @@ kdgu_len(kdgu *k)
 	return l;
 }
 
-static struct special_case *
-get_special_case(uint32_t c)
+static unsigned
+decomp_len(uint16_t c)
 {
-	for (unsigned i = 0; i < num_special_case; i++)
-		if (special_case[i].c == c)
-			return &special_case[i];
+	unsigned len = c >> 13;
+	if (len >= 7) len = sequences[c & 0x1FFF];
+	return len;
+}
 
-	return NULL;
+static unsigned write_decomposed(uint16_t c,
+                                 uint32_t *buf,
+                                 unsigned buflen);
+
+unsigned
+decompose_char(uint32_t c,
+               uint32_t *buf,
+               unsigned buflen)
+{
+	struct codepoint *cp = codepoint(c);
+	int32_t hangul_s = c - HANGUL_SBASE;
+
+	if (hangul_s >= 0 && hangul_s < HANGUL_SCOUNT) {
+		uint32_t hangul_t = hangul_s % HANGUL_TCOUNT;
+
+		if (!buf || !buflen)
+			return hangul_t ? 3 : 2;
+
+		buf[0] = HANGUL_LBASE +
+			hangul_s / HANGUL_NCOUNT;
+
+		buf[1] = HANGUL_VBASE +
+			(hangul_s % HANGUL_NCOUNT)
+			/ HANGUL_TCOUNT;
+
+		if (!hangul_t) return 2;
+		return buf[2] = HANGUL_TBASE + hangul_t, 3;
+	}
+
+	if (cp->decomp != UINT16_MAX)
+		return write_decomposed(cp->decomp,
+		                        buf,
+		                        buflen);
+
+	return *buf = c, 1;
+}
+
+static unsigned
+write_decomposed(uint16_t c,
+                 uint32_t *buf,
+                 unsigned buflen)
+{
+	unsigned written = 0, len = decomp_len(c);
+	uint16_t *entry = &sequences[c & 0x1FFF];
+	if (c >> 13 >= 7) entry++;
+
+	/* Iterate over the characters in the decomposition. */
+	for (unsigned i = 0; i <= len; entry++, i++) {
+		/* Look up the current codepoint in the entry. */
+		uint32_t dc = seqindex_decode_entry(&entry);
+
+		written += decompose_char(dc,
+		                          buf ? buf + written : NULL,
+		                          buf ? buflen - written : 0);
+	}
+
+	return written;
 }
 
 bool
@@ -361,17 +429,7 @@ kdgu_uc(kdgu *k)
 			continue;
 		}
 
-		struct special_case *sc = get_special_case(c);
-
-		if (!sc || !sc->upper_len) continue;
-		delete_point(k);
-
-		for (unsigned i = 0; i < sc->upper_len; i++) {
-			insert_point(k, sc->upper[i]);
-			kdgu_inc(k);
-		}
-
-		kdgu_dec(k);
+		/* TODO: Generate proper casing code. */
 	} while (kdgu_inc(k));
 
 	return true;
@@ -393,17 +451,7 @@ kdgu_lc(kdgu *k)
 			continue;
 		}
 
-		struct special_case *sc = get_special_case(c);
-
-		if (!sc || !sc->lower_len) continue;
-		delete_point(k);
-
-		for (unsigned i = 0; i < sc->lower_len; i++) {
-			insert_point(k, sc->lower[i]);
-			kdgu_inc(k);
-		}
-
-		kdgu_dec(k);
+		/* TODO: Generate proper casing code. */
 	} while (kdgu_inc(k));
 
 	return true;
@@ -419,8 +467,8 @@ kdgu_reverse(kdgu *k)
 	unsigned a = 0, b = k->idx;
 
 	for (unsigned i = 0; i < end / 2 + 1; i++) {
-		k->idx = a; char c1[kdgu_chrsize(k)];
-		k->idx = b; char c2[kdgu_chrsize(k)];
+		k->idx = a; uint8_t c1[kdgu_chrsize(k)];
+		k->idx = b; uint8_t c2[kdgu_chrsize(k)];
 
 		memcpy(c1, k->s + a, sizeof c1);
 		memcpy(c2, k->s + b, sizeof c2);
@@ -499,73 +547,6 @@ kdgu_whitespace(kdgu *k)
 	return false;
 }
 
-static unsigned
-decomp_len(uint16_t c)
-{
-	unsigned len = c >> 13;
-	if (len >= 7) len = sequences[c & 0x1FFF];
-	return len;
-}
-
-static unsigned write_decomposed(uint16_t c,
-                                 uint32_t *buf,
-                                 unsigned buflen);
-
-unsigned
-decompose_char(uint32_t c,
-               uint32_t *buf,
-               unsigned buflen)
-{
-	struct codepoint *cp = codepoint(c);
-	int32_t hangul_s = c - HANGUL_SBASE;
-
-	if (hangul_s >= 0 && hangul_s < HANGUL_SCOUNT) {
-		uint32_t hangul_t = hangul_s % HANGUL_TCOUNT;
-
-		if (!buf || !buflen)
-			return hangul_t ? 3 : 2;
-
-		buf[0] = HANGUL_LBASE +
-			hangul_s / HANGUL_NCOUNT;
-
-		buf[1] = HANGUL_VBASE +
-			(hangul_s % HANGUL_NCOUNT)
-			/ HANGUL_TCOUNT;
-
-		if (!hangul_t) return 2;
-		return buf[2] = HANGUL_TBASE + hangul_t, 3;
-	}
-
-	if (cp->decomp != UINT16_MAX)
-		return write_decomposed(cp->decomp,
-		                        buf,
-		                        buflen);
-
-	return *buf = c, 1;
-}
-
-static unsigned
-write_decomposed(uint16_t c,
-                 uint32_t *buf,
-                 unsigned buflen)
-{
-	unsigned written = 0, len = decomp_len(c);
-	uint16_t *entry = &sequences[c & 0x1FFF];
-	if (c >> 13 >= 7) entry++;
-
-	/* Iterate over the characters in the decomposition. */
-	for (unsigned i = 0; i <= len; entry++, i++) {
-		/* Look up the current codepoint in the entry. */
-		uint32_t dc = seqindex_decode_entry(&entry);
-
-		written += decompose_char(dc,
-		                          buf ? buf + written : NULL,
-		                          buf ? buflen - written : 0);
-	}
-
-	return written;
-}
-
 /*
  * Only `safenize()' uses these two functions. They return the number
  * of leading non-starter code points and trailing non-starter code
@@ -606,8 +587,7 @@ safenize(kdgu *k)
 		if (leading_nonstarters(buf, len)
 		    + non_starter_count > 5) {
 			/* Insert the combining grapheme joiner. */
-			/* insert_point(k, 0x34F); */
-			insert_point(k, 'a');
+			insert_point(k, 0x34F);
 			kdgu_inc(k);
 			non_starter_count = 0;
 		}
@@ -620,7 +600,7 @@ safenize(kdgu *k)
 }
 
 kdgu *
-kdgu_new(enum fmt fmt, const char *s, size_t len)
+kdgu_new(enum fmt fmt, const uint8_t *s, size_t len)
 {
 	kdgu *k = malloc(sizeof *k);
 	if (!k) return NULL;
@@ -674,9 +654,9 @@ kdgu_new(enum fmt fmt, const char *s, size_t len)
 }
 
 kdgu *
-kdgu_news(const char *s)
+kdgu_news(const uint8_t *s)
 {
-	return kdgu_new(FMT_ASCII, s, strlen(s));
+	return kdgu_new(FMT_ASCII, s, strlen((char *)s));
 }
 
 kdgu *
@@ -706,7 +686,7 @@ kdgu_cat(kdgu *k1, kdgu *k2)
 		return false;
 
 	k1->alloc += k2->len;
-	char *p = realloc(k1->s, k1->alloc);
+	uint8_t *p = realloc(k1->s, k1->alloc);
 	if (!p) return false;
 
 	k1->s = p;
@@ -874,7 +854,7 @@ kdgu_convert(kdgu *k, enum fmt fmt)
 	while (k->idx < k->len) {
 		unsigned len;
 		uint32_t c = kdgu_decode(k);
-		char buf[4];
+		uint8_t buf[4];
 
 		struct error err =
 			kdgu_encode(fmt, c, buf,
@@ -1032,6 +1012,73 @@ load_index(uint32_t *buf, unsigned *len, uint16_t idx)
 }
 #endif
 
+/* TODO: Stable compositions. */
+
+static bool
+compose_char(kdgu *k)
+{
+	unsigned beginning = k->idx;
+
+	/* Read the pair of code points. */
+	uint32_t c1 = kdgu_decode(k);
+	if (!kdgu_inc(k) || k->idx == k->len) return false;
+	uint32_t c2 = kdgu_decode(k);
+
+	k->idx = beginning;
+
+	struct codepoint *cp1 = codepoint(c1);
+	struct codepoint *cp2 = codepoint(c2);
+	if (!cp1 || !cp2) return false;
+
+	/* No valid composition exists; do nothing. */
+	if (cp1->comb >= 0x8000
+	    || cp2->comb == UINT16_MAX
+	    || cp2->comb < 0x8000)
+		return false;
+
+	int idx1 = cp1->comb;
+	int idx2 = cp2->comb & 0x3FFF;
+	int idx = idx2 - compositions[idx1];
+
+	if (idx < 0 || idx > compositions[idx1 + 1]) return false;
+
+	idx += idx1 + 2;
+	uint32_t composition = cp2->comb & 0x4000
+		? (compositions[idx] << 16)
+		| compositions[idx + 1]
+		: compositions[idx];
+
+	struct codepoint *comp_cp = codepoint(composition);
+
+	/*
+	 * It doesn't make sense for a character that's been
+	 * composed from other characters to not have a
+	 * decomposition.
+	 */
+
+	/* assert(comp_cp->decomp != UINT16_MAX); */
+	if (comp_cp->comp_exclusion) return false;
+
+	/*
+	 * Only at this point are we sure we have a fully
+	 * valid composition.
+	 */
+
+	printf("U+%02"PRIX32" + U+%02"PRIX32" = U+%02"PRIX32"\n", c1, c2, composition);
+	printf("\t%x, %x\n", cp1->combining, cp2->combining);
+	printf("\t%x, %x\n", cp1->comb, cp2->comb);
+	printf("\t%x, %x\n", idx1, idx2);
+	printf("\t%x, %x\n", compositions[idx1], compositions[idx2]);
+	printf("\t%x - %x\n", idx, compositions[idx]);
+
+	kdgu_inc(k), kdgu_inc(k);
+	kdgu_delete(k, beginning, k->idx);
+	k->idx = beginning;
+	insert_point(k, composition);
+
+	return true;
+}
+
 /*
  * This function will first decompose all decomposable code points and
  * sort all combining marks with `decompose()'. Then it will read
@@ -1054,63 +1101,8 @@ compose(kdgu *k, bool compat)
 		return;
 
 	decompose(k, compat);
-	int max_combining_class = -1;
 
 	for (k->idx = 0; k->idx < k->len; kdgu_inc(k)) {
-		unsigned beginning = k->idx;
-
-		/* Read the pair of code points. */
-		uint32_t c1 = kdgu_decode(k);
-		if (!kdgu_inc(k) || k->idx == k->len) break;
-		uint32_t c2 = kdgu_decode(k);
-
-		k->idx = beginning;
-
-		struct codepoint *cp1 = codepoint(c1);
-		struct codepoint *cp2 = codepoint(c2);
-
-		if (!cp1 || !cp2) continue;
-
-		/* No valid composition exists; do nothing. */
-		if (cp1->comb >= 0x8000
-		      || cp2->comb == UINT16_MAX
-		      || cp2->comb < 0x8000)
-			continue;
-
-		int idx1 = cp1->comb;
-		int idx2 = cp2->comb & 0x3FFF;
-		int idx = idx2 - compositions[idx1];
-
-		if (idx < 0 || idx > compositions[idx1 + 1])
-			continue;
-
-		idx += idx1 + 2;
-		uint32_t composition = cp2->comb & 0x4000
-			? (compositions[idx] << 16)
-			| compositions[idx + 1]
-			: compositions[idx];
-
-		if (codepoint(composition)->comp_exclusion
-		    || cp2->combining <= max_combining_class)
-			continue;
-
-		/*
-		 * Only at this point are we sure we have a fully
-		 * valid composition.
-		 */
-
-		kdgu_inc(k), kdgu_inc(k);
-		unsigned end = k->idx;
-		k->idx = beginning;
-
-		kdgu_delete(k, beginning, end);
-		insert_point(k, composition);
-
-		max_combining_class = cp2->combining
-			&& cp2->combining > max_combining_class
-			? cp2->combining
-			: -1;
-
 		/*
 		 * We decrement here to offset the increment that will
 		 * occur in the next iteration of the loop. This is
@@ -1119,7 +1111,8 @@ compose(kdgu *k, bool compat)
 		 * point; this correctly composes longer sequences of
 		 * combining marks on a single starter code point.
 		 */
-		if (!kdgu_dec(k)) {
+
+		if (compose_char(k) && !kdgu_dec(k)) {
 			compose(k, compat);
 			break;
 		}
@@ -1172,7 +1165,7 @@ kdgu_print(kdgu *k)
 	if (!k) return;
 
 	for (unsigned i = 0; i < k->len; i++)
-		putchar((unsigned char)k->s[i]);
+		putchar((uint8_t)k->s[i]);
 }
 
 void
@@ -1183,7 +1176,7 @@ kdgu_debugprint1(kdgu *k)
 	printf("{%u} <", k->len);
 
 	for (unsigned i = 0; i < k->len; i++) {
-		printf("%02X", (unsigned char)k->s[i]);
+		printf("%02X", (uint8_t)k->s[i]);
 		if (i != k->len - 1) putchar(' ');
 	}
 
@@ -1333,10 +1326,10 @@ kdgu_decode(kdgu *k)
 
 	switch (k->fmt) {
 	case FMT_CP1252:
-		return cp1252[(unsigned char)k->s[k->idx]];
+		return cp1252[(uint8_t)k->s[k->idx]];
 
 	case FMT_EBCDIC:
-		return ebcdic[(unsigned char)k->s[k->idx]];
+		return ebcdic[(uint8_t)k->s[k->idx]];
 
 	case FMT_ASCII:
 		return (uint32_t)k->s[k->idx];
@@ -1387,7 +1380,7 @@ kdgu_decode(kdgu *k)
 /* TODO: Make sure NO_CONVERSION errors are consistent. */
 /* TODO: KDGU_REPLACEMENT doesn't work for most encodings. */
 struct error
-kdgu_encode(enum fmt fmt, uint32_t c, char *buf,
+kdgu_encode(enum fmt fmt, uint32_t c, uint8_t *buf,
             unsigned *len, unsigned idx, int endian)
 {
 	struct error err = ERR(ERR_NO_ERROR, 0);
@@ -1522,7 +1515,7 @@ kdgu_chrsize(kdgu *k)
 }
 
 bool
-kdgu_append(kdgu *k, const char *s, size_t l)
+kdgu_append(kdgu *k, const uint8_t *s, size_t l)
 {
 	kdgu_size(k, k->len + l);
 	memcpy(k->s + k->len, s, l);

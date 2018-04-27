@@ -7,19 +7,19 @@
 
 /* Not a decoder! Does not calculate code points! */
 static uint32_t
-utf8chr(const char *s, size_t l)
+utf8chr(const uint8_t *s, size_t l)
 {
 	assert(l > 0 && l <= 4);
-	uint32_t r = (unsigned char)s[0] << 24;
+	uint32_t r = (uint8_t)s[0] << 24;
 
 	for (unsigned i = 1; i < l && UTF8CONT(s[i]); i++)
-		r |= (unsigned char)s[i] << (24 - i * 8);
+		r |= (uint8_t)s[i] << (24 - i * 8);
 
 	return r;
 }
 
 unsigned
-utf8chrlen(const char *s, unsigned l)
+utf8chrlen(const uint8_t *s, unsigned l)
 {
 	unsigned i = 0;
 	while (s++ && ++i < l && UTF8CONT(*s));
@@ -27,7 +27,7 @@ utf8chrlen(const char *s, unsigned l)
 }
 
 #define RANGE(X,Y,Z)	  \
-	(((unsigned char)s[X] >= Y) && ((unsigned char)s[X] <= Z))
+	(((uint8_t)s[X] >= Y) && ((uint8_t)s[X] <= Z))
 
 #define ASSERTRANGE(X,Y,Z)	  \
 	do { \
@@ -43,7 +43,7 @@ utf8chrlen(const char *s, unsigned l)
 	}
 
 static bool
-is_noncharacter(const char *s, unsigned len)
+is_noncharacter(const uint8_t *s, unsigned len)
 {
 	/*
 	 * Refer to Section 2.4 (Code Points and Characters) and
@@ -86,7 +86,7 @@ is_noncharacter(const char *s, unsigned len)
 	} while (false)
 
 static struct error
-utf8validatechar(const char *s, char *r, unsigned *i,
+utf8validatechar(const uint8_t *s, uint8_t *r, unsigned *i,
                  unsigned *idx, size_t *l)
 {
 	struct error err = ERR(ERR_NO_ERROR, *i);
@@ -103,8 +103,8 @@ utf8validatechar(const char *s, char *r, unsigned *i,
 	}
 
 	/* This is just a regular ASCII character. */
-	if ((unsigned char)s[*i] < 128
-	    && UTF8VALID((unsigned char)s[*i])) {
+	if ((uint8_t)s[*i] < 128
+	    && UTF8VALID((uint8_t)s[*i])) {
 		r[(*idx)++] = s[*i];
 		(*i)++;
 		return ERR(ERR_NO_ERROR, *i);
@@ -122,7 +122,7 @@ utf8validatechar(const char *s, char *r, unsigned *i,
 		if (len < 0) len = 0; else len++;
 	}
 
-	if (!UTF8VALID((unsigned char)s[*i]))
+	if (!UTF8VALID((uint8_t)s[*i]))
 		FAIL(ERR_UTF8_INVALID_BYTE);
 
 	if (len < 0 || len > 4)
@@ -142,7 +142,7 @@ utf8validatechar(const char *s, char *r, unsigned *i,
 
 	/* Make sure they're all valid continuation bytes. */
 	for (int j = 0; j < len; j++) {
-		if (!UTF8VALID((unsigned char)s[*i + j + 1]))
+		if (!UTF8VALID((uint8_t)s[*i + j + 1]))
 			FAIL(ERR_UTF8_INVALID_BYTE);
 
 		if (!UTF8CONT(s[*i + j + 1]))
@@ -215,19 +215,19 @@ utf8validatechar(const char *s, char *r, unsigned *i,
 	return err;
 }
 
-char *
-utf8validate(kdgu *k, const char *s, size_t *l)
+uint8_t *
+utf8validate(kdgu *k, const uint8_t *s, size_t *l)
 {
-	char *r = malloc(*l);
+	uint8_t *r = malloc(*l);
 	if (!r) return NULL;
 
 	unsigned idx = 0;
 
 	/* Check for the UTF-8 BOM from 2.13 (Unicode Signature). */
 	if (*l >= 3
-	    && s[0] == (char)0xEF
-	    && s[1] == (char)0xBB
-	    && s[2] == (char)0xBF)
+	    && s[0] == (uint8_t)0xEF
+	    && s[1] == (uint8_t)0xBB
+	    && s[2] == (uint8_t)0xBF)
 		s += 3;
 
 	for (unsigned i = 0; i < *l;) {

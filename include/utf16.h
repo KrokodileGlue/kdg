@@ -15,7 +15,7 @@
 #define UTF16LOW_SURROGATE(X)	  \
 	((X) >= 0xdc00 && (X) <= 0xdfff)
 
-char *utf16validate(kdgu *k, const char *s,
-                    size_t *l, int endian);
+uint8_t *utf16validate(kdgu *k, const uint8_t *s,
+                       size_t *l, int endian);
 
 #endif

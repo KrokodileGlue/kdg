@@ -139,28 +139,11 @@ struct codepoint {
 	unsigned bound;
 };
 
-struct special_case {
-	uint32_t c;
-
-	unsigned lower_len;
-	uint32_t *lower;
-
-	unsigned title_len;
-	uint32_t *title;
-
-	unsigned upper_len;
-	uint32_t *upper;
-};
-
 extern uint16_t sequences[];
 extern uint16_t compositions[];
 extern uint16_t stage1table[];
 extern uint16_t stage2table[];
 extern struct codepoint codepoints[];
-
-/* TODO: case.c is redundant. */
-extern size_t num_special_case;
-extern struct special_case special_case[];
 
 #define HANGUL_SBASE  0xAC00
 #define HANGUL_LBASE  0x1100

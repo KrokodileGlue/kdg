@@ -5,7 +5,7 @@
 #include "error.h"
 
 static struct error
-utf16validatechar(const char *s, char *r, unsigned *i,
+utf16validatechar(const uint8_t *s, uint8_t *r, unsigned *i,
                   unsigned *idx, size_t buflen, int endian)
 {
 	struct error err = ERR(ERR_NO_ERROR, *i);
@@ -45,10 +45,10 @@ utf16validatechar(const char *s, char *r, unsigned *i,
 	return err;
 }
 
-char *
-utf16validate(kdgu *k, const char *s, size_t *l, int endian)
+uint8_t *
+utf16validate(kdgu *k, const uint8_t *s, size_t *l, int endian)
 {
-	char *r = malloc(*l);
+	uint8_t *r = malloc(*l);
 	if (!r) return NULL;
 
 	unsigned idx = 0;
