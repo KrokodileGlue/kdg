@@ -10,5 +10,5 @@ wget https://www.unicode.org/Public/$VERSION/ucd/CompositionExclusions.txt
 wget https://www.unicode.org/Public/$VERSION/ucd/CaseFolding.txt
 wget https://www.unicode.org/Public/$VERSION/ucd/auxiliary/GraphemeBreakProperty.txt
 
-./gen.pl
+./gen.pl -v
 cp unicode_data.c ../src/
