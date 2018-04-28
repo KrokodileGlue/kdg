@@ -57,7 +57,6 @@ while (my $l = <$fh>) {
 	if ($l !~ /^([0-9A-F]+);<[^;>,]+, First>;/i) {
 		$l =~ /^(.*?);/;
 		$chars{$1} = Char->new(line => $l);
-		$chars{$1}->echo(0);
 		next;
 	}
 

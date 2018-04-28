@@ -73,13 +73,11 @@ sub BUILD {
 	}
 }
 
-sub print_thing {
-	my ($self, $prefix, $data) = @_;
-	if (not defined $data or $data eq "") {
-		return "0, ";
-	} else {
-		return $prefix . "_" . uc $data . ", ";
-	}
+sub cvar {
+	my ($prefix, $data) = @_;
+	return (not defined $data or $data eq "")
+	  ? "0, "
+	  : $prefix . "_" . uc $data . ", ";
 }
 
 # Prints out the code point as an entry in the C table. Needs to
@@ -88,12 +86,12 @@ sub print_thing {
 sub echo {
 	my ($self, @comb) = @_;
 
-	print "\t{ " .
-	  $self->print_thing("CATEGORY",    $self->{category})    .
-	  $self->print_thing("BIDI_CLASS",  $self->{bidi_class})  .
-	  $self->print_thing("DECOMP_TYPE", $self->{decomp_type}) .
+	return "\t{ " .
+	  cvar("CATEGORY",    $self->{category})    .
+	  cvar("BIDI_CLASS",  $self->{bidi_class})  .
+	  cvar("DECOMP_TYPE", $self->{decomp_type}) .
 	  "UINT16_MAX, " .
-	  $self->bidi_mirrored . " },\n"
+	  $self->bidi_mirrored . " },\n";
 }
 
 1;
