@@ -88,7 +88,7 @@ sub gen_chars {
 		}
 
 		# It's a range!
-		$progress->message("gen.pl: Generating range for $2.\n")
+		$progress->message("gen.pl: Generating range for $2.")
 		  if $verbose;
 
 		$l = <$fh>;
@@ -155,12 +155,12 @@ sub gen_tables {
 			  : 0;
 		}
 
-		my $old = $old_indices{@stage2_entry};
+		my $old = $old_indices{join ',', @stage2_entry};
 
 		if ($old) {
 			push @stage1, $old * 0x100;
 		} else {
-			$old_indices{@stage2_entry} = scalar @stage2;
+			$old_indices{join ',', @stage2_entry} = scalar @stage2;
 			push @stage1, scalar @stage2 * 0x100;
 			push @stage2, \@stage2_entry;
 		}
@@ -198,7 +198,7 @@ print $out "};\n\n";
 print_table("stage1", @$stage1);
 print_table("stage2", flat @$stage2);
 
-print "gen.pl: Done.\n" if $verbose;
+print "gen.pl: Done; exiting.\n" if $verbose;
 
 __DATA__
 // SPDX-License-Identifier: Unicode-DFS-2016
