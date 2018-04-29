@@ -15,22 +15,32 @@
 # relevant Unicode Data Files will be downloaded automatically and
 # unicode_data.c will be copied to src/. The Unicode Data Files are
 # licensed under the Unicode Data License; see LICENSE.md for details.
+#
+# A basic explanation of this system is here:
+# http://site.icu-project.org/design/struct/utrie
+#
+# Here's an example of a lookup to aid understanding:
+#
+#     1. Begin with U+61 --- block 0
+#     2. Look up 0 in stage1 --- index 0
+#     3. Look up 0x0061 (the bottom two byes of the original code
+#        point) in the first table in stage2 -- index 12
+#     4. Read the 12th entry in the basic property table
 
+use v5.10;
 use strict;
 use warnings;
-use v5.10;
+
 use lib '.';
 
 use Getopt::Long;
 use Char;
 
 # Global configuration variables.
-my $blocksize = 4000;
-my $filename  = "unicode_data.c";
-my $verbose   = 0;
+my $filename = "unicode_data.c";
+my $verbose  = 0;
 
-GetOptions("length=i" => \$blocksize,
-           "output=s" => \$filename,
+GetOptions("output=s" => \$filename,
            "verbose"  => \$verbose)
   or die("gen.pl: Exiting due to invalid " .
          "command-line parameters.\n");
@@ -38,72 +48,123 @@ GetOptions("length=i" => \$blocksize,
 if ($verbose) {
 	print "gen.pl: Running with verbose output.\n";
 	print "gen.pl: Dumping output into `$filename'.\n";
+	print "gen.pl: Parsing `UnicodeData.txt'...\n";
 }
 
 # <DATA> contains the hand-maintained includes/comments for the file.
 open(my $out, ">", $filename);
-print $out <DATA>, "\n";
-print $out "struct codepoint codepoints[] = {\n";
-
 open(my $fh, '<:encoding(UTF-8)', "UnicodeData.txt")
   or die "gen.pl: Could not open `UnicodeData.txt': $!\n";
+print $out <DATA>, "\n";
 
-# Build a hash table of code points.
-my %chars;
-while (my $l = <$fh>) {
-	chomp $l;
+# Build and return a hash table of code points.
+sub gen_chars {
+	my ($fh) = @_;
+	my %chars;
 
-	# It's not a range, it's just a regular character.
-	if ($l !~ /^([0-9A-F]+);<[^;>,]+, First>;/i) {
-		$l =~ /^(.*?);/;
-		$chars{$1} = Char->new(line => $l);
-		next;
+	while (my $l = <$fh>) {
+		chomp $l;
+
+		# It's not a range, it's just a regular character.
+		if ($l !~ /^([0-9A-F]+);<[^;>,]+, First>;/i) {
+			$l =~ /^(.*?);/;
+			$chars{$1} = Char->new(line => $l);
+			next;
+		}
+
+		# It's a range!
+		$l = <$fh>;
+		die "gen.pl: Expected range end-point at line: $l\n"
+		  if $l !~ /^([0-9A-F]+);<([^;>,]+), Last>;/i;
+
+		# TODO: Implement ranges.
 	}
 
-	# It's a range!
-	$l = <$fh>;
-	die "gen.pl: Expected range end-point at line: $l\n"
-	  if $l !~ /^([0-9A-F]+);<([^;>,]+), Last>;/i;
+	print "gen.pl: Loaded ", scalar keys %chars, " code points.\n"
+	  if $verbose;
+
+	return %chars;
 }
 
-print $out "};\n\n";
-print "gen.pl: Loaded ", scalar keys %chars, " code points.\n"
-  if $verbose;
+# Build and return an array of unique strings.
+sub gen_properties {
+	my (%chars) = @_;
+	my (%properties_indicies, @properties);
 
-# Now it's time to generate the trie lookup table. A basic explanation
-# of this system is here:
-# http://site.icu-project.org/design/struct/utrie
+	print "gen.pl: Generating properties...\n" if $verbose;
 
-# We use a 2-stage table, not counting the data table itself.
-#
-# Thinking about how the process works can be a bit confusing, so a
-# practical example of a lookup may be helpful:
-#
-#     1. Begin with U+61 --- block 0
-#     2. Look up 0 in stage1 --- index 0
-#     3. Look up 0x0061 (the bottom two byes of the original code
-#        point) in the first table in stage2 -- index 12
-#     4. Read the 12th entry
-#
-# Reading the 12th entry yields a struct with indices for various data
-# elements in other tables.
+	foreach my $key (keys %chars) {
+		my $entry = $chars{$key}->echo;
+		$chars{$key}->{entry_index} = $properties_indicies{$entry};
 
-# I found https://goo.gl/9kKWzH very useful.
+		if (not $chars{$key}->{entry_index}) {
+			$properties_indicies{$entry} = scalar @properties;
+			$chars{$key}->{entry_index} = scalar @properties;
+			push @properties, $entry;
+		}
+	}
 
-my $SHIFT_1                    = 6 + 5;
-my $SHIFT_2                    = 5;
-my $SHIFT_1_2                  = $SHIFT_1 - $SHIFT_2;
-my $OMITTED_BMP_INDEX_1_LENGTH = 0x10000 >> $SHIFT_1;
-my $CP_PER_INDEX_1_ENTRY       = 1 << $SHIFT_1;
-my $INDEX_2_BLOCK_LENGTH       = 1 << $SHIFT_1_2;
-my $INDEX_2_MASK               = $INDEX_2_BLOCK_LENGTH - 1;
-my $DATA_BLOCK_LENGTH          = 1 << $SHIFT_2;
-my $DATA_MASK                  = $DATA_BLOCK_LENGTH - 1;
+	print "gen.pl: Generated ", scalar @properties, " properties.\n"
+	  if $verbose;
 
-my @stage1;
+	return (\%chars, @properties);
+}
 
-print $out "uint16_t stage1[] = {\n";
-print $out "}\n";
+sub gen_tables {
+	my (%chars) = @_;
+	my (@stage1, @stage2, %old_indices);
+
+	print "gen.pl: Generating tables...\n" if $verbose;
+
+	for (my $code = 0; $code < 0x110000; $code += 0x100) {
+		my @stage2_entry;
+
+		for (my $code2 = $code; $code2 < $code + 0x100; $code2++) {
+			push @stage2_entry, $chars{$code2}
+			  ? $chars{$code2}->{entry_index} + 1
+			  : 0;
+		}
+
+		my $old = $old_indices{join '', @stage2_entry};
+
+		if ($old) {
+			push @stage1, $old * 0x100;
+		} else {
+			$old_indices{join '', @stage2_entry} = scalar @stage2;
+			push @stage1, scalar @stage2 * 0x100;
+			push @stage2, @stage2_entry;
+		}
+	}
+
+	print "gen.pl: Generated stage 1 table with ",
+	  scalar @stage1, " elements.\n" if $verbose;
+	print "gen.pl: Generated stage 2 table with ",
+	  scalar @stage2, " elements.\n" if $verbose;
+
+	return (\@stage1, \@stage2);
+}
+
+my ($chars, @properties) = gen_properties(gen_chars($fh));
+my ($stage1, $stage2) = gen_tables(%$chars);
+
+sub print_table {
+	my ($name, @table) = @_;
+
+	print $out "uint16_t $name\[] = {\n";
+	foreach (my $i = 0; $i < scalar @table; $i++) {
+		print $out "\t" if $i % 20 == 0;
+		print $out "$table[$i],";
+		print $out "\n" if ($i + 1) % 20 == 0;
+	}
+	print $out "\n};\n\n";
+}
+
+print $out "struct codepoint codepoints[] = {\n";
+foreach my $cp (@properties) { print $out "$cp"; }
+print $out "};\n";
+
+print_table("stage1", @$stage1);
+print_table("stage2", @$stage2);
 
 __DATA__
 // SPDX-License-Identifier: Unicode-DFS-2016

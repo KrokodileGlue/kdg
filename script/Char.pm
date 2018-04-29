@@ -13,6 +13,9 @@ use Moose;
 
 has line            => (is => 'rw');
 
+# This code point's entry number in the primary data table.
+has entry_index     => (is => 'rw');
+
 has code            => (is => 'rw');
 has name            => (is => 'rw');
 has category        => (is => 'rw');
@@ -62,7 +65,10 @@ sub BUILD {
 		$self->{bidi_class}      = $5;
 		$self->{decomp_type}     = $6;
 
-		$self->{decomp_mapping}  = $7 eq '' ? undef : split /\s+/, $7;
+		$self->{decomp_mapping}  = $7 eq ''
+		  ? undef
+		  : map { hex } split /\s+/, $7;
+
 		$self->{bidi_mirrored}   = $11 eq 'Y' ? 1 : 0;
 
 		$self->{uppercase}       = $14 eq '' ? undef : hex($14);
@@ -80,18 +86,18 @@ sub cvar {
 	  : $prefix . "_" . uc $data . ", ";
 }
 
-# Prints out the code point as an entry in the C table. Needs to
-# have the combining indices because those are important.
+# Prints out the code point as an entry in the C table.
 
 sub echo {
-	my ($self, @comb) = @_;
+	my $self = shift;
 
 	return "\t{ " .
 	  cvar("CATEGORY",    $self->{category})    .
 	  cvar("BIDI_CLASS",  $self->{bidi_class})  .
 	  cvar("DECOMP_TYPE", $self->{decomp_type}) .
 	  "UINT16_MAX, " .
-	  $self->bidi_mirrored . " },\n";
+	  $self->bidi_mirrored .
+	  " },\n";
 }
 
 1;
