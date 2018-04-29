@@ -93,11 +93,10 @@ sub echo {
 
 	return "\t{ " .
 	  cvar("CATEGORY",    $self->{category})    .
-	  cvar("BIDI_CLASS",  $self->{bidi_class})  .
+	  cvar("BIDI",        $self->{bidi_class})  .
 	  cvar("DECOMP_TYPE", $self->{decomp_type}) .
-	  "UINT16_MAX, " .
 	  $self->bidi_mirrored .
-	  " },\n";
+	  " },";
 }
 
 1;
