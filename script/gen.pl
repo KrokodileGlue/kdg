@@ -31,13 +31,10 @@ use v5.10;
 use strict;
 use warnings;
 
-use lib '.';
-
 use FileHandle;
 use Term::ProgressBar;
 use List::Flatten;
 use Getopt::Long;
-use Char;
 
 # Global configuration variables.
 my $filename = "unicode_data.c";
@@ -45,18 +42,114 @@ my $verbose  = 0;
 
 GetOptions("output=s" => \$filename,
            "verbose"  => \$verbose)
-  or die("gen.pl: Exiting due to invalid " .
+  or die("$0: Exiting due to invalid " .
          "command-line parameters.\n");
 
 if ($verbose) {
-	print "gen.pl: Running with verbose output.\n";
-	print "gen.pl: Dumping output into `$filename'.\n";
+	print "$0: Running with verbose output.\n";
+	print "$0: Dumping output into `$filename'.\n";
 }
+
+package Char {
+	use v5.10;
+	use strict;
+	use warnings;
+
+	use Moose;
+
+	has line            => (is => 'rw');
+
+	# This code point's entry number in the primary data table.
+	has entry_index     => (is => 'rw');
+
+	has code            => (is => 'rw');
+	has name            => (is => 'rw');
+	has category        => (is => 'rw');
+	has combining_class => (is => 'rw');
+	has bidi_class      => (is => 'rw');
+	has decomp_type     => (is => 'rw');
+	has decomp_mapping  => (is => 'rw');
+	has bidi_mirrored   => (is => 'rw');
+	has uppercase       => (is => 'rw');
+	has lowercase       => (is => 'rw');
+	has titlecase       => (is => 'rw');
+
+	sub BUILD {
+		my $self = shift;
+
+		# The details of the UnicodeData.txt format can be found at
+		# http://www.unicode.org/reports/tr44/tr44-20.html#UnicodeData.txt
+
+		if ($self->line =~
+		    /^
+		     (.*?);          # 1. Code Point
+		     (.*?);          # 2. Name
+		     (.*?);          # 3. General_Category
+
+		     (.*?);          # 4. Canonical_Combining_Class
+		     (.*?);          # 5. Bidi_Class
+		     (?:<(.*?)>)?\s* # 6. Decomposition_Type
+		     (.*?);          # 7. Decomposition_Mapping
+
+		     (.*?);          # 8. Numeric_Type
+		     (.*?);          # 9. Digit
+		     (.*?);          # 10. Numeric
+
+		     (.*?);          # 11. Bidi_Mirrored
+
+		     (.*?);          # 12. Unicode_1_Name (deprecated)
+		     (.*?);          # 13. ISO_Comment (deprecated)
+
+		     (.*?);          # 14. Simple_Uppercase_Mapping
+		     (.*?);          # 15. Simple_Lowercase_Mapping
+		     (.*?)           # 16. Simple_Titlecase_Mapping
+		     $/x) {
+			$self->{code}            = hex($1);
+			$self->{name}            = $2;
+			$self->{category}        = $3;
+			$self->{combining_class} = int($4);
+			$self->{bidi_class}      = $5;
+			$self->{decomp_type}     = $6;
+
+			$self->{decomp_mapping}  = $7 eq ''
+			  ? undef
+			  : map { hex } split /\s+/, $7;
+
+			$self->{bidi_mirrored}   = $11 eq 'Y' ? 1 : 0;
+
+			$self->{uppercase}       = $14 eq '' ? undef : hex($14);
+			$self->{lowercase}       = $15 eq '' ? undef : hex($15);
+			$self->{titlecase}       = $16 eq '' ? undef : hex($16);
+		} else {
+			die "Input line could not be parsed: $self->line\n";
+		}
+	}
+
+	sub cvar {
+		my ($prefix, $data) = @_;
+		return (not defined $data or $data eq "")
+		  ? "0, "
+		  : $prefix . "_" . uc $data . ", ";
+	}
+
+	# Prints out the code point as an entry in the C table.
+
+	sub echo {
+		my $self = shift;
+
+		return "\t{ " .
+		  cvar("CATEGORY",    $self->{category})    .
+		  cvar("BIDI",        $self->{bidi_class})  .
+		  cvar("DECOMP_TYPE", $self->{decomp_type}) .
+		  $self->{bidi_mirrored} .
+		  " },";
+	}
+};
 
 # <DATA> contains the hand-maintained includes/comments for the file.
 open(my $out, ">", $filename);
 open(my $fh, '<:encoding(UTF-8)', "UnicodeData.txt")
-  or die "gen.pl: Could not open `UnicodeData.txt': $!\n";
+  or die "$0: Could not open `UnicodeData.txt': $!\n";
 print $out <DATA>, "\n";
 
 # Build and return a hash table of code points.
@@ -64,7 +157,7 @@ sub gen_chars {
 	my ($fh) = @_;
 	my %chars;
 
-	print "gen.pl: Parsing `UnicodeData.txt'...\n" if $verbose;
+	print "$0: Parsing `UnicodeData.txt'...\n" if $verbose;
 
 	my $line_count = `wc -l UnicodeData.txt | awk '{ print \$1 }'`;
 	my $linenum = 0;
@@ -88,14 +181,14 @@ sub gen_chars {
 		}
 
 		# It's a range!
-		$progress->message("gen.pl: Generating range for $2.")
+		$progress->message("$0: Generating range for $2.")
 		  if $verbose;
 
 		$l = <$fh>;
 		my $start = hex($1);
 		my $char = Char->new(line => $l);
 
-		die "gen.pl: Expected range end-point at line: $l\n"
+		die "$0: Expected range end-point at line: $l\n"
 		  if $l !~ /^([0-9A-F]+);<([^;>,]+), Last>;/i;
 
 		my $end = hex($1);
@@ -110,7 +203,7 @@ sub gen_chars {
 	}
 
 	$progress->update($line_count);
-	print "gen.pl: Loaded ", scalar keys %chars, " code points.\n"
+	print "$0: Loaded ", scalar keys %chars, " code points.\n"
 	  if $verbose;
 
 	return %chars;
@@ -121,7 +214,7 @@ sub gen_properties {
 	my (%chars) = @_;
 	my (%properties_indicies, @properties);
 
-	print "gen.pl: Generating properties...\n" if $verbose;
+	print "$0: Generating properties...\n" if $verbose;
 
 	foreach my $key (keys %chars) {
 		my $entry = $chars{$key}->echo;
@@ -134,7 +227,7 @@ sub gen_properties {
 		}
 	}
 
-	print "gen.pl: Generated ", scalar @properties, " properties.\n"
+	print "$0: Generated ", scalar @properties, " properties.\n"
 	  if $verbose;
 
 	return (\%chars, \@properties);
@@ -144,7 +237,7 @@ sub gen_tables {
 	my (%chars) = @_;
 	my (@stage1, @stage2, %old_indices);
 
-	print "gen.pl: Generating tables...\n" if $verbose;
+	print "$0: Generating tables...\n" if $verbose;
 
 	for (my $code = 0; $code < 0x110000; $code += 0x100) {
 		my @stage2_entry;
@@ -166,9 +259,9 @@ sub gen_tables {
 		}
 	}
 
-	print "gen.pl: Generated stage 1 table with ",
+	print "$0: Generated stage 1 table with ",
 	  scalar @stage1, " elements.\n" if $verbose;
-	print "gen.pl: Generated stage 2 table with ",
+	print "$0: Generated stage 2 table with ",
 	  (scalar flat @stage2), " elements.\n" if $verbose;
 
 	return (\@stage1, \@stage2);
@@ -181,7 +274,7 @@ sub print_table {
 	my ($name, @table) = @_;
 
 	print $out "uint16_t $name\[] = {\n";
-	foreach (my $i = 0; $i < scalar @table; $i++) {
+	for (my $i = 0; $i < scalar @table; $i++) {
 		print $out "\t" if $i % 20 == 0;
 		print $out "$table[$i],";
 		print $out "\n" if ($i + 1) % 20 == 0
@@ -198,7 +291,7 @@ print $out "};\n\n";
 print_table("stage1", @$stage1);
 print_table("stage2", flat @$stage2);
 
-print "gen.pl: Done; exiting.\n" if $verbose;
+print "$0: Done; exiting.\n" if $verbose;
 
 __DATA__
 // SPDX-License-Identifier: Unicode-DFS-2016
