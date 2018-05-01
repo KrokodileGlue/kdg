@@ -59,22 +59,22 @@ package Char {
 
 	use Moose;
 
-	has line            => (is => 'rw');
+	has line          => (is => 'rw');
 
 	# This code point's entry number in the primary data table.
-	has entry_index     => (is => 'rw');
+	has entry_index   => (is => 'rw');
 
-	has code            => (is => 'rw');
-	has name            => (is => 'rw');
-	has category        => (is => 'rw');
-	has combining_class => (is => 'rw');
-	has bidi_class      => (is => 'rw');
-	has decomp_type     => (is => 'rw');
-	has decomp_mapping  => (is => 'rw');
-	has bidi_mirrored   => (is => 'rw');
-	has uppercase       => (is => 'rw');
-	has lowercase       => (is => 'rw');
-	has titlecase       => (is => 'rw');
+	has code          => (is => 'rw');
+	has name          => (is => 'rw');
+	has category      => (is => 'rw');
+	has ccc           => (is => 'rw');
+	has bidi_class    => (is => 'rw');
+	has decomp_type   => (is => 'rw');
+	has decomp        => (is => 'rw');
+	has bidi_mirrored => (is => 'rw');
+	has uppercase     => (is => 'rw');
+	has lowercase     => (is => 'rw');
+	has titlecase     => (is => 'rw');
 
 	sub BUILD {
 		my $self = shift;
@@ -106,22 +106,24 @@ package Char {
 		     (.*?);          # 15. Simple_Lowercase_Mapping
 		     (.*?)           # 16. Simple_Titlecase_Mapping
 		     $/x) {
-			$self->{code}            = hex($1);
-			$self->{name}            = $2;
-			$self->{category}        = $3;
-			$self->{combining_class} = int($4);
-			$self->{bidi_class}      = $5;
-			$self->{decomp_type}     = $6;
+			$self->{code}          = hex($1);
+			$self->{name}          = $2;
+			$self->{category}      = $3;
+			$self->{ccc}           = int($4);
+			$self->{bidi_class}    = $5;
+			$self->{decomp_type}   = $6;
 
-			$self->{decomp_mapping}  = $7 eq ''
-			  ? undef
-			  : map { hex } split /\s+/, $7;
+			$self->{bidi_mirrored} = $11 eq 'Y' ? 1 : 0;
 
-			$self->{bidi_mirrored}   = $11 eq 'Y' ? 1 : 0;
+			$self->{uppercase}     = $14 eq '' ? '-1' : hex($14);
+			$self->{lowercase}     = $15 eq '' ? '-1' : hex($15);
+			$self->{titlecase}     = $16 eq '' ? '-1' : hex($16);
 
-			$self->{uppercase}       = $14 eq '' ? undef : hex($14);
-			$self->{lowercase}       = $15 eq '' ? undef : hex($15);
-			$self->{titlecase}       = $16 eq '' ? undef : hex($16);
+			$self->{decomp}        = $7 eq ''
+			  ? '0'
+			  : '(uint32_t []){' .
+			  (scalar split(/\s+/, $7)) . ',' .
+			  join(',', map { hex } split(/\s+/, $7)) . '}';
 		} else {
 			die "Input line could not be parsed: $self->line\n";
 		}
@@ -139,11 +141,15 @@ package Char {
 	sub echo {
 		my $self = shift;
 
-		return "\t{ " .
+		return "{ " .
 		  cvar("CATEGORY",    $self->{category})    .
 		  cvar("BIDI",        $self->{bidi_class})  .
 		  cvar("DECOMP_TYPE", $self->{decomp_type}) .
-		  $self->{bidi_mirrored} .
+		  $self->{bidi_mirrored} . ", " .
+		  $self->{lowercase} . ", " .
+		  $self->{uppercase} . ", " .
+		  $self->{titlecase} . ", " .
+		  $self->{decomp} .
 		  " },";
 	}
 };
@@ -232,10 +238,10 @@ sub gen_properties {
 		if (not defined $chars{$key}->{entry_index}) {
 			$properties_indicies{$entry} = scalar @properties;
 			$chars{$key}->{entry_index} = scalar @properties;
-			push @properties, $entry
-			  . " /* U+"
-			  . sprintf("%02X", $key)
-			  . " */";
+			push @properties,
+			  "\t/* "
+			  . sprintf("U+%04X", $key)
+			  . " */ " . $entry;
 		}
 	}
 
