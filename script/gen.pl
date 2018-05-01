@@ -37,10 +37,12 @@ use List::Flatten;
 use Getopt::Long;
 
 # Global configuration variables.
-my $filename = "unicode_data.c";
-my $verbose  = 0;
+my $filename   = "unicode_data.c";
+my $verbose    = 0;
+my $BLOCK_SIZE = 256;
 
 GetOptions("output=s" => \$filename,
+           "length=i" => \$BLOCK_SIZE,
            "verbose"  => \$verbose)
   or die("$0: Exiting due to invalid " .
          "command-line parameters.\n");
@@ -146,11 +148,16 @@ package Char {
 	}
 };
 
-# <DATA> contains the hand-maintained includes/comments for the file.
 open(my $out, ">", $filename);
 open(my $fh, '<:encoding(UTF-8)', "UnicodeData.txt")
   or die "$0: Could not open `UnicodeData.txt': $!\n";
-print $out <DATA>, "\n";
+
+# <DATA> contains the hand-maintained includes/comments for the
+# file. Additionally, it contains the implementations of the data
+# accessor functions.
+my $DATA = do { local $/; <DATA> };
+$DATA =~ s/BLOCK_SIZE/$BLOCK_SIZE/g;
+print $out $DATA, "\n";
 
 # Build and return a hash table of code points.
 sub gen_chars {
@@ -162,15 +169,17 @@ sub gen_chars {
 	my $line_count = `wc -l UnicodeData.txt | awk '{ print \$1 }'`;
 	my $linenum = 0;
 	my $next_update = 0;
-	my $progress = Term::ProgressBar->new({count => $line_count});
-	$progress->minor(0);
+	my $progress = $verbose
+	  ? Term::ProgressBar->new({count => $line_count})
+	  : undef;
+	$progress->minor(0) if $verbose;
 
 	while (my $l = <$fh>) {
 		$l =~ s/(.*?)#.*/$1/;
 		chomp $l;
 
 		$next_update = $progress->update($linenum)
-		  if $linenum >= $next_update;
+		  if $verbose and $linenum >= $next_update;
 		$linenum++;
 
 		# It's not a range, it's just a regular character.
@@ -223,7 +232,10 @@ sub gen_properties {
 		if (not defined $chars{$key}->{entry_index}) {
 			$properties_indicies{$entry} = scalar @properties;
 			$chars{$key}->{entry_index} = scalar @properties;
-			push @properties, $entry . " /* U+" . $key . " */";
+			push @properties, $entry
+			  . " /* U+"
+			  . sprintf("%02X", $key)
+			  . " */";
 		}
 	}
 
@@ -239,10 +251,12 @@ sub gen_tables {
 
 	print "$0: Generating tables...\n" if $verbose;
 
-	for (my $code = 0; $code < 0x110000; $code += 0x100) {
+	for (my $code = 0; $code < 0x10FFFF; $code += $BLOCK_SIZE) {
 		my @stage2_entry;
 
-		for (my $code2 = $code; $code2 < $code + 0x100; $code2++) {
+		for (my $code2 = $code;
+		     $code2 < $code + $BLOCK_SIZE;
+		     $code2++) {
 			push @stage2_entry, $chars{$code2}
 			  ? $chars{$code2}->{entry_index} + 1
 			  : 0;
@@ -251,10 +265,10 @@ sub gen_tables {
 		my $old = $old_indices{join ',', @stage2_entry};
 
 		if ($old) {
-			push @stage1, $old * 0x100;
+			push @stage1, $old * $BLOCK_SIZE;
 		} else {
 			$old_indices{join ',', @stage2_entry} = scalar @stage2;
-			push @stage1, scalar @stage2 * 0x100;
+			push @stage1, scalar @stage2 * $BLOCK_SIZE;
 			push @stage2, \@stage2_entry;
 		}
 	}
@@ -302,3 +316,10 @@ __DATA__
 
 // #include "kdgu.h"
 #include "unicode_data.h"
+
+struct codepoint *
+codepoint(uint32_t c)
+{
+	return codepoints + (stage2[stage1[c / BLOCK_SIZE]
+	                            + (c % BLOCK_SIZE)]);
+}
