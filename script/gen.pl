@@ -147,12 +147,14 @@ sub BUILD {
 
 		$self->{bidi_mirrored} = $11 eq 'Y' ? 1 : 0;
 
-		$self->{uppercase}     = $14 eq '' ? '-1' : hex($14);
-		$self->{lowercase}     = $15 eq '' ? '-1' : hex($15);
-		$self->{titlecase}     = $16 eq '' ? '-1' : hex($16);
+		$self->{uppercase}     = $14 eq '' ? '-1'
+		  : main::emit_sequence((hex($14)));
+		$self->{lowercase}     = $15 eq '' ? '-1'
+		  : main::emit_sequence((hex($15)));
+		$self->{titlecase}     = $16 eq '' ? '-1'
+		  : main::emit_sequence((hex($16)));
 
-		$self->{decomp}        = $7 eq ''
-		  ? '-1'
+		$self->{decomp}        = $7 eq '' ? '-1'
 		  : main::emit_sequence(map { hex } split(/\s+/, $7));
 	} else {
 		die "Input line could not be parsed: $self->line\n";
@@ -319,6 +321,8 @@ sub gen_tables {
 	  scalar @stage1, " elements.\n" if $verbose;
 	print "$0: Generated stage 2 table with ",
 	  (scalar flat @stage2), " elements.\n" if $verbose;
+	print "$0: => Total: ", (scalar @stage1) + (scalar flat @stage2),
+	  " entries.\n" if $verbose;
 
 	return (\@stage1, \@stage2);
 }
@@ -337,7 +341,12 @@ sub print_array {
 		  or $i + 1 == scalar @array;
 	}
 	print $out "};\n\n";
-}
+};
+
+# Generation is now done.
+
+print "$0: Generated ", (scalar @sequences), " sequence elements.\n"
+  if $verbose;
 
 print $out "struct codepoint codepoints[] = {\n";
 print $out "\t{ 0, 0, 0, 0 },\n";
@@ -363,6 +372,27 @@ __DATA__
 struct codepoint *
 codepoint(uint32_t c)
 {
+	if (c > 0x10FFFF) return 0;
 	return codepoints + (stage2[stage1[c / BLOCK_SIZE]
 	                            + (c % BLOCK_SIZE)]);
+}
+
+unsigned
+write_sequence(uint32_t *buf, uint16_t idx)
+{
+	if (idx == (uint16_t)-1) return 0;
+	if (!buf) return sequences[idx];
+	int j = 0;
+
+	for (unsigned i = 0; i < sequences[idx]; i++) {
+		uint32_t d = sequences[idx + i + 1];
+		if (d > 0xD7FF && d < 0xE000) {
+			uint32_t e = sequences[idx + i + 2];
+			d = (d - 0xD800) * 0x400 + e - 0xDC00 + 0x10000;
+			i++;
+		}
+		buf[j++] = d;
+	}
+
+	return sequences[idx];
 }
