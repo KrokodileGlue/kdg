@@ -27,6 +27,8 @@
 #        point) in the first table in stage2 -- index 12
 #     4. Read the 12th entry in the basic property table
 
+package main;
+
 use v5.10;
 use strict;
 use warnings;
@@ -39,10 +41,12 @@ use Getopt::Long;
 # Global configuration variables.
 my $filename   = "unicode_data.c";
 my $verbose    = 0;
+my $debug      = 0;
 my $BLOCK_SIZE = 256;
 
 GetOptions("output=s" => \$filename,
            "length=i" => \$BLOCK_SIZE,
+           "debug"    => \$debug,
            "verbose"  => \$verbose)
   or die("$0: Exiting due to invalid " .
          "command-line parameters.\n");
@@ -52,107 +56,134 @@ if ($verbose) {
 	print "$0: Dumping output into `$filename'.\n";
 }
 
-package Char {
-	use v5.10;
-	use strict;
-	use warnings;
+# Table of sequences and related logic.
+my @sequences;
+sub utf16_encode {
+	my ($c) = @_;
+	my @buf;
 
-	use Moose;
-
-	has line          => (is => 'rw');
-
-	# This code point's entry number in the primary data table.
-	has entry_index   => (is => 'rw');
-
-	has code          => (is => 'rw');
-	has name          => (is => 'rw');
-	has category      => (is => 'rw');
-	has ccc           => (is => 'rw');
-	has bidi_class    => (is => 'rw');
-	has decomp_type   => (is => 'rw');
-	has decomp        => (is => 'rw');
-	has bidi_mirrored => (is => 'rw');
-	has uppercase     => (is => 'rw');
-	has lowercase     => (is => 'rw');
-	has titlecase     => (is => 'rw');
-
-	sub BUILD {
-		my $self = shift;
-
-		# The details of the UnicodeData.txt format can be found at
-		# http://www.unicode.org/reports/tr44/tr44-20.html#UnicodeData.txt
-
-		if ($self->line =~
-		    /^
-		     (.*?);          # 1. Code Point
-		     (.*?);          # 2. Name
-		     (.*?);          # 3. General_Category
-
-		     (.*?);          # 4. Canonical_Combining_Class
-		     (.*?);          # 5. Bidi_Class
-		     (?:<(.*?)>)?\s* # 6. Decomposition_Type
-		     (.*?);          # 7. Decomposition_Mapping
-
-		     (.*?);          # 8. Numeric_Type
-		     (.*?);          # 9. Digit
-		     (.*?);          # 10. Numeric
-
-		     (.*?);          # 11. Bidi_Mirrored
-
-		     (.*?);          # 12. Unicode_1_Name (deprecated)
-		     (.*?);          # 13. ISO_Comment (deprecated)
-
-		     (.*?);          # 14. Simple_Uppercase_Mapping
-		     (.*?);          # 15. Simple_Lowercase_Mapping
-		     (.*?)           # 16. Simple_Titlecase_Mapping
-		     $/x) {
-			$self->{code}          = hex($1);
-			$self->{name}          = $2;
-			$self->{category}      = $3;
-			$self->{ccc}           = int($4);
-			$self->{bidi_class}    = $5;
-			$self->{decomp_type}   = $6;
-
-			$self->{bidi_mirrored} = $11 eq 'Y' ? 1 : 0;
-
-			$self->{uppercase}     = $14 eq '' ? '-1' : hex($14);
-			$self->{lowercase}     = $15 eq '' ? '-1' : hex($15);
-			$self->{titlecase}     = $16 eq '' ? '-1' : hex($16);
-
-			$self->{decomp}        = $7 eq ''
-			  ? '0'
-			  : '(uint32_t []){' .
-			  (scalar split(/\s+/, $7)) . ',' .
-			  join(',', map { hex } split(/\s+/, $7)) . '}';
-		} else {
-			die "Input line could not be parsed: $self->line\n";
-		}
+	if ($c <= 0xFFFF) {
+		push @buf, $c;
+		return @buf
 	}
 
-	sub cvar {
-		my ($prefix, $data) = @_;
-		return (not defined $data or $data eq "")
-		  ? "0, "
-		  : $prefix . "_" . uc $data . ", ";
+	push @buf, (($c - 0x10000) >> 10)   | 0xDC00;
+	push @buf, (($c - 0x10000) & 0x3FF) | 0xDC00;
+
+	return @buf;
+}
+
+sub emit_sequence {
+	my (@array) = @_;
+	my @out;
+	foreach my $c (@array) { push @out, utf16_encode($c) }
+	my $idx = scalar @sequences;
+	push @sequences, scalar @out;
+	push @sequences, @out;
+	return $idx;
+}
+
+package Char;
+
+use v5.10;
+use strict;
+use warnings;
+
+use Moose;
+
+has line          => (is => 'rw');
+
+# This code point's entry number in the primary data table.
+has entry_index   => (is => 'rw');
+
+has code          => (is => 'rw');
+has name          => (is => 'rw');
+has category      => (is => 'rw');
+has ccc           => (is => 'rw');
+has bidi_class    => (is => 'rw');
+has decomp_type   => (is => 'rw');
+has decomp        => (is => 'rw');
+has bidi_mirrored => (is => 'rw');
+has uppercase     => (is => 'rw');
+has lowercase     => (is => 'rw');
+has titlecase     => (is => 'rw');
+
+sub BUILD {
+	my $self = shift;
+
+	# The details of the UnicodeData.txt format can be found at
+	# http://www.unicode.org/reports/tr44/tr44-20.html#UnicodeData.txt
+
+	if ($self->line =~
+	    /^
+	     (.*?);          # 1. Code Point
+	     (.*?);          # 2. Name
+	     (.*?);          # 3. General_Category
+
+	     (.*?);          # 4. Canonical_Combining_Class
+	     (.*?);          # 5. Bidi_Class
+	     (?:<(.*?)>)?\s* # 6. Decomposition_Type
+	     (.*?);          # 7. Decomposition_Mapping
+
+	     (.*?);          # 8. Numeric_Type
+	     (.*?);          # 9. Digit
+	     (.*?);          # 10. Numeric
+
+	     (.*?);          # 11. Bidi_Mirrored
+
+	     (.*?);          # 12. Unicode_1_Name (deprecated)
+	     (.*?);          # 13. ISO_Comment (deprecated)
+
+	     (.*?);          # 14. Simple_Uppercase_Mapping
+	     (.*?);          # 15. Simple_Lowercase_Mapping
+	     (.*?)           # 16. Simple_Titlecase_Mapping
+	     $/x) {
+		$self->{code}          = hex($1);
+		$self->{name}          = $2;
+		$self->{category}      = $3;
+		$self->{ccc}           = int($4);
+		$self->{bidi_class}    = $5;
+		$self->{decomp_type}   = $6;
+
+		$self->{bidi_mirrored} = $11 eq 'Y' ? 1 : 0;
+
+		$self->{uppercase}     = $14 eq '' ? '-1' : hex($14);
+		$self->{lowercase}     = $15 eq '' ? '-1' : hex($15);
+		$self->{titlecase}     = $16 eq '' ? '-1' : hex($16);
+
+		$self->{decomp}        = $7 eq ''
+		  ? '-1'
+		  : main::emit_sequence(map { hex } split(/\s+/, $7));
+	} else {
+		die "Input line could not be parsed: $self->line\n";
 	}
+}
 
-	# Prints out the code point as an entry in the C table.
+sub cvar {
+	my ($prefix, $data) = @_;
+	return (not defined $data or $data eq "")
+	  ? "0, "
+	  : $prefix . "_" . uc $data . ", ";
+}
 
-	sub echo {
-		my $self = shift;
+# Prints out the code point as an entry in the C table.
 
-		return "{ " .
-		  cvar("CATEGORY",    $self->{category})    .
-		  cvar("BIDI",        $self->{bidi_class})  .
-		  cvar("DECOMP_TYPE", $self->{decomp_type}) .
-		  $self->{bidi_mirrored} . ", " .
-		  $self->{lowercase} . ", " .
-		  $self->{uppercase} . ", " .
-		  $self->{titlecase} . ", " .
-		  $self->{decomp} .
-		  " },";
-	}
-};
+sub echo {
+	my $self = shift;
+
+	return "{ " .
+	  cvar("CATEGORY",    $self->{category})    .
+	  cvar("BIDI",        $self->{bidi_class})  .
+	  cvar("DECOMP_TYPE", $self->{decomp_type}) .
+	  $self->{bidi_mirrored} . ", " .
+	  $self->{lowercase} . ", " .
+	  $self->{uppercase} . ", " .
+	  $self->{titlecase} . ", " .
+	  $self->{decomp} .
+	  " },";
+}
+
+package main;
 
 open(my $out, ">", $filename);
 open(my $fh, '<:encoding(UTF-8)', "UnicodeData.txt")
@@ -194,6 +225,11 @@ sub gen_chars {
 			$chars{hex($1)} = Char->new(line => $l);
 			next;
 		}
+
+		# Most important lookups don't happen in the ranged entries,
+		# so we can just pretend they don't exist to speed up the
+		# initial character data loading.
+		next if $debug;
 
 		# It's a range!
 		$progress->message("$0: Generating range for $2.")
@@ -290,15 +326,15 @@ sub gen_tables {
 my ($chars, $properties) = gen_properties(gen_chars($fh));
 my ($stage1, $stage2) = gen_tables(%$chars);
 
-sub print_table {
-	my ($name, @table) = @_;
+sub print_array {
+	my ($name, @array) = @_;
 
 	print $out "uint16_t $name\[] = {\n";
-	for (my $i = 0; $i < scalar @table; $i++) {
+	for (my $i = 0; $i < scalar @array; $i++) {
 		print $out "\t" if $i % 20 == 0;
-		print $out "$table[$i],";
+		print $out "$array[$i],";
 		print $out "\n" if ($i + 1) % 20 == 0
-		  or $i + 1 == scalar @table;
+		  or $i + 1 == scalar @array;
 	}
 	print $out "};\n\n";
 }
@@ -308,8 +344,9 @@ print $out "\t{ 0, 0, 0, 0 },\n";
 foreach my $cp (@$properties) { print $out "$cp\n"; }
 print $out "};\n\n";
 
-print_table("stage1", @$stage1);
-print_table("stage2", flat @$stage2);
+print_array("stage1", @$stage1);
+print_array("stage2", flat @$stage2);
+print_array("sequences", @sequences);
 
 print "$0: Done; exiting.\n" if $verbose;
 

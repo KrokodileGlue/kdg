@@ -1376,7 +1376,6 @@ kdgu_decode(kdgu *k)
 		            ENDIAN_NONE); \
 	} while (false)
 
-
 /* TODO: Make sure NO_CONVERSION errors are consistent. */
 /* TODO: KDGU_REPLACEMENT doesn't work for most encodings. */
 struct error
@@ -1458,8 +1457,7 @@ kdgu_encode(enum fmt fmt, uint32_t c, uint8_t *buf,
 			break;
 
 		/*
-		 * TODO: Properly check all noncharacters etc. in
-		 * these unicode encodings.
+		 * TODO: Properly check all noncharacters etc.
 		 */
 
 		c -= 0x10000;
