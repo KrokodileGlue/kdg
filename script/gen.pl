@@ -164,8 +164,8 @@ sub BUILD {
 sub cvar {
 	my ($prefix, $data) = @_;
 	return (not defined $data or $data eq "")
-	  ? "0, "
-	  : $prefix . "_" . uc $data . ", ";
+	  ? "0,"
+	  : $prefix . "_" . uc $data . ",";
 }
 
 # Prints out the code point as an entry in the C table.
@@ -173,16 +173,16 @@ sub cvar {
 sub echo {
 	my $self = shift;
 
-	return "{ " .
+	return "{" .
 	  cvar("CATEGORY",    $self->{category})    .
 	  cvar("BIDI",        $self->{bidi_class})  .
 	  cvar("DECOMP_TYPE", $self->{decomp_type}) .
-	  $self->{bidi_mirrored} . ", " .
-	  $self->{lowercase} . ", " .
-	  $self->{uppercase} . ", " .
-	  $self->{titlecase} . ", " .
+	  $self->{bidi_mirrored} . "," .
+	  $self->{lowercase} . "," .
+	  $self->{uppercase} . "," .
+	  $self->{titlecase} . "," .
 	  $self->{decomp} .
-	  " },";
+	  "},";
 }
 
 package main;
@@ -277,9 +277,7 @@ sub gen_properties {
 			$properties_indicies{$entry} = scalar @properties;
 			$chars{$key}->{entry_index} = scalar @properties;
 			push @properties,
-			  "\t/* "
-			  . sprintf("U+%04X", $key)
-			  . " */ " . $entry;
+			  "\t" . $entry;
 		}
 	}
 
@@ -349,7 +347,7 @@ print "$0: Generated ", (scalar @sequences), " sequence elements.\n"
   if $verbose;
 
 print $out "struct codepoint codepoints[] = {\n";
-print $out "\t{ 0, 0, 0, 0 },\n";
+print $out "\t{0,0,0,0,-1,-1,-1,-1},\n";
 foreach my $cp (@$properties) { print $out "$cp\n"; }
 print $out "};\n\n";
 
