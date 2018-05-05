@@ -15,73 +15,6 @@
 # relevant Unicode Data Files will be downloaded automatically and
 # unicode_data.c will be copied to src/. The Unicode Data Files are
 # licensed under the Unicode Data License; see LICENSE.md for details.
-#
-# A basic explanation of this system is here:
-# http://site.icu-project.org/design/struct/utrie
-#
-# Here's an example of a lookup to aid understanding:
-#
-#     1. Begin with U+61 --- block 0
-#     2. Look up 0 in stage1 --- index 0
-#     3. Look up 0x0061 (the bottom two byes of the original code
-#        point) in the first table in stage2 -- index 12
-#     4. Read the 12th entry in the basic property table
-
-package main;
-
-use v5.10;
-use strict;
-use warnings;
-
-use FileHandle;
-use Term::ProgressBar;
-use List::Flatten;
-use Getopt::Long;
-
-# Global configuration variables.
-my $filename   = "unicode_data.c";
-my $verbose    = 0;
-my $debug      = 0;
-my $BLOCK_SIZE = 256;
-
-GetOptions("output=s" => \$filename,
-           "length=i" => \$BLOCK_SIZE,
-           "debug"    => \$debug,
-           "verbose"  => \$verbose)
-  or die("$0: Exiting due to invalid " .
-         "command-line parameters.\n");
-
-if ($verbose) {
-	print "$0: Running with verbose output.\n";
-	print "$0: Dumping output into `$filename'.\n";
-}
-
-# Table of sequences and related logic.
-my @sequences;
-sub utf16_encode {
-	my ($c) = @_;
-	my @buf;
-
-	if ($c <= 0xFFFF) {
-		push @buf, $c;
-		return @buf
-	}
-
-	push @buf, (($c - 0x10000) >> 10)   | 0xDC00;
-	push @buf, (($c - 0x10000) & 0x3FF) | 0xDC00;
-
-	return @buf;
-}
-
-sub emit_sequence {
-	my (@array) = @_;
-	my @out;
-	foreach my $c (@array) { push @out, utf16_encode($c) }
-	my $idx = scalar @sequences;
-	push @sequences, scalar @out;
-	push @sequences, @out;
-	return $idx;
-}
 
 package Char;
 
@@ -92,8 +25,6 @@ use warnings;
 use Moose;
 
 has line          => (is => 'rw');
-
-# This code point's entry number in the primary data table.
 has entry_index   => (is => 'rw');
 
 has code          => (is => 'rw');
@@ -187,6 +118,80 @@ sub echo {
 
 package main;
 
+use v5.10;
+use strict;
+use warnings;
+
+use FileHandle;
+use Term::ProgressBar;
+use List::Flatten;
+use Getopt::Long;
+
+# Global configuration variables.
+my $filename   = "unicode_data.c";
+my $verbose    = 0;
+my $debug      = 0;
+my $BLOCK_SIZE = 256;
+
+GetOptions("output=s" => \$filename,
+           "length=i" => \$BLOCK_SIZE,
+           "debug"    => \$debug,
+           "verbose"  => \$verbose)
+  or die("$0: Exiting due to invalid " .
+         "command-line parameters.\n");
+
+if ($verbose) {
+	print "$0: Running with verbose output.\n";
+	print "$0: Running in debugging mode.\n" if $debug;
+	print "$0: Will dump output into `$filename'.\n";
+}
+
+# Table of sequences and related logic.
+my (@sequences, %sequences_table);
+sub utf16_encode {
+	my ($c) = @_;
+	my @buf;
+
+	if ($c <= 0xFFFF) {
+		push @buf, $c;
+		return @buf
+	}
+
+	push @buf, (($c - 0x10000) >> 10)   | 0xDC00;
+	push @buf, (($c - 0x10000) & 0x3FF) | 0xDC00;
+
+	return @buf;
+}
+
+# Dumps out an array of code points into the sequence table and
+# returns the index, with the top three bits containing the length.
+sub emit_sequence {
+	my (@array) = @_;
+	my @out;
+	foreach my $c (@array) { push @out, utf16_encode($c) }
+	my $idx = $sequences_table{join ',', @out};
+	my $len = scalar @out;
+
+	# We can't fit the length into the top three bits, so we'll stick
+	# it in at the beginning of the entry instead.
+	if ($len >= 7) {
+		unshift @out, $len;
+
+		# The value 7 for the top three bits is a magic value that
+		# indicates the length is the first value in the sequence
+		# entry.
+		$len = 7;
+	}
+
+	if (not defined $idx) {
+		$idx = scalar @sequences;
+		push @sequences, @out;
+		$sequences_table{join ',', @out} = $idx;
+	}
+
+	return $idx | $len << 13;
+}
+
 open(my $out, ">", $filename);
 open(my $fh, '<:encoding(UTF-8)', "UnicodeData.txt")
   or die "$0: Could not open `UnicodeData.txt': $!\n";
@@ -228,14 +233,14 @@ sub gen_chars {
 			next;
 		}
 
+		# It's a range!
+		$progress->message("$0: Generating range for `$2'.")
+		  if $verbose;
+
 		# Most important lookups don't happen in the ranged entries,
 		# so we can just pretend they don't exist to speed up the
 		# initial character data loading.
 		next if $debug;
-
-		# It's a range!
-		$progress->message("$0: Generating range for $2.")
-		  if $verbose;
 
 		$l = <$fh>;
 		my $start = hex($1);
@@ -379,18 +384,22 @@ unsigned
 write_sequence(uint32_t *buf, uint16_t idx)
 {
 	if (idx == (uint16_t)-1) return 0;
-	if (!buf) return sequences[idx];
-	int j = 0;
 
-	for (unsigned i = 0; i < sequences[idx]; i++) {
-		uint32_t d = sequences[idx + i + 1];
+	unsigned len = (idx & 0xE000) == 0xE000
+		          ? sequences[idx] : (idx & 0xE000) >> 13;
+	if (!buf) return len;
+	unsigned j = 0;
+	idx = idx & 0x1FFF;
+
+	for (unsigned i = len >= 7 ? 1 : 0; i < len + 1; i++) {
+		uint32_t d = sequences[idx + i];
 		if (d > 0xD7FF && d < 0xE000) {
-			uint32_t e = sequences[idx + i + 2];
+			uint32_t e = sequences[idx + i + 1];
 			d = (d - 0xD800) * 0x400 + e - 0xDC00 + 0x10000;
 			i++;
 		}
 		buf[j++] = d;
 	}
 
-	return sequences[idx];
+	return len;
 }
