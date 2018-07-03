@@ -40,80 +40,79 @@ has lowercase     => (is => 'rw');
 has titlecase     => (is => 'rw');
 
 sub BUILD {
-	my $self = shift;
+    my $self = shift;
 
-	# The details of the UnicodeData.txt format can be found at
-	# http://www.unicode.org/reports/tr44/tr44-20.html#UnicodeData.txt
+    # The details of the UnicodeData.txt format can be found at
+    # http://www.unicode.org/reports/tr44/tr44-20.html#UnicodeData.txt
 
-	if ($self->line =~
-	    /^
-	     (.*?);          # 1. Code Point
-	     (.*?);          # 2. Name
-	     (.*?);          # 3. General_Category
+    if ($self->line =~
+	/^
+	(.*?);          # 1. Code Point
+	(.*?);          # 2. Name
+	(.*?);          # 3. General_Category
 
-	     (.*?);          # 4. Canonical_Combining_Class
-	     (.*?);          # 5. Bidi_Class
-	     (?:<(.*?)>)?\s* # 6. Decomposition_Type
-	     (.*?);          # 7. Decomposition_Mapping
+	(.*?);          # 4. Canonical_Combining_Class
+	(.*?);          # 5. Bidi_Class
+	(?:<(.*?)>)?\s* # 6. Decomposition_Type
+	(.*?);          # 7. Decomposition_Mapping
 
-	     (.*?);          # 8. Numeric_Type
-	     (.*?);          # 9. Digit
-	     (.*?);          # 10. Numeric
+	(.*?);          # 8. Numeric_Type
+	(.*?);          # 9. Digit
+	(.*?);          # 10. Numeric
 
-	     (.*?);          # 11. Bidi_Mirrored
+	(.*?);          # 11. Bidi_Mirrored
 
-	     (.*?);          # 12. Unicode_1_Name (deprecated)
-	     (.*?);          # 13. ISO_Comment (deprecated)
+	(.*?);          # 12. Unicode_1_Name (deprecated)
+	(.*?);          # 13. ISO_Comment (deprecated)
 
-	     (.*?);          # 14. Simple_Uppercase_Mapping
-	     (.*?);          # 15. Simple_Lowercase_Mapping
-	     (.*?)           # 16. Simple_Titlecase_Mapping
-	     $/x) {
-		$self->{code}          = hex($1);
-		$self->{name}          = $2;
-		$self->{category}      = $3;
-		$self->{ccc}           = int($4);
-		$self->{bidi_class}    = $5;
-		$self->{decomp_type}   = $6;
+	(.*?);          # 14. Simple_Uppercase_Mapping
+	(.*?);          # 15. Simple_Lowercase_Mapping
+	(.*?)           # 16. Simple_Titlecase_Mapping
+	$/x) {
+	$self->{code}          = hex($1);
+	$self->{name}          = $2;
+	$self->{category}      = $3;
+	$self->{ccc}           = int($4);
+	$self->{bidi_class}    = $5;
+	$self->{decomp_type}   = $6;
 
-		$self->{bidi_mirrored} = $11 eq 'Y' ? 1 : 0;
+	$self->{bidi_mirrored} = $11 eq 'Y' ? 1 : 0;
 
-		$self->{uppercase}     = $14 eq '' ? '-1'
-		  : main::emit_sequence((hex($14)));
-		$self->{lowercase}     = $15 eq '' ? '-1'
-		  : main::emit_sequence((hex($15)));
-		$self->{titlecase}     = $16 eq '' ? '-1'
-		  : main::emit_sequence((hex($16)));
+	$self->{uppercase}     = $14 eq '' ? '-1'
+	    : main::emit_sequence((hex($14)));
+	$self->{lowercase}     = $15 eq '' ? '-1'
+	    : main::emit_sequence((hex($15)));
+	$self->{titlecase}     = $16 eq '' ? '-1'
+	    : main::emit_sequence((hex($16)));
 
-		$self->{decomp}        = $7 eq '' ? '-1'
-		  : main::emit_sequence(map { hex } split(/\s+/, $7));
-	} else {
-		die "Input line could not be parsed: $self->line\n";
-	}
+	$self->{decomp} = $7 eq "" ? undef : [map { hex } split(/\s+/, $7)];
+    } else {
+	die "Input line could not be parsed: $self->line\n";
+    }
 }
 
 sub cvar {
-	my ($prefix, $data) = @_;
-	return (not defined $data or $data eq "")
-	  ? "0,"
-	  : $prefix . "_" . uc $data . ",";
+    my ($prefix, $data) = @_;
+    return (not defined $data or $data eq "")
+	? "0,"
+	: $prefix . "_" . uc $data . ",";
 }
 
 # Prints out the code point as an entry in the C table.
 
 sub echo {
-	my $self = shift;
+    my $self = shift;
 
-	return "{" .
-	  cvar("CATEGORY",    $self->{category})    .
-	  cvar("BIDI",        $self->{bidi_class})  .
-	  cvar("DECOMP_TYPE", $self->{decomp_type}) .
-	  $self->{bidi_mirrored} . "," .
-	  $self->{lowercase} . "," .
-	  $self->{uppercase} . "," .
-	  $self->{titlecase} . "," .
-	  $self->{decomp} .
-	  "},";
+    return "{" .
+	cvar("CATEGORY",    $self->{category})    .
+	cvar("BIDI",        $self->{bidi_class})  .
+	cvar("DECOMP_TYPE", $self->{decomp_type}) .
+	$self->{bidi_mirrored} . "," .
+	$self->{lowercase} . "," .
+	$self->{uppercase} . "," .
+	$self->{titlecase} . "," .
+	($self->{decomp} ? main::emit_sequence(@{$self->{decomp}}) : "-1") .
+	"},";
 }
 
 package main;
@@ -137,64 +136,74 @@ GetOptions("output=s" => \$filename,
            "length=i" => \$BLOCK_SIZE,
            "debug"    => \$debug,
            "verbose"  => \$verbose)
-  or die("$0: Exiting due to invalid " .
-         "command-line parameters.\n");
+    or die("$0: Exiting due to invalid " .
+	   "command-line parameters.\n");
 
 if ($verbose) {
-	print "$0: Running with verbose output.\n";
-	print "$0: Running in debugging mode.\n" if $debug;
-	print "$0: Will dump output into `$filename'.\n";
+    print "$0: Running with verbose output.\n";
+    print "$0: Running in debugging mode.\n" if $debug;
+    print "$0: Will dump output into `$filename'.\n";
+}
+
+my $fh;
+open($fh, '<:encoding(UTF-8)', "CompositionExclusions.txt")
+    or die "$0: Could not open `CompositionExclusions.txt': $!\n";
+my %exclusions;
+while (my $l = <$fh>) {
+    if ($l =~ /^([0-9A-F]+)/i) {
+	$exclusions{hex($1)} = 1;
+    }
 }
 
 # Table of sequences and related logic.
 my (@sequences, %sequences_table);
 sub utf16_encode {
-	my ($c) = @_;
-	my @buf;
+    my ($c) = @_;
+    my @buf;
 
-	if ($c <= 0xFFFF) {
-		push @buf, $c;
-		return @buf
-	}
+    if ($c <= 0xFFFF) {
+	push @buf, $c;
+	return @buf
+    }
 
-	push @buf, (($c - 0x10000) >> 10)   | 0xDC00;
-	push @buf, (($c - 0x10000) & 0x3FF) | 0xDC00;
+    push @buf, (($c - 0x10000) >> 10)   | 0xDC00;
+    push @buf, (($c - 0x10000) & 0x3FF) | 0xDC00;
 
-	return @buf;
+    return @buf;
 }
 
 # Dumps out an array of code points into the sequence table and
 # returns the index, with the top three bits containing the length.
 sub emit_sequence {
-	my (@array) = @_;
-	my @out;
-	foreach my $c (@array) { push @out, utf16_encode($c) }
-	my $idx = $sequences_table{join ',', @out};
-	my $len = scalar @out;
+    my (@array) = @_;
+    my @out;
+    foreach my $c (@array) { push @out, utf16_encode($c) }
+    my $idx = $sequences_table{join ',', @out};
+    my $len = scalar @out;
 
-	# We can't fit the length into the top three bits, so we'll stick
-	# it in at the beginning of the entry instead.
-	if ($len >= 7) {
-		unshift @out, $len;
+    # We can't fit the length into the top three bits, so we'll stick
+    # it in at the beginning of the entry instead.
+    if ($len >= 7) {
+	unshift @out, $len;
 
-		# The value 7 for the top three bits is a magic value that
-		# indicates the length is the first value in the sequence
-		# entry.
-		$len = 7;
-	}
+	# The value 7 for the top three bits is a magic value that
+	# indicates the length is the first value in the sequence
+	# entry.
+	$len = 7;
+    }
 
-	if (not defined $idx) {
-		$idx = scalar @sequences;
-		push @sequences, @out;
-		$sequences_table{join ',', @out} = $idx;
-	}
+    if (not defined $idx) {
+	$idx = scalar @sequences;
+	push @sequences, @out;
+	$sequences_table{join ',', @out} = $idx;
+    }
 
-	return $idx | $len << 13;
+    return $idx | $len << 13;
 }
 
 open(my $out, ">", $filename);
-open(my $fh, '<:encoding(UTF-8)', "UnicodeData.txt")
-  or die "$0: Could not open `UnicodeData.txt': $!\n";
+open($fh, '<:encoding(UTF-8)', "UnicodeData.txt")
+    or die "$0: Could not open `UnicodeData.txt': $!\n";
 
 # <DATA> contains the hand-maintained includes/comments for the
 # file. Additionally, it contains the implementations of the data
@@ -205,151 +214,186 @@ print $out $DATA, "\n";
 
 # Build and return a hash table of code points.
 sub gen_chars {
-	my ($fh) = @_;
-	my %chars;
+    my ($fh) = @_;
+    my %chars;
 
-	print "$0: Parsing `UnicodeData.txt'...\n" if $verbose;
+    print "$0: Parsing `UnicodeData.txt'...\n" if $verbose;
 
-	my $line_count = `wc -l UnicodeData.txt | awk '{ print \$1 }'`;
-	my $linenum = 0;
-	my $next_update = 0;
-	my $progress = $verbose
-	  ? Term::ProgressBar->new({count => $line_count})
-	  : undef;
-	$progress->minor(0) if $verbose;
+    my $linecount = int `wc -l UnicodeData.txt | awk '{ print \$1 }'`;
+    my $linenum = 0;
+    my $next_update = 0;
+    my $progress = $verbose
+	? Term::ProgressBar->new({count => $linecount})
+	: undef;
+    $progress->minor(0) if $verbose;
 
-	while (my $l = <$fh>) {
-		$l =~ s/(.*?)#.*/$1/;
-		chomp $l;
+    while (my $l = <$fh>) {
+	$l =~ s/(.*?)#.*/$1/;
+	chomp $l;
 
-		$next_update = $progress->update($linenum)
-		  if $verbose and $linenum >= $next_update;
-		$linenum++;
+	$next_update = $progress->update($linenum)
+	    if $verbose and $linenum >= $next_update;
+	$linenum++;
 
-		# It's not a range, it's just a regular character.
-		if ($l !~ /^([0-9A-F]+);<([^;>,]+), First>;/i) {
-			$l =~ /^(.*?);/;
-			$chars{hex($1)} = Char->new(line => $l);
-			next;
-		}
-
-		# It's a range!
-		$progress->message("$0: Generating range for `$2'.")
-		  if $verbose;
-
-		# Most important lookups don't happen in the ranged entries,
-		# so we can just pretend they don't exist to speed up the
-		# initial character data loading.
-		next if $debug;
-
-		$l = <$fh>;
-		my $start = hex($1);
-		my $char = Char->new(line => $l);
-
-		die "$0: Expected range end-point at line: $l\n"
-		  if $l !~ /^([0-9A-F]+);<([^;>,]+), Last>;/i;
-
-		my $end = hex($1);
-		my $name = $2;
-
-		for (my $i = $start; $i < $end; $i++) {
-			my $clone = Char->new(line => $char->{line});
-			$clone->{code} = $i;
-			$clone->{name} = $name;
-			$chars{$i} = $clone;
-		}
+	# It's not a range, it's just a regular character.
+	if ($l !~ /^([0-9A-F]+);<([^;>,]+), First>;/i) {
+	    $l =~ /^(.*?);/;
+	    $chars{hex($1)} = Char->new(line => $l);
+	    next;
 	}
 
-	$progress->update($line_count);
-	print "$0: Loaded ", scalar keys %chars, " code points.\n"
-	  if $verbose;
+	# It's a range!
+	$progress->message("$0: Generating range for `$2'.")
+	    if $verbose;
 
-	return %chars;
+	# Most important lookups don't happen in the ranged entries,
+	# so we can just pretend they don't exist to speed up the
+	# initial character data loading.
+	next if $debug;
+
+	$l = <$fh>;
+	my $start = hex($1);
+	my $char = Char->new(line => $l);
+
+	die "$0: Expected range end-point at line: $l\n"
+	    if $l !~ /^([0-9A-F]+);<([^;>,]+), Last>;/i;
+
+	my $end = hex($1);
+	my $name = $2;
+
+	for (my $i = $start; $i < $end; $i++) {
+	    my $clone = Char->new(line => $char->{line});
+	    $clone->{code} = $i;
+	    $clone->{name} = $name;
+	    $chars{$i} = $clone;
+	}
+    }
+
+    $progress->update($linecount);
+    print "$0: Loaded ", scalar(keys %chars), " code points.\n"
+	if $verbose;
+
+    return %chars;
 }
 
 # Build and return an array of unique strings.
 sub gen_properties {
-	my (%chars) = @_;
-	my (%properties_indicies, @properties);
+    my (%chars) = @_;
+    my (%properties_indicies, @properties);
 
-	print "$0: Generating properties...\n" if $verbose;
+    print "$0: Generating properties...\n" if $verbose;
 
-	foreach my $key (keys %chars) {
-		my $entry = $chars{$key}->echo;
-		$chars{$key}->{entry_index} = $properties_indicies{$entry};
+    foreach my $key (keys %chars) {
+	my $entry = $chars{$key}->echo;
+	$chars{$key}->{entry_index} = $properties_indicies{$entry};
 
-		if (not defined $chars{$key}->{entry_index}) {
-			$properties_indicies{$entry} = scalar @properties;
-			$chars{$key}->{entry_index} = scalar @properties;
-			push @properties,
-			  "\t" . $entry;
-		}
+	if (not defined $chars{$key}->{entry_index}) {
+	    $properties_indicies{$entry} = scalar @properties;
+	    $chars{$key}->{entry_index} = scalar @properties;
+	    push @properties, "\t" . $entry;
 	}
+    }
 
-	print "$0: Generated ", scalar @properties, " properties.\n"
-	  if $verbose;
+    print "$0: Generated ", scalar(@properties), " properties.\n"
+	if $verbose;
 
-	return (\%chars, \@properties);
+    return (\%chars, \@properties);
 }
 
 sub gen_tables {
-	my (%chars) = @_;
-	my (@stage1, @stage2, %old_indices);
+    my (%chars) = @_;
+    my (@stage1, @stage2, %old_indices);
 
-	print "$0: Generating tables...\n" if $verbose;
+    print "$0: Generating tables...\n" if $verbose;
 
-	for (my $code = 0; $code < 0x10FFFF; $code += $BLOCK_SIZE) {
-		my @stage2_entry;
+    for (my $code = 0; $code < 0x10FFFF; $code += $BLOCK_SIZE) {
+	my @entry;
 
-		for (my $code2 = $code;
-		     $code2 < $code + $BLOCK_SIZE;
-		     $code2++) {
-			push @stage2_entry, $chars{$code2}
-			  ? $chars{$code2}->{entry_index} + 1
-			  : 0;
-		}
-
-		my $old = $old_indices{join ',', @stage2_entry};
-
-		if ($old) {
-			push @stage1, $old * $BLOCK_SIZE;
-		} else {
-			$old_indices{join ',', @stage2_entry} = scalar @stage2;
-			push @stage1, scalar @stage2 * $BLOCK_SIZE;
-			push @stage2, \@stage2_entry;
-		}
+	for (my $code2 = $code;
+	     $code2 < $code + $BLOCK_SIZE;
+	     $code2++) {
+	    push @entry, $chars{$code2}
+	    ? $chars{$code2}->{entry_index} + 1
+		: 0;
 	}
 
-	print "$0: Generated stage 1 table with ",
-	  scalar @stage1, " elements.\n" if $verbose;
-	print "$0: Generated stage 2 table with ",
-	  (scalar flat @stage2), " elements.\n" if $verbose;
-	print "$0: => Total: ", (scalar @stage1) + (scalar flat @stage2),
-	  " entries.\n" if $verbose;
+	my $old = $old_indices{join ',', @entry};
 
-	return (\@stage1, \@stage2);
+	if ($old) {
+	    push @stage1, $old * $BLOCK_SIZE;
+	} else {
+	    $old_indices{join ',', @entry} = scalar @stage2;
+	    push @stage1, scalar(@stage2) * $BLOCK_SIZE;
+	    push @stage2, \@entry;
+	}
+    }
+
+    print "$0: Generated stage 1 table with ",
+	scalar(@stage1), " elements.\n" if $verbose;
+    print "$0: Generated stage 2 table with ",
+	scalar(flat @stage2), " elements.\n" if $verbose;
+    print "$0: => Total: ", scalar(@stage1) + scalar(flat @stage2),
+	" entries.\n" if $verbose;
+
+    return (\@stage1, \@stage2);
 }
+
+sub gen_comb {
+    my (%chars) = @_;
+    my (@comb, %comb_a, %comb_b);
+
+    print "$0: Generating combining indices...\n" if $verbose;
+
+    foreach my $key (keys %chars) {
+	my $cp = $chars{$key};
+	if (not defined $cp
+	    # Only include canonical decompositions.
+	    or !$cp->{decomp_type}
+	    or not defined $cp->{decomp}
+	    or scalar(@{$cp->{decomp}}) != 2
+	    or not defined $chars{@{$cp->{decomp}}[0]}
+	    or $chars{@{$cp->{decomp}}[0]}->{ccc}
+	    or $exclusions{$cp->{code}}) {
+	    next;
+	}
+
+	my ($a, $b) = ($cp->{decomp}[0],
+		       $cp->{decomp}[1]);
+
+	$comb_a{$a} = scalar keys %comb_a if not defined $comb_a{$a};
+	$comb_a{$b} = scalar keys %comb_b if not defined $comb_b{$b};
+
+	$comb[$comb_a{$a}] = () if not defined $comb[$comb_a{$a}];
+	$comb[$comb_a{$a}][$comb_b{$b}] = $cp->{code};
+    }
+
+    print "$0: Generated ", scalar(@comb), " combining indices.\n"
+	if $verbose;
+
+    return @comb;
+}
+
+sub print_array {
+    my ($name, @array) = @_;
+
+    print $out "uint16_t $name\[] = {\n";
+    for (my $i = 0; $i < scalar @array; $i++) {
+	print $out "\t" if $i % 20 == 0;
+	print $out "$array[$i],";
+	print $out "\n" if ($i + 1) % 20 == 0
+	    or $i + 1 == scalar @array;
+    }
+    print $out "};\n\n";
+};
 
 my ($chars, $properties) = gen_properties(gen_chars($fh));
 my ($stage1, $stage2) = gen_tables(%$chars);
-
-sub print_array {
-	my ($name, @array) = @_;
-
-	print $out "uint16_t $name\[] = {\n";
-	for (my $i = 0; $i < scalar @array; $i++) {
-		print $out "\t" if $i % 20 == 0;
-		print $out "$array[$i],";
-		print $out "\n" if ($i + 1) % 20 == 0
-		  or $i + 1 == scalar @array;
-	}
-	print $out "};\n\n";
-};
+my @comb = gen_comb(%$chars);
 
 # Generation is now done.
 
-print "$0: Generated ", (scalar @sequences), " sequence elements.\n"
-  if $verbose;
+print "$0: Generated ", scalar(@sequences), " sequence elements.\n"
+    if $verbose;
 
 print $out "struct codepoint codepoints[] = {\n";
 print $out "\t{0,0,0,0,-1,-1,-1,-1},\n";
