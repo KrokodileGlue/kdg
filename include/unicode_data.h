@@ -110,6 +110,7 @@ struct codepoint {
 	enum decomptype decomp_type;
 
 	int bidi_mirrored;
+	int combining;
 
 	uint32_t lower;
 	uint32_t upper;

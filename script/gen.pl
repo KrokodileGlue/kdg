@@ -109,10 +109,11 @@ sub echo {
 	cvar("BOUNDCLASS",  $self->{bound_class}) .
 	cvar("BIDI",        $self->{bidi_class})  .
 	cvar("DECOMP_TYPE", $self->{decomp_type}) .
+	$self->{ccc}           . "," .
 	$self->{bidi_mirrored} . "," .
-	$self->{lowercase} . "," .
-	$self->{uppercase} . "," .
-	$self->{titlecase} . "," .
+	$self->{lowercase}     . "," .
+	$self->{uppercase}     . "," .
+	$self->{titlecase}     . "," .
 	($self->{decomp} ? main::emit_sequence(@{$self->{decomp}}) : "-1") .
 	"},";
 }
@@ -413,7 +414,7 @@ my @comb = gen_comb(%$chars);
 LOG("Generated ", scalar(@sequences), " sequence elements.");
 
 print $out "struct codepoint codepoints[] = {\n";
-print $out "\t{0,0,0,0,0,-1,-1,-1,-1},\n";
+print $out "\t{0,0,0,0,0,0,-1,-1,-1,-1},\n";
 foreach my $cp (@$properties) { print $out "$cp\n"; }
 print $out "};\n\n";
 
