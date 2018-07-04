@@ -515,7 +515,7 @@ static unsigned
 leading_nonstarters(uint32_t *buf, unsigned len)
 {
 	unsigned n = 0;
-	while (n < len && codepoint(buf[n])->combining) n++;
+	while (n < len && codepoint(buf[n])->ccc) n++;
 	return n;
 }
 
@@ -523,7 +523,7 @@ static unsigned
 trailing_nonstarters(uint32_t *buf, unsigned len)
 {
 	int n = len - 1;
-	while (n >= 0 && codepoint(buf[n])->combining) n--;
+	while (n >= 0 && codepoint(buf[n])->ccc) n--;
 	return len - n;
 }
 
@@ -853,9 +853,9 @@ sort_combining_marks(uint32_t *buf, unsigned len)
 		struct codepoint *cp1 = codepoint(buf[i]);
 		struct codepoint *cp2 = codepoint(buf[i + 1]);
 
-		if (!cp2->combining
-		    || !cp1->combining
-		    || cp2->combining >= cp1->combining)
+		if (!cp2->ccc
+		    || !cp1->ccc
+		    || cp2->ccc >= cp1->ccc)
 			continue;
 
 		uint32_t temp = buf[i + 1];
@@ -923,7 +923,7 @@ decompose(kdgu *k, bool compat)
 		struct codepoint *cp = codepoint(c);
 
 		/* It's a starter. No sequence here! */
-		if (!cp->combining) continue;
+		if (!cp->ccc) continue;
 
 		unsigned beginning = k->idx;
 		len = 0;
@@ -935,7 +935,7 @@ decompose(kdgu *k, bool compat)
 
 			c = kdgu_decode(k);
 			cp = codepoint(c);
-		} while (cp->combining
+		} while (cp->ccc
 		         && len < sizeof buf / sizeof *buf);
 
 		sort_combining_marks(buf, len);
@@ -1023,7 +1023,7 @@ compose_char(kdgu *k)
 	 */
 
 	printf("U+%02"PRIX32" + U+%02"PRIX32" = U+%02"PRIX32"\n", c1, c2, composition);
-	printf("\t%x, %x\n", cp1->combining, cp2->combining);
+	printf("\t%x, %x\n", cp1->ccc, cp2->ccc);
 	printf("\t%x, %x\n", cp1->comb, cp2->comb);
 	printf("\t%x, %x\n", idx1, idx2);
 	printf("\t%x, %x\n", compositions[idx1], compositions[idx2]);
