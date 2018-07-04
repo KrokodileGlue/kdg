@@ -298,6 +298,11 @@ sub gen_properties {
     return (\%chars, \@properties);
 }
 
+# Generates tables used for efficient look ups of Unicode code
+# points. If you just skim over this you may wonder how this is more
+# space-efficient than a simple flat array mapping a code point to an
+# index: the strength of this system is that duplicate blocks don't
+# have to be regenerated.
 sub gen_tables {
     my (%chars) = @_;
     my (@stage1, @stage2, %old_indices);
@@ -339,6 +344,8 @@ sub gen_tables {
     return (\@stage1, \@stage2);
 }
 
+# Generates a table mapping a pair of code points (the first two
+# numbers in the entry) to a canonical composition.
 sub gen_comb {
     my (%chars) = @_;
     my @comb;
