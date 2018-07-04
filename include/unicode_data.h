@@ -103,7 +103,7 @@ extern struct codepoint codepoints[];
 extern uint16_t stage1[];
 extern uint16_t stage2[];
 extern uint16_t sequences[];
-extern uint64_t compositions[];
+extern uint32_t compositions[];
 
 struct codepoint *codepoint(uint32_t c);
 unsigned write_sequence(uint32_t *buf, uint16_t idx);

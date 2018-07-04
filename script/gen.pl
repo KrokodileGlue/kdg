@@ -357,11 +357,13 @@ sub gen_comb {
 	    next;
 	}
 
-	push @comb, (($cp->{decomp}[0] << 32) | $cp->{decomp}[1]);
+	push @comb, $cp->{decomp}[0];
+	push @comb, $cp->{decomp}[1];
 	push @comb, $cp->{code};
     }
 
-    print "$0: Generated ", scalar(@comb), " combining indices.\n"
+    print "$0: Generated ",
+	(scalar @comb / 3), " combining indices.\n"
 	if $verbose;
 
     return @comb;
@@ -394,8 +396,8 @@ print $out "\t{0,0,0,0,-1,-1,-1,-1},\n";
 foreach my $cp (@$properties) { print $out "$cp\n"; }
 print $out "};\n\n";
 
-print_array("uint64_t", "compositions", @comb);
-print $out "int num_comp = ", (scalar @comb / 2), ";\n";
+print_array("uint32_t", "compositions", @comb);
+print $out "int num_comp = ", (scalar @comb / 3), ";\n";
 
 print_array("uint16_t", "stage1", @$stage1);
 print_array("uint16_t", "stage2", flat @$stage2);
@@ -450,8 +452,8 @@ write_sequence(uint32_t *buf, uint16_t idx)
 uint32_t
 lookup_comp(uint32_t a, uint32_t b)
 {
-	for (int i = 0; i < num_comp * 2; i += 2)
-		if (compositions[i] == (((uint64_t)a << 32) | (uint64_t)b))
-			return compositions[i + 1];
+	for (int i = 0; i < num_comp * 3; i += 3)
+		if (compositions[i] == a && compositions[i + 1] == b)
+			return compositions[i + 2];
 	return UINT32_MAX;
 }
