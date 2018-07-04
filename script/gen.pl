@@ -340,31 +340,25 @@ sub gen_tables {
 
 sub gen_comb {
     my (%chars) = @_;
-    my (@comb, %comb_a, %comb_b);
+    my @comb;
 
     print "$0: Generating combining indices...\n" if $verbose;
 
-    foreach my $key (keys %chars) {
-	my $cp = $chars{$key};
+    for (my $i = 0; $i < 0x10FFFF; $i++) {
+	my $cp = $chars{$i};
+
 	if (not defined $cp
 	    # Only include canonical decompositions.
-	    or !$cp->{decomp_type}
+	    or $cp->{decomp_type}
 	    or not defined $cp->{decomp}
 	    or scalar(@{$cp->{decomp}}) != 2
-	    or not defined $chars{@{$cp->{decomp}}[0]}
 	    or $chars{@{$cp->{decomp}}[0]}->{ccc}
 	    or $exclusions{$cp->{code}}) {
 	    next;
 	}
 
-	my ($a, $b) = ($cp->{decomp}[0],
-		       $cp->{decomp}[1]);
-
-	$comb_a{$a} = scalar keys %comb_a if not defined $comb_a{$a};
-	$comb_a{$b} = scalar keys %comb_b if not defined $comb_b{$b};
-
-	$comb[$comb_a{$a}] = () if not defined $comb[$comb_a{$a}];
-	$comb[$comb_a{$a}][$comb_b{$b}] = $cp->{code};
+	push @comb, (($cp->{decomp}[0] << 32) | $cp->{decomp}[1]);
+	push @comb, $cp->{code};
     }
 
     print "$0: Generated ", scalar(@comb), " combining indices.\n"
@@ -374,9 +368,9 @@ sub gen_comb {
 }
 
 sub print_array {
-    my ($name, @array) = @_;
+    my ($type, $name, @array) = @_;
 
-    print $out "uint16_t $name\[] = {\n";
+    print $out "$type $name\[] = {\n";
     for (my $i = 0; $i < scalar @array; $i++) {
 	print $out "\t" if $i % 20 == 0;
 	print $out "$array[$i],";
@@ -400,9 +394,12 @@ print $out "\t{0,0,0,0,-1,-1,-1,-1},\n";
 foreach my $cp (@$properties) { print $out "$cp\n"; }
 print $out "};\n\n";
 
-print_array("stage1", @$stage1);
-print_array("stage2", flat @$stage2);
-print_array("sequences", @sequences);
+print_array("uint64_t", "compositions", @comb);
+print $out "int num_comp = ", (scalar @comb / 2), ";\n";
+
+print_array("uint16_t", "stage1", @$stage1);
+print_array("uint16_t", "stage2", flat @$stage2);
+print_array("uint16_t", "sequences", @sequences);
 
 print "$0: Done; exiting.\n" if $verbose;
 
@@ -415,6 +412,8 @@ __DATA__
 
 // #include "kdgu.h"
 #include "unicode_data.h"
+
+int num_comp;
 
 struct codepoint *
 codepoint(uint32_t c)
@@ -446,4 +445,13 @@ write_sequence(uint32_t *buf, uint16_t idx)
 	}
 
 	return len;
+}
+
+uint32_t
+lookup_comp(uint32_t a, uint32_t b)
+{
+	for (int i = 0; i < num_comp * 2; i += 2)
+		if (compositions[i] == (((uint64_t)a << 32) | (uint64_t)b))
+			return compositions[i + 1];
+	return UINT32_MAX;
 }
