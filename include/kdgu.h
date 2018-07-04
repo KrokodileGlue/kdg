@@ -11,7 +11,14 @@
 typedef struct kdgu {
 	unsigned alloc, len, idx;
 	uint8_t *s;
-	enum normalization norm;
+
+	enum normalization {
+		NORM_NONE,
+		NORM_NFC,
+		NORM_NFD,
+		NORM_NFKC,
+		NORM_NFKD
+	} norm;
 
 	struct errorlist {
 		struct error *err;
