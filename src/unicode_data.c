@@ -29,7 +29,9 @@ write_sequence(uint32_t *buf, uint16_t idx)
 	unsigned j = 0;
 	idx &= 0x3FFF;
 
-	for (unsigned i = len >= 3 ? 1 : 0; i < len + 1; i++) {
+	for (unsigned i = len >= 3 ? 1 : 0;
+	     i < (len >= 3 ? len + 1 : len);
+	     i++) {
 		uint32_t d = sequences[idx + i];
 		if (d > 0xD7FF && d < 0xE000) {
 			uint32_t e = sequences[idx + i + 1];

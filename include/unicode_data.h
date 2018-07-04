@@ -112,9 +112,9 @@ struct codepoint {
 	int bidi_mirrored;
 	int ccc;		/* Canonical Combining Class */
 
-	uint32_t lower;
-	uint32_t upper;
-	uint32_t title;
+	uint16_t lower;
+	uint16_t upper;
+	uint16_t title;
 
 	uint16_t decomp;
 };

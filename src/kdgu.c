@@ -343,11 +343,12 @@ kdgu_uc(kdgu *k)
 
 	do {
 		uint32_t c = kdgu_decode(k);
-		uint32_t u = codepoint(c)->upper;
 
-		if (u != c) {
+		if (codepoint(c)->upper != UINT16_MAX) {
+			uint32_t buf[1];
+			write_sequence(buf, codepoint(c)->upper);
 			delete_point(k);
-			insert_point(k, u);
+			insert_point(k, buf[0]);
 			continue;
 		}
 
@@ -365,11 +366,12 @@ kdgu_lc(kdgu *k)
 
 	do {
 		uint32_t c = kdgu_decode(k);
-		uint32_t u = codepoint(c)->lower;
 
-		if (u != c) {
+		if (codepoint(c)->lower != UINT16_MAX) {
+			uint32_t buf[1];
+			write_sequence(buf, codepoint(c)->lower);
 			delete_point(k);
-			insert_point(k, u);
+			insert_point(k, buf[0]);
 			continue;
 		}
 
