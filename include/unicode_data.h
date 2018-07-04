@@ -91,14 +91,6 @@ struct codepoint {
 	uint16_t decomp;
 };
 
-#if 0
-struct special_case {
-	uint32_t *lower;
-	uint32_t *title;
-	uint32_t *upper;
-};
-#endif
-
 extern struct codepoint codepoints[];
 extern uint16_t stage1[];
 extern uint16_t stage2[];
