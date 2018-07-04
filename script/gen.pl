@@ -173,7 +173,7 @@ sub utf16_encode {
 }
 
 # Dumps out an array of code points into the sequence table and
-# returns the index, with the top three bits containing the length.
+# returns the index, with the top two bits containing the length.
 sub emit_sequence {
     my (@array) = @_;
     my @out;
@@ -181,15 +181,15 @@ sub emit_sequence {
     my $idx = $sequences_table{join ',', @out};
     my $len = scalar @out;
 
-    # We can't fit the length into the top three bits, so we'll stick
-    # it in at the beginning of the entry instead.
-    if ($len >= 7) {
+    # We can't fit the length into the top two bits, so we'll stick it
+    # in at the beginning of the entry instead.
+    if ($len >= 3) {
 	unshift @out, $len;
 
-	# The value 7 for the top three bits is a magic value that
+	# The value 3 for the top two bits is a magic value that
 	# indicates the length is the first value in the sequence
 	# entry.
-	$len = 7;
+	$len = 3;
     }
 
     if (not defined $idx) {
@@ -198,7 +198,7 @@ sub emit_sequence {
 	$sequences_table{join ',', @out} = $idx;
     }
 
-    return $idx | $len << 13;
+    return $idx | $len << 14;
 }
 
 open(my $out, ">", $filename);
@@ -435,13 +435,14 @@ write_sequence(uint32_t *buf, uint16_t idx)
 {
 	if (idx == (uint16_t)-1) return 0;
 
-	unsigned len = (idx & 0xE000) == 0xE000
-		          ? sequences[idx] : (idx & 0xE000) >> 13;
+	unsigned len = (idx & 0xC000) == 0xC000
+		          ? sequences[idx & 0x3FFF]
+			  : (idx & 0xC000) >> 14;
 	if (!buf) return len;
 	unsigned j = 0;
-	idx = idx & 0x1FFF;
+	idx &= 0x3FFF;
 
-	for (unsigned i = len >= 7 ? 1 : 0; i < len + 1; i++) {
+	for (unsigned i = len >= 3 ? 1 : 0; i < len + 1; i++) {
 		uint32_t d = sequences[idx + i];
 		if (d > 0xD7FF && d < 0xE000) {
 			uint32_t e = sequences[idx + i + 1];
