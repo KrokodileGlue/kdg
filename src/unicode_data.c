@@ -12,7 +12,7 @@ int num_comp;
 struct codepoint *
 codepoint(uint32_t c)
 {
-	if (c > 0x10FFFF) return 0;
+	if (c > 0x10FFFF) return codepoints;
 	return codepoints + (stage2[stage1[c / 256]
 	                            + (c % 256)]);
 }
@@ -9264,4 +9264,3 @@ uint16_t sequences[] = {
 	1496,1468,84,813,28845,5,12500,12450,12473,12488,12523,33276,3,40,22303,41,25429,4367,26451,26611,
 	1604,1571,3,100,109,178,31034,21986,39131,12487,12471,118,803,
 };
-

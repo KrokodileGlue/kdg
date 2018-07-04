@@ -304,18 +304,6 @@ kdgu_len(kdgu *k)
 	return l;
 }
 
-static unsigned
-decomp_len(uint16_t c)
-{
-	unsigned len = c >> 13;
-	if (len >= 7) len = sequences[c & 0x1FFF];
-	return len;
-}
-
-static unsigned write_decomposed(uint16_t c,
-                                 uint32_t *buf,
-                                 unsigned buflen);
-
 unsigned
 decompose_char(uint32_t c,
                uint32_t *buf,
@@ -342,33 +330,9 @@ decompose_char(uint32_t c,
 	}
 
 	if (cp->decomp != UINT16_MAX)
-		return write_decomposed(cp->decomp,
-		                        buf,
-		                        buflen);
+		return write_sequence(buf, cp->decomp);
 
 	return *buf = c, 1;
-}
-
-static unsigned
-write_decomposed(uint16_t c,
-                 uint32_t *buf,
-                 unsigned buflen)
-{
-	unsigned written = 0, len = decomp_len(c);
-	uint16_t *entry = &sequences[c & 0x1FFF];
-	if (c >> 13 >= 7) entry++;
-
-	/* Iterate over the characters in the decomposition. */
-	for (unsigned i = 0; i <= len; entry++, i++) {
-		/* Look up the current codepoint in the entry. */
-		uint32_t dc = seqindex_decode_entry(&entry);
-
-		written += decompose_char(dc,
-		                          buf ? buf + written : NULL,
-		                          buf ? buflen - written : 0);
-	}
-
-	return written;
 }
 
 bool
@@ -904,9 +868,8 @@ decompose(kdgu *k, bool compat)
 		if (!compat && cp->decomp_type != DECOMP_TYPE_FONT)
 			continue;
 
-		len = write_decomposed(cp->decomp,
-		                       buf,
-		                       sizeof buf / sizeof *buf);
+		len = decompose_char(c, buf,
+				     sizeof buf / sizeof *buf);
 
 		if (!len) continue;
 		delete_point(k);
@@ -970,8 +933,6 @@ load_index(uint32_t *buf, unsigned *len, uint16_t idx)
 }
 #endif
 
-/* TODO: Stable compositions. */
-
 static bool
 compose_char(kdgu *k)
 {
@@ -988,46 +949,25 @@ compose_char(kdgu *k)
 	struct codepoint *cp2 = codepoint(c2);
 	if (!cp1 || !cp2) return false;
 
+	uint32_t composition = lookup_comp(c1, c2);
 	/* No valid composition exists; do nothing. */
-	if (cp1->comb >= 0x8000
-	    || cp2->comb == UINT16_MAX
-	    || cp2->comb < 0x8000)
-		return false;
-
-	int idx1 = cp1->comb;
-	int idx2 = cp2->comb & 0x3FFF;
-	int idx = idx2 - compositions[idx1];
-
-	if (idx < 0 || idx > compositions[idx1 + 1]) return false;
-
-	idx += idx1 + 2;
-	uint32_t composition = cp2->comb & 0x4000
-		? (compositions[idx] << 16)
-		| compositions[idx + 1]
-		: compositions[idx];
-
-	struct codepoint *comp_cp = codepoint(composition);
+	if (composition == UINT32_MAX) return false;
 
 	/*
 	 * It doesn't make sense for a character that's been
 	 * composed from other characters to not have a
 	 * decomposition.
+	 *
+	 * TODO: I can't remember why this is commented out. I think
+	 * there was a bug or something. Investigate later.
 	 */
 
 	/* assert(comp_cp->decomp != UINT16_MAX); */
-	if (comp_cp->comp_exclusion) return false;
 
 	/*
 	 * Only at this point are we sure we have a fully
 	 * valid composition.
 	 */
-
-	printf("U+%02"PRIX32" + U+%02"PRIX32" = U+%02"PRIX32"\n", c1, c2, composition);
-	printf("\t%x, %x\n", cp1->ccc, cp2->ccc);
-	printf("\t%x, %x\n", cp1->comb, cp2->comb);
-	printf("\t%x, %x\n", idx1, idx2);
-	printf("\t%x, %x\n", compositions[idx1], compositions[idx2]);
-	printf("\t%x - %x\n", idx, compositions[idx]);
 
 	kdgu_inc(k), kdgu_inc(k);
 	kdgu_delete(k, beginning, k->idx);

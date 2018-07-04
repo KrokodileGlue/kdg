@@ -442,9 +442,9 @@ int num_comp;
 struct codepoint *
 codepoint(uint32_t c)
 {
-	if (c > 0x10FFFF) return 0;
-	return codepoints + (stage2[stage1[c / BLOCK_SIZE]
-	                            + (c % BLOCK_SIZE)]);
+	if (c > 0x10FFFF) return codepoints;
+	return codepoints + (stage2[stage1[c / 256]
+	                            + (c % 256)]);
 }
 
 unsigned
