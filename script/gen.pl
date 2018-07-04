@@ -26,6 +26,7 @@ use Moose;
 
 has line          => (is => 'rw');
 has entry_index   => (is => 'rw');
+has bound_class   => (is => 'rw');
 
 has code          => (is => 'rw');
 has name          => (is => 'rw');
@@ -105,6 +106,7 @@ sub echo {
 
     return "{" .
 	cvar("CATEGORY",    $self->{category})    .
+	cvar("BOUNDCLASS",  $self->{bound_class}) .
 	cvar("BIDI",        $self->{bidi_class})  .
 	cvar("DECOMP_TYPE", $self->{decomp_type}) .
 	$self->{bidi_mirrored} . "," .
@@ -152,6 +154,19 @@ my %exclusions;
 while (my $l = <$fh>) {
     if ($l =~ /^([0-9A-F]+)/i) {
 	$exclusions{hex($1)} = 1;
+    }
+}
+
+open($fh, '<:encoding(UTF-8)', "GraphemeBreakProperty.txt")
+    or die "$0: Could not open `GraphemeBreakProperty.txt': $!\n";
+my %boundclasses;
+while (my $l = <$fh>) {
+    if ($l =~ /^([0-9A-F]+)\.\.([0-9A-F]+)\s*;\s*([A-Za-z_]+)/) {
+	for (my $i = hex($1); $i < hex($2); $i++) {
+	    $boundclasses{$i} = $3;
+	}
+    } elsif ($l =~ /^([0-9A-F]+)\s*;\s*([A-Za-z_]+)/) {
+	$boundclasses{hex($1)} = $2;
     }
 }
 
@@ -239,6 +254,7 @@ sub gen_chars {
 	if ($l !~ /^([0-9A-F]+);<([^;>,]+), First>;/i) {
 	    $l =~ /^(.*?);/;
 	    $chars{hex($1)} = Char->new(line => $l);
+	    $chars{hex($1)}->{bound_class} = $boundclasses{hex($1)};
 	    next;
 	}
 
@@ -397,7 +413,7 @@ my @comb = gen_comb(%$chars);
 LOG("Generated ", scalar(@sequences), " sequence elements.");
 
 print $out "struct codepoint codepoints[] = {\n";
-print $out "\t{0,0,0,0,-1,-1,-1,-1},\n";
+print $out "\t{0,0,0,0,0,-1,-1,-1,-1},\n";
 foreach my $cp (@$properties) { print $out "$cp\n"; }
 print $out "};\n\n";
 

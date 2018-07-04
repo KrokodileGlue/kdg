@@ -113,48 +113,6 @@ kdgu_print_error(struct error err)
 	}
 }
 
-static uint32_t
-seqindex_decode_entry(uint16_t **entry)
-{
-	uint32_t cp = **entry;
-
-	if ((cp & 0xF800) != 0xD800)
-		return cp;
-
-	(*entry)++;
-	cp = ((cp & 0x03FF) << 10) | (**entry & 0x03FF);
-	cp += 0x10000;
-
-	return cp;
-}
-
-static uint32_t
-seqindex_decode_index(uint32_t idx)
-{
-	return seqindex_decode_entry(&(uint16_t *){sequences + idx});
-}
-
-static struct codepoint *
-codepoint(uint32_t c) {
-	if (c >= 0x110000) return codepoints;
-	return &codepoints[stage2table[stage1table[c >> 8]
-	                               + (c & 0xFF)]];
-}
-
-static uint32_t
-upperize(uint32_t c)
-{
-	uint16_t u = codepoint(c)->uc;
-	return u != UINT16_MAX ? seqindex_decode_index(u) : c;
-}
-
-static uint32_t
-lowerize(uint32_t c)
-{
-	uint16_t u = codepoint(c)->lc;
-	return u != UINT16_MAX ? seqindex_decode_index(u) : c;
-}
-
 static void
 delete_point(kdgu *k)
 {
@@ -421,7 +379,7 @@ kdgu_uc(kdgu *k)
 
 	do {
 		uint32_t c = kdgu_decode(k);
-		uint32_t u = upperize(c);
+		uint32_t u = codepoint(c)->upper;
 
 		if (u != c) {
 			delete_point(k);
@@ -443,7 +401,7 @@ kdgu_lc(kdgu *k)
 
 	do {
 		uint32_t c = kdgu_decode(k);
-		uint32_t u = lowerize(c);
+		uint32_t u = codepoint(c)->lower;
 
 		if (u != c) {
 			delete_point(k);
