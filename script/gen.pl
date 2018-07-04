@@ -139,11 +139,11 @@ GetOptions("output=s" => \$filename,
     or die("$0: Exiting due to invalid " .
 	   "command-line parameters.\n");
 
-if ($verbose) {
-    print "$0: Running with verbose output.\n";
-    print "$0: Running in debugging mode.\n" if $debug;
-    print "$0: Will dump output into `$filename'.\n";
-}
+sub LOG { print "$0: ", @_, "\n" if $verbose }
+
+LOG("Running with verbose output.");
+LOG("Running in debugging mode.") if $debug;
+LOG("Will dump output into `$filename'.");
 
 my $fh;
 open($fh, '<:encoding(UTF-8)', "CompositionExclusions.txt")
@@ -217,7 +217,7 @@ sub gen_chars {
     my ($fh) = @_;
     my %chars;
 
-    print "$0: Parsing `UnicodeData.txt'...\n" if $verbose;
+    LOG("Parsing `UnicodeData.txt'...");
 
     my $linecount = int `wc -l UnicodeData.txt | awk '{ print \$1 }'`;
     my $linenum = 0;
@@ -270,8 +270,7 @@ sub gen_chars {
     }
 
     $progress->update($linecount);
-    print "$0: Loaded ", scalar(keys %chars), " code points.\n"
-	if $verbose;
+    LOG("Loaded ", scalar(keys %chars), " code points.");
 
     return %chars;
 }
@@ -281,7 +280,7 @@ sub gen_properties {
     my (%chars) = @_;
     my (%properties_indicies, @properties);
 
-    print "$0: Generating properties...\n" if $verbose;
+    LOG("Generating properties...");
 
     foreach my $key (keys %chars) {
 	my $entry = $chars{$key}->echo;
@@ -294,8 +293,7 @@ sub gen_properties {
 	}
     }
 
-    print "$0: Generated ", scalar(@properties), " properties.\n"
-	if $verbose;
+    LOG("Generated ", scalar(@properties), " properties.");
 
     return (\%chars, \@properties);
 }
@@ -304,7 +302,7 @@ sub gen_tables {
     my (%chars) = @_;
     my (@stage1, @stage2, %old_indices);
 
-    print "$0: Generating tables...\n" if $verbose;
+    LOG("Generating tables...");
 
     for (my $code = 0; $code < 0x10FFFF; $code += $BLOCK_SIZE) {
 	my @entry;
@@ -328,12 +326,15 @@ sub gen_tables {
 	}
     }
 
-    print "$0: Generated stage 1 table with ",
-	scalar(@stage1), " elements.\n" if $verbose;
-    print "$0: Generated stage 2 table with ",
-	scalar(flat @stage2), " elements.\n" if $verbose;
-    print "$0: => Total: ", scalar(@stage1) + scalar(flat @stage2),
-	" entries.\n" if $verbose;
+    LOG("Generated stage 1 table with ",
+	scalar(@stage1),
+	" elements.");
+    LOG("Generated stage 2 table with ",
+	scalar(flat @stage2),
+	" elements.");
+    LOG("=> Total: ",
+	scalar(@stage1) + scalar(flat @stage2),
+	" entries.");
 
     return (\@stage1, \@stage2);
 }
@@ -342,7 +343,7 @@ sub gen_comb {
     my (%chars) = @_;
     my @comb;
 
-    print "$0: Generating combining indices...\n" if $verbose;
+    LOG("Generating combining indices...");
 
     for (my $i = 0; $i < 0x10FFFF; $i++) {
 	my $cp = $chars{$i};
@@ -362,9 +363,7 @@ sub gen_comb {
 	push @comb, $cp->{code};
     }
 
-    print "$0: Generated ",
-	(scalar @comb / 3), " combining indices.\n"
-	if $verbose;
+    LOG("Generated ", (scalar @comb / 3), " combining indices.");
 
     return @comb;
 }
@@ -388,8 +387,7 @@ my @comb = gen_comb(%$chars);
 
 # Generation is now done.
 
-print "$0: Generated ", scalar(@sequences), " sequence elements.\n"
-    if $verbose;
+LOG("Generated ", scalar(@sequences), " sequence elements.");
 
 print $out "struct codepoint codepoints[] = {\n";
 print $out "\t{0,0,0,0,-1,-1,-1,-1},\n";
@@ -403,7 +401,7 @@ print_array("uint16_t", "stage1", @$stage1);
 print_array("uint16_t", "stage2", flat @$stage2);
 print_array("uint16_t", "sequences", @sequences);
 
-print "$0: Done; exiting.\n" if $verbose;
+LOG("Done; exiting.");
 
 __DATA__
 // SPDX-License-Identifier: Unicode-DFS-2016
