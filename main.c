@@ -87,19 +87,8 @@ demo(char *text, unsigned len)
 	 * assert(!memcmp(r->s, q->s, r->len));
 	 */
 
-#if 0
-	for (unsigned i = 0; i < q->len; i++) {
-		if (q->s[i] != r->s[i]) {
-			printf("0x%X and 0x%X at %u\n",
-			       (unsigned char)q->s[i],
-			       (unsigned char)r->s[i],
-			       i);
-		}
-	}
-#endif
-
 	kdgu_print(r); putchar('\n');
-	printf("length: %zu\n", kdgu_len(r));
+	printf("length: %u\n", kdgu_len(r));
 
 	printf("first character: '");
 	kdgu_nth(r, 0); kdgu_pchr(r, stdout);

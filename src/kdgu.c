@@ -569,9 +569,9 @@ kdgu_new(enum fmt fmt, const uint8_t *s, size_t len)
 }
 
 kdgu *
-kdgu_news(const uint8_t *s)
+kdgu_news(const char *s)
 {
-	return kdgu_new(FMT_ASCII, s, strlen((char *)s));
+	return kdgu_new(FMT_ASCII, (uint8_t *)s, strlen(s));
 }
 
 kdgu *

@@ -49,7 +49,7 @@ typedef struct kdgu {
 } kdgu;
 
 kdgu *kdgu_new(enum fmt fmt, const uint8_t *s, size_t len);
-kdgu *kdgu_news(const uint8_t *s);
+kdgu *kdgu_news(const char *s);
 void kdgu_free(kdgu *k);
 
 kdgu *kdgu_copy(kdgu *k);
