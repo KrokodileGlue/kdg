@@ -53,73 +53,6 @@ print_errors(struct errorlist *errlist, char *path)
 
 char *filename = NULL;
 
-void
-demo(char *text, unsigned len)
-{
-	kdgu *q = kdgu_new(FMT_UTF8, (uint8_t *)text, len);
-	kdgu_convert(q, FMT_UTF16);
-
-	kdgu_chomp(q);
-	kdgu_uc(q);
-	/* kdgu_lc(q); */
-	kdgu_reverse(q);
-	kdgu_convert(q, FMT_UTF8);
-
-	kdgu *r = kdgu_copy(q);
-
-	kdgu_convert(r, FMT_UTF16);
-	kdgu_convert(r, FMT_UTF8);
-
-	kdgu_print(r), putchar('\n');
-	kdgu_print(q), putchar('\n');
-	kdgu_debugprint2(r), putchar('\n');
-	kdgu_debugprint2(q), putchar('\n');
-	assert(kdgu_cmp(q, r));
-
-	/*
-	 * TODO: It seems that non shortest form UTF-8 sequences are
-	 * not being properly caught?
-	 *
-	 * This stuff only makes sense if the format of r and q are
-	 * the same, of course.
-	 *
-	 * assert(r->len == q->len);
-	 * assert(!memcmp(r->s, q->s, r->len));
-	 */
-
-	kdgu_print(r); putchar('\n');
-	printf("length: %u\n", kdgu_len(r));
-
-	printf("first character: '");
-	kdgu_nth(r, 0); kdgu_pchr(r, stdout);
-	puts("'");
-
-	printf("last character: '");
-	kdgu_nth(r, kdgu_len(r) - 1); kdgu_pchr(r, stdout);
-	puts("'");
-
-	print_errors(q->errlist, filename);
-	print_errors(r->errlist, filename);
-
-	kdgu_free(q);
-	kdgu_free(r);
-
-	/* ========================== */
-	kdgu *a = kdgu_news("foo ");
-	kdgu *b = kdgu_news("bar");
-
-	kdgu_convert(a, FMT_UTF8);
-	kdgu_convert(b, FMT_UTF8);
-
-	kdgu_uc(b);
-	kdgu_cat(a, b);
-
-	kdgu_print(a); putchar('\n');
-
-	kdgu_free(a);
-	kdgu_free(b);
-}
-
 int
 main(int argc, char **argv)
 {
@@ -128,7 +61,7 @@ main(int argc, char **argv)
 	if (!text) return EXIT_FAILURE;
 	filename = argv[argc - 1];
 
-#if 0
+#if 1
 	kdgu *k = kdgu_new(FMT_UTF8, text, len);
 
 	kdgu_chomp(k);

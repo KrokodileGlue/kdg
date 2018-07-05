@@ -78,6 +78,11 @@ utf8chrlen(const uint8_t *s, unsigned l)
 		goto error; \
 	} while (false)
 
+/*
+ * TODO: Investigate whether non shortest-form sequences are being
+ * caught.
+ */
+
 static struct error
 utf8validatechar(const uint8_t *s,
 		 uint8_t *r,
