@@ -1003,9 +1003,8 @@ bool
 kdgu_cmp(kdgu *k1, kdgu *k2)
 {
 	if (!k1 || !k2) return false;
-	unsigned idx1 = k1->idx, idx2 = k2->idx;
-	k1->idx = 0, k2->idx = 0;
 	kdgu_normalize(k1, NORM_NFC), kdgu_normalize(k2, NORM_NFC);
+	k1->idx = 0, k2->idx = 0;
 
 	do {
 		if (kdgu_decode(k1) != kdgu_decode(k2))
@@ -1013,7 +1012,6 @@ kdgu_cmp(kdgu *k1, kdgu *k2)
 	} while (kdgu_inc(k1) && kdgu_inc(k2));
 
 	if (kdgu_inc(k1) || kdgu_inc(k2)) return false;
-	k1->idx = idx1, k2->idx = idx2;
 	return true;
 }
 
@@ -1263,7 +1261,9 @@ kdgu_encode(uint32_t c, uint8_t *buf, unsigned *len,
 	case FMT_UTF8: err = utf8encode(c, buf, len, idx); break;
 	case FMT_UTF16LE:
 	case FMT_UTF16BE:
-	case FMT_UTF16: err = utf8encode(c, buf, len, idx); break;
+	case FMT_UTF16:
+		err = utf16encode(c, buf, len, idx, endian);
+		break;
 
 	case FMT_UTF32LE:
 	case FMT_UTF32BE:
