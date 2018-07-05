@@ -16,7 +16,7 @@ all: $(TARGET)
 	cp $(TARGET) lib$(NAME).so
 	$(CC) main.c -I include -L$(shell pwd) -Wl,-rpath $(shell pwd) -l$(NAME) -o $(NAME) -g
 
-test:
+test: test.c
 	$(CC) test.c src/unicode_data.c -I include -o test
 	./test
 

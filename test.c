@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <assert.h>
 
-#include "kdgu.h"
+#include "unicode_data.h"
 
 char *decomp_str[] = {
 	"Font",
