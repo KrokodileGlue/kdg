@@ -116,6 +116,10 @@ struct codepoint {
 	uint16_t upper;
 	uint16_t title;
 
+	uint16_t special_lc;
+	uint16_t special_tc;
+	uint16_t special_uc;
+
 	uint16_t decomp;
 };
 

@@ -343,16 +343,19 @@ kdgu_uc(kdgu *k)
 
 	do {
 		uint32_t c = kdgu_decode(k);
+		struct codepoint *cp = codepoint(c);
+		uint32_t buf[20];
+		unsigned len;
 
-		if (codepoint(c)->upper != UINT16_MAX) {
-			uint32_t buf[1];
-			write_sequence(buf, codepoint(c)->upper);
-			delete_point(k);
-			insert_point(k, buf[0]);
-			continue;
-		}
+		if (cp->upper != UINT16_MAX) {
+			len = write_sequence(buf, cp->upper);
+		} else if (cp->special_uc != UINT16_MAX) {
+			len = write_sequence(buf, cp->special_uc);
+		} else continue;
 
-		/* TODO: Generate proper casing code. */
+		delete_point(k);
+		for (unsigned i = 0; i < len; i++)
+			insert_point(k, buf[i]);
 	} while (kdgu_inc(k));
 
 	return true;
@@ -366,16 +369,19 @@ kdgu_lc(kdgu *k)
 
 	do {
 		uint32_t c = kdgu_decode(k);
+		struct codepoint *cp = codepoint(c);
+		uint32_t buf[20];
+		unsigned len;
 
-		if (codepoint(c)->lower != UINT16_MAX) {
-			uint32_t buf[1];
-			write_sequence(buf, codepoint(c)->lower);
-			delete_point(k);
-			insert_point(k, buf[0]);
-			continue;
-		}
+		if (cp->lower != UINT16_MAX) {
+			len = write_sequence(buf, cp->lower);
+		} else if (cp->special_lc != UINT16_MAX) {
+			len = write_sequence(buf, cp->special_lc);
+		} else continue;
 
-		/* TODO: Generate proper casing code. */
+		delete_point(k);
+		for (unsigned i = 0; i < len; i++)
+			insert_point(k, buf[i]);
 	} while (kdgu_inc(k));
 
 	return true;
