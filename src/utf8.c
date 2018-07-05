@@ -4,18 +4,48 @@
 #include "error.h"
 #include "kdgu.h"
 #include "utf8.h"
+#include "unicode.h"
 
-/* Not a decoder! Does not calculate code points! */
-static uint32_t
-utf8chr(const uint8_t *s, size_t l)
+uint32_t
+utf8decode(const uint8_t *s, unsigned l)
 {
-	assert(l > 0 && l <= 4);
-	uint32_t r = (uint8_t)s[0] << 24;
+	uint32_t c;
+	unsigned len = utf8chrlen(s, l);
 
-	for (unsigned i = 1; i < l && UTF8CONT(s[i]); i++)
-		r |= (uint8_t)s[i] << (24 - i * 8);
+	c = (*s & ((1 << (8 - len)) - 1))
+		<< (len - 1) * 6;
+	for (unsigned i = 1; i < len; i++)
+		c |= (s[i] & 0x3F) << (len - i - 1) * 6;
 
-	return r;
+	return c;
+}
+
+struct error
+utf8encode(uint32_t c, uint8_t *buf, unsigned *len, int idx)
+{
+	struct error err = ERR(ERR_NO_ERROR, idx);
+
+	if (c <= 0x7F) {
+		*len = 1;
+		buf[0] = c & 0xFF;
+	} else if (c >= 0x80 && c <= 0x7FF) {
+		*len = 2;
+		buf[0] = 0xC0 | ((c >> 6) & 0x1F);
+		buf[1] = 0x80 | (c & 0x3F);
+	} else if (c >= 0x800 && c <= 0xFFFF) {
+		*len = 3;
+		buf[0] = 0xE0 | ((c >> 12) & 0xF);
+		buf[1] = 0x80 | ((c >> 6) & 0x3F);
+		buf[2] = 0x80 | (c & 0x3F);
+	} else if (c >= 0x10000 && c <= 0x10FFFF) {
+		*len = 4;
+		buf[0] = 0xF0 | ((c >> 18) & 0x7);
+		buf[1] = 0x80 | ((c >> 12) & 0x3F);
+		buf[2] = 0x80 | ((c >> 6) & 0x3F);
+		buf[3] = 0x80 | (c & 0x3F);
+	} else ENCERR(utf8encode, buf, len, idx);
+
+	return err;
 }
 
 unsigned
@@ -42,43 +72,6 @@ utf8chrlen(const uint8_t *s, unsigned l)
 		goto error; \
 	}
 
-static bool
-is_noncharacter(const uint8_t *s, unsigned len)
-{
-	/*
-	 * Refer to Section 2.4 (Code Points and Characters) and
-	 * Section 23.7 (Noncharacters) for this stuff.
-	 */
-
-	/* efb790 to efb7af */
-	if (len == 2
-	    && RANGE(0, 0xef, 0xef)
-	    && RANGE(1, 0xb7, 0xb7)
-	    && RANGE(2, 0x90, 0xaf))
-		return true;
-
-	/* 0xefbfbe to 0xefbfbf */
-	if (len == 2
-	    && RANGE(0, 0xef, 0xef)
-	    && RANGE(1, 0xbf, 0xbf)
-	    && RANGE(2, 0xbe, 0xbf))
-		return true;
-
-	if (len == 3) {
-		uint32_t t = utf8chr(s, 4);
-
-		/* f09fbfbe to f48fbfbe */
-		if (0xf09fbfbe <= t && t <= 0xf48fbfbe)
-			return true;
-
-		/* f09fbfbf to f48fbfbf */
-		if (0xf09fbfbf <= t && t <= 0xf48fbfbf)
-			return true;
-	}
-
-	return false;
-}
-
 #define FAIL(X)	  \
 	do { \
 		err = ERR(X, *i); \
@@ -86,10 +79,15 @@ is_noncharacter(const uint8_t *s, unsigned len)
 	} while (false)
 
 static struct error
-utf8validatechar(const uint8_t *s, uint8_t *r, unsigned *i,
-                 unsigned *idx, size_t *l)
+utf8validatechar(const uint8_t *s,
+		 uint8_t *r,
+		 unsigned *i,
+                 unsigned *idx,
+		 size_t *l)
 {
 	struct error err = ERR(ERR_NO_ERROR, *i);
+	/* Only for encoding the replacement character */
+	unsigned buflen;
 
 	/*
 	 * Misplaced continuation byte. It's not a mistake that a
@@ -97,14 +95,13 @@ utf8validatechar(const uint8_t *s, uint8_t *r, unsigned *i,
 	 */
 
 	if (UTF8CONT(s[*i])) {
-		r[(*idx)++] = KDGU_REPLACEMENT;
-		(*i)++;
+		utf8encode(KDGU_REPLACEMENT, r + *idx, &buflen, *idx);
+		(*idx) += buflen, (*i)++;
 		return ERR(ERR_UTF8_STRAY_CONTINUATION_BYTE, *i);
 	}
 
 	/* This is just a regular ASCII character. */
-	if ((uint8_t)s[*i] < 128
-	    && UTF8VALID((uint8_t)s[*i])) {
+	if ((uint8_t)s[*i] < 128 && UTF8VALID((uint8_t)s[*i])) {
 		r[(*idx)++] = s[*i];
 		(*i)++;
 		return ERR(ERR_NO_ERROR, *i);
@@ -113,20 +110,16 @@ utf8validatechar(const uint8_t *s, uint8_t *r, unsigned *i,
 	int len = -1;
 
 	/*
-	 * Count the number of 1 bits from the most
-	 * significant bit to the first 0 bit in the current
-	 * character.
+	 * Count the number of 1 bits from the most significant bit to
+	 * the first 0 bit in the current character.
 	 */
 	for (int j = 128; j; j /= 2) {
 		if (!(s[*i] & j)) break;
 		if (len < 0) len = 0; else len++;
 	}
 
-	if (!UTF8VALID((uint8_t)s[*i]))
-		FAIL(ERR_UTF8_INVALID_BYTE);
-
-	if (len < 0 || len > 4)
-		FAIL(ERR_UTF8_INVALID_LENGTH);
+	if (!UTF8VALID((uint8_t)s[*i])) FAIL(ERR_UTF8_INVALID_BYTE);
+	if (len < 0 || len > 4) FAIL(ERR_UTF8_INVALID_LENGTH);
 
 	/*
 	 * We're looking at the leading byte and we need to
@@ -137,8 +130,7 @@ utf8validatechar(const uint8_t *s, uint8_t *r, unsigned *i,
 	 * Make sure there are enough bytes left in the buffer for a
 	 * sequence of the expected length.
 	 */
-	if (*i + len >= *l)
-		FAIL(ERR_UTF8_INCORRECT_LENGTH);
+	if (*i + len >= *l) FAIL(ERR_UTF8_INCORRECT_LENGTH);
 
 	/* Make sure they're all valid continuation bytes. */
 	for (int j = 0; j < len; j++) {
@@ -150,8 +142,8 @@ utf8validatechar(const uint8_t *s, uint8_t *r, unsigned *i,
 	}
 
 	/* Quickly check for noncharacters. */
-	if (is_noncharacter(s + *i, len))
-		FAIL(ERR_UTF8_NONCHARACTER);
+	if (is_noncharacter(utf8decode(s + *i, *l - *i)))
+		FAIL(ERR_NONCHARACTER);
 
 	/* Now we need to check the ranges. */
 
@@ -205,12 +197,10 @@ utf8validatechar(const uint8_t *s, uint8_t *r, unsigned *i,
 	return ERR(ERR_NO_ERROR, *i);
 
  error:
-	(*i)++;
-	r[(*idx)++] = KDGU_REPLACEMENT;
-
+	utf8encode(KDGU_REPLACEMENT, r + *idx, &buflen, *idx);
+	(*idx) += buflen, (*i)++;
 	/* Just skip over any continuation bytes. */
-	while (*i < *l && UTF8CONT(s[*i]))
-		(*i)++;
+	while (*i < *l && UTF8CONT(s[*i])) (*i)++;
 
 	return err;
 }
@@ -231,11 +221,12 @@ utf8validate(kdgu *k, const uint8_t *s, size_t *l)
 		s += 3;
 
 	for (unsigned i = 0; i < *l;) {
-		struct error err =
-			utf8validatechar(s, r, &i, &idx, l);
-
+		struct error err = utf8validatechar(s,
+						    r,
+						    &i,
+						    &idx,
+						    l);
 		if (!err.kind) continue;
-
 		if (!pusherror(k, err)) {
 			free(r), free(r);
 			return NULL;

@@ -4,6 +4,7 @@
 #include "kdgu.h"
 #include "utf32.h"
 #include "error.h"
+#include "unicode.h"
 
 static struct error
 utf32validatechar(const uint8_t *s, uint8_t *r, unsigned *i,
@@ -17,10 +18,8 @@ utf32validatechar(const uint8_t *s, uint8_t *r, unsigned *i,
 	}
 
 	uint32_t c = READUTF32(endian, s + *i);
-	if (c == (uint32_t)-1) {
-		/* TODO: Check for non-characters n stuff. */
-		assert(false);
-	}
+	if (is_noncharacter(c))
+		err = ERR(ERR_NONCHARACTER, *i);
 
 	memcpy(r + *idx, s + *i, 4);
 	*idx += 4, *i += 4;
@@ -55,12 +54,13 @@ utf32validate(kdgu *k, const uint8_t *s, size_t *l, int endian)
 	}
 
 	for (unsigned i = 0; i < buflen;) {
-		struct error err =
-			utf32validatechar(s, r, &i,
-			                  &idx, buflen, endian);
-
+		struct error err = utf32validatechar(s,
+						     r,
+						     &i,
+						     &idx,
+						     buflen,
+						     endian);
 		if (!err.kind) continue;
-
 		if (!pusherror(k, err)) {
 			free(r);
 			return NULL;

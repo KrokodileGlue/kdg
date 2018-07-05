@@ -8,11 +8,13 @@ struct error {
 	enum errorcode {
 		ERR_NO_ERROR,
 
-		/* TODO: Turn some of these into generic errors. */
+		/* Generic errors. */
+
+		ERR_NONCHARACTER,
+
 		ERR_UTF8_STRAY_CONTINUATION_BYTE,
 		ERR_UTF8_INVALID_BYTE,
 		ERR_UTF8_MISSING_CONTINUATION,
-		ERR_UTF8_NONCHARACTER,
 		ERR_UTF8_INVALID_RANGE,
 		ERR_UTF8_INVALID_CONTRANGE,
 		ERR_UTF8_RANGE_LENGTH_MISMATCH,
@@ -39,6 +41,12 @@ struct error {
 
 #define ERR(X,Y)	  \
 	(struct error){.kind = (X), .loc = (Y), .data = NULL}
+
+#define ENCERR(X,...)					\
+	do {						\
+		err = ERR(ERR_NO_CONVERSION, -1);	\
+		X(KDGU_REPLACEMENT, __VA_ARGS__);	\
+	} while (false)
 
 extern char *error_str[];
 bool pusherror(kdgu *k, struct error err);

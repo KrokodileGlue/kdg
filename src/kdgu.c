@@ -258,7 +258,7 @@ insert_point(kdgu *k, uint32_t c)
 	unsigned len;
 
 	struct error err =
-		kdgu_encode(k->fmt, c, buf, &len, k->idx, k->endian);
+		kdgu_encode(c, buf, &len, k->fmt, k->idx, k->endian);
 
 	if (err.kind) {
 		err.codepoint = c;
@@ -787,16 +787,16 @@ kdgu_convert(kdgu *k, enum fmt fmt)
 		uint8_t buf[4];
 
 		struct error err =
-			kdgu_encode(fmt, c, buf,
-			            &len, k->idx, endian);
+			kdgu_encode(c, buf, &len,
+				    fmt, k->idx, endian);
 
 		if (err.kind) {
 			err.codepoint = c;
 			err.data = format[fmt];
 			pusherror(k, err);
 
-			kdgu_encode(fmt, KDGU_REPLACEMENT,
-			            buf, &len, k->idx, endian);
+			kdgu_encode(KDGU_REPLACEMENT, buf, &len,
+				    fmt, k->idx, endian);
 		}
 
 		delete_point(k);
@@ -1271,119 +1271,47 @@ kdgu_decode(kdgu *k)
 	return c;
 }
 
-#define ENCERR(X)	  \
-	do { \
-		err = ERR(ERR_NO_CONVERSION, idx); \
-		kdgu_encode(X, \
-		            KDGU_REPLACEMENT, \
-		            buf, \
-		            len, \
-		            0, \
-		            ENDIAN_NONE); \
-	} while (false)
-
 /* TODO: Make sure NO_CONVERSION errors are consistent. */
-/* TODO: KDGU_REPLACEMENT doesn't work for most encodings. */
 struct error
-kdgu_encode(enum fmt fmt, uint32_t c, uint8_t *buf,
-            unsigned *len, unsigned idx, int endian)
+kdgu_encode(uint32_t c, uint8_t *buf, unsigned *len,
+	    enum fmt fmt, unsigned idx, int endian)
 {
 	struct error err = ERR(ERR_NO_ERROR, 0);
 
 	switch (fmt) {
 	case FMT_CP1252:
-		*len = 1;
-		buf[0] = c & 0x7F;
-
+		if (c == KDGU_REPLACEMENT) c = '?';
+		*len = 1, buf[0] = c & 0x7F;
 		if (!IS_VALID_CP1252(c))
-			ENCERR(FMT_CP1252);
+			ENCERR(kdgu_encode, buf, len,
+			       FMT_CP1252, idx, endian);
 		break;
 
 	case FMT_EBCDIC: {
-		uint32_t o = 255;
+		if (c == KDGU_REPLACEMENT) c = '?';
+		uint32_t o = -1;
 
-		for (unsigned i = 0; i < 256 && o == 255; i++)
+		for (unsigned i = 0; i < 256 && o == UINT32_MAX; i++)
 			o = (c == ebcdic[i]) ? ebcdic[i] : c;
 
-		*len = 1;
-		buf[0] = o;
-
-		if (o != 255) break;
-
-		/* TODO: Infinite recursion if KDGU_REPLACEMENT == 255. */
-		ENCERR(FMT_EBCDIC);
+		*len = 1, buf[0] = o;
+		if (o != UINT32_MAX) break;
+		ENCERR(kdgu_encode, buf, len,
+		       FMT_EBCDIC, idx, endian);
 	} break;
 
 	case FMT_ASCII:
-		*len = 1;
-		buf[0] = c & 0xFF;
-		if (c > 127) ENCERR(FMT_ASCII);
+		if (c == KDGU_REPLACEMENT) c = '?';
+		*len = 1, buf[0] = c & 0xFF;
+		if (c > 127)
+			ENCERR(kdgu_encode, buf, len,
+			       FMT_ASCII, idx, endian);
 		break;
 
-	case FMT_UTF8:
-		if (c <= 0x7F) {
-			*len = 1;
-
-			buf[0] = c & 0xFF;
-		} else if (c >= 0x80 && c <= 0x7FF) {
-			*len = 2;
-
-			buf[0] = 0xC0 | ((c >> 6) & 0x1F);
-			buf[1] = 0x80 | (c & 0x3F);
-		} else if (c >= 0x800 && c <= 0xFFFF) {
-			*len = 3;
-
-			buf[0] = 0xE0 | ((c >> 12) & 0xF);
-			buf[1] = 0x80 | ((c >> 6) & 0x3F);
-			buf[2] = 0x80 | (c & 0x3F);
-		} else if (c >= 0x10000 && c <= 0x10FFFF) {
-			*len = 4;
-
-			buf[0] = 0xF0 | ((c >> 18) & 0x7);
-			buf[1] = 0x80 | ((c >> 12) & 0x3F);
-			buf[2] = 0x80 | ((c >> 6) & 0x3F);
-			buf[3] = 0x80 | (c & 0x3F);
-		} else ENCERR(FMT_ASCII);
-		break;
-
+	case FMT_UTF8: err = utf8encode(c, buf, len, idx); break;
 	case FMT_UTF16LE:
 	case FMT_UTF16BE:
-	case FMT_UTF16:
-		*len = 2;
-
-		if (endian == ENDIAN_BIG) {
-			buf[1] = (c >> 8) & 0xFF;
-			buf[0] = c & 0xFF;
-		} else {
-			buf[0] = (c >> 8) & 0xFF;
-			buf[1] = c & 0xFF;
-		}
-
-		if ((c >= 0xE000 && c <= 0xFFFF) || c <= 0xD7FF)
-			break;
-
-		/*
-		 * TODO: Properly check all noncharacters etc.
-		 */
-
-		c -= 0x10000;
-		uint16_t high = (c >> 10) + 0xD800;
-		uint16_t low = (c & 0x3FF) + 0xDC00;
-
-		if (UTF16HIGH_SURROGATE(high)) *len = 4;
-
-		if (endian == ENDIAN_BIG) {
-			buf[0] = (high >> 8) & 0xFF;
-			buf[1] = high & 0xFF;
-			buf[2] = (low >> 8) & 0xFF;
-			buf[3] = low & 0xFF;
-		} else {
-			buf[1] = (high >> 8) & 0xFF;
-			buf[0] = high & 0xFF;
-			buf[3] = (low >> 8) & 0xFF;
-			buf[2] = low & 0xFF;
-		}
-		break;
+	case FMT_UTF16: err = utf8encode(c, buf, len, idx); break;
 
 	case FMT_UTF32LE:
 	case FMT_UTF32BE:

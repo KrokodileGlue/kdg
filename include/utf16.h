@@ -17,5 +17,7 @@
 
 uint8_t *utf16validate(kdgu *k, const uint8_t *s,
                        size_t *l, int endian);
+struct error utf16encode(uint32_t c, uint8_t *buf, unsigned *len,
+			 int idx, int endian);
 
 #endif

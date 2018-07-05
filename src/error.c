@@ -36,6 +36,9 @@ pusherror(kdgu *k, struct error err)
 char *error_str[] = {
 	"no error",
 
+	"sequence represents a noncharacter; noncharacters are"
+	" permanently reserved for internal usage",
+
 	"a continuation byte cannot be the start of a well-formed"
 	" sequence",
 
@@ -44,9 +47,6 @@ char *error_str[] = {
 
 	"sequence initializer is followed by an unexpected number of"
 	" continuation bytes",
-
-	"sequence represents a noncharacter; noncharacters are"
-	" permanently reserved for internal usage",
 
 	"initializer byte is not in any of the possible ranges",
 

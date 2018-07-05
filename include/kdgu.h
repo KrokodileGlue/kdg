@@ -82,9 +82,8 @@ void kdgu_pchr(kdgu *k, FILE *f);
 void kdgu_print_error(struct error err);
 
 uint32_t kdgu_decode(kdgu *k);
-struct error kdgu_encode(enum fmt fmt, uint32_t c,
-                         uint8_t *buf, unsigned *len,
-                         unsigned idx, int endian);
+struct error kdgu_encode(uint32_t c, uint8_t *buf, unsigned *len,
+                         enum fmt fmt, unsigned idx, int endian);
 
 unsigned kdgu_len(kdgu *k);
 unsigned kdgu_chrsize(kdgu *k);
