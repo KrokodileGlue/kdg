@@ -541,28 +541,15 @@ kdgu_new(enum fmt fmt, const uint8_t *s, size_t len)
 	int endian = ENDIAN_NONE;
 
 	switch (fmt) {
-	case FMT_CP1252:
-		k->s = cp1252validate(k, s, &len);
-		break;
-
-	case FMT_ASCII:
-		k->s = asciivalidate(k, s, &len);
-		break;
-
-	case FMT_EBCDIC:
-		k->s = ebcdicvalidate(k, s, &len);
-		break;
-
-	case FMT_UTF8:
-		k->s = utf8validate(k, s, &len);
-		break;
-
+	case FMT_CP1252: k->s = cp1252validate(k, s, &len); break;
+	case FMT_ASCII: k->s = asciivalidate(k, s, &len); break;
+	case FMT_EBCDIC: k->s = ebcdicvalidate(k, s, &len); break;
+	case FMT_UTF8: k->s = utf8validate(k, s, &len); break;
 	case FMT_UTF16LE: endian = ENDIAN_LITTLE;
 	case FMT_UTF16BE: if (!endian) endian = ENDIAN_BIG;
 	case FMT_UTF16:
 		k->s = utf16validate(k, s, &len, endian);
 		break;
-
 	case FMT_UTF32LE: endian = ENDIAN_LITTLE;
 	case FMT_UTF32BE: if (!endian) endian = ENDIAN_BIG;
 	case FMT_UTF32:
@@ -575,10 +562,8 @@ kdgu_new(enum fmt fmt, const uint8_t *s, size_t len)
 		return NULL;
 	}
 
-	k->len = len;
-	k->alloc = k->len;
-
-	safenize(k);
+	k->len = len, k->alloc = k->len;
+	kdgu_normalize(k, NORM_NFC), safenize(k);
 
 	return k;
 }
@@ -1031,16 +1016,10 @@ kdgu_normalize(kdgu *k, enum normalization norm)
 	return true;
 }
 
-/*
- * TODO: This thing should make correct usage of normalization forms
- * for comparison.
- */
 bool
 kdgu_cmp(kdgu *k1, kdgu *k2)
 {
-	if (!k1 || !k2 || kdgu_len(k1) != kdgu_len(k2))
-		return false;
-
+	if (!k1 || !k2) return false;
 	unsigned idx1 = k1->idx, idx2 = k2->idx;
 	k1->idx = 0, k2->idx = 0;
 
@@ -1049,6 +1028,7 @@ kdgu_cmp(kdgu *k1, kdgu *k2)
 			return false;
 	} while (kdgu_inc(k1) && kdgu_inc(k2));
 
+	if (kdgu_inc(k1) || kdgu_inc(k2)) return false;
 	k1->idx = idx1, k2->idx = idx2;
 	return true;
 }

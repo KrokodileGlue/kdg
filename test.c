@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <assert.h>
 
+#include "kdgu.h"
 #include "unicode_data.h"
 
 char *decomp_str[] = {
@@ -151,6 +152,18 @@ print_upper(uint32_t c)
 	printbuf(buf, len);
 }
 
+static void
+test_comparison(uint32_t *s1, unsigned l1, uint32_t *s2, unsigned l2)
+{
+	kdgu *k1 = kdgu_new(FMT_UTF32, (uint8_t *)s1, l1 * sizeof *s1);
+	kdgu *k2 = kdgu_new(FMT_UTF32, (uint8_t *)s2, l2 * sizeof *s2);
+	kdgu_convert(k1, FMT_UTF8);
+	kdgu_convert(k2, FMT_UTF8);
+	kdgu_print(k1), putchar('\n');
+	kdgu_print(k2), putchar('\n');
+	assert(kdgu_cmp(k1, k2));
+}
+
 int main(void)
 {
 	test_decomp_type(0x2460, DECOMP_TYPE_CIRCLE);
@@ -174,6 +187,9 @@ int main(void)
 	test_composition('e', 0x301, 0xE9);
 	test_composition('a', 0x301, 0xE1);
 	test_composition('A', 0x308, 0xC4);
+
+	test_comparison((uint32_t []){0xFEFF,'e',0x301}, 3,
+			(uint32_t []){0xFEFF,0xE9}, 2);
 
 	return 0;
 }
