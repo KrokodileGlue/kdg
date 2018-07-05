@@ -1022,6 +1022,7 @@ kdgu_cmp(kdgu *k1, kdgu *k2)
 	if (!k1 || !k2) return false;
 	unsigned idx1 = k1->idx, idx2 = k2->idx;
 	k1->idx = 0, k2->idx = 0;
+	kdgu_normalize(k1, NORM_NFC), kdgu_normalize(k2, NORM_NFC);
 
 	do {
 		if (kdgu_decode(k1) != kdgu_decode(k2))
