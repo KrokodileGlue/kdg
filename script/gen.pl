@@ -325,13 +325,14 @@ sub gen_properties {
 
     LOG("Generating properties...");
 
-    foreach my $key (keys %chars) {
-	my $entry = $chars{$key}->echo;
-	$chars{$key}->{entry_index} = $properties_indicies{$entry};
+    for (my $i = 0; $i < 0x10FFFF; $i++) {
+	next if not defined $chars{$i};
+	my $entry = $chars{$i}->echo;
+	$chars{$i}->{entry_index} = $properties_indicies{$entry};
 
-	if (not defined $chars{$key}->{entry_index}) {
+	if (not defined $chars{$i}->{entry_index}) {
 	    $properties_indicies{$entry} = scalar @properties;
-	    $chars{$key}->{entry_index} = scalar @properties;
+	    $chars{$i}->{entry_index} = scalar @properties;
 	    push @properties, "\t" . $entry;
 	}
     }
