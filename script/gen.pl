@@ -26,7 +26,12 @@ use Moose;
 
 has line          => (is => 'rw');
 has entry_index   => (is => 'rw');
+
 has bound_class   => (is => 'rw');
+
+has special_lc    => (is => 'rw');
+has special_tc    => (is => 'rw');
+has special_uc    => (is => 'rw');
 
 has code          => (is => 'rw');
 has name          => (is => 'rw');
@@ -109,13 +114,19 @@ sub echo {
 	cvar("BOUNDCLASS",  $self->{bound_class}) .
 	cvar("BIDI",        $self->{bidi_class})  .
 	cvar("DECOMP_TYPE", $self->{decomp_type}) .
+
 	$self->{ccc}           . "," .
 	$self->{bidi_mirrored} . "," .
+
 	$self->{lowercase}     . "," .
 	$self->{uppercase}     . "," .
 	$self->{titlecase}     . "," .
-	($self->{decomp} ? main::emit_sequence(@{$self->{decomp}}) : "-1") .
-	"},";
+
+	($self->{special_lc} ? main::emit_sequence(@{$self->{special_lc}}) : "-1") . "," .
+	($self->{special_tc} ? main::emit_sequence(@{$self->{special_tc}}) : "-1") . "," .
+	($self->{special_uc} ? main::emit_sequence(@{$self->{special_uc}}) : "-1") . "," .
+
+	($self->{decomp} ? main::emit_sequence(@{$self->{decomp}}) : "-1") . "},";
 }
 
 package main;
@@ -168,6 +179,18 @@ while (my $l = <$fh>) {
 	}
     } elsif ($l =~ /^([0-9A-F]+)\s*;\s*([A-Za-z_]+)/) {
 	$boundclasses{hex($1)} = $2;
+    }
+}
+
+open($fh, '<:encoding(UTF-8)', "SpecialCasing.txt")
+    or die "$0: Could not open `SpecialCasing.txt': $!\n";
+my (%special_lc, %special_tc, %special_uc);
+while (my $l = <$fh>) {
+    last if $l =~ /Conditional Mappings/;
+    if ($l =~ /^(\S+); (.*?); (.*?); (.*?); # .*/) {
+	$special_lc{hex($1)} = [map { hex } split ' ', $2];
+	$special_tc{hex($1)} = [map { hex } split ' ', $3];
+	$special_uc{hex($1)} = [map { hex } split ' ', $4];
     }
 }
 
@@ -256,6 +279,9 @@ sub gen_chars {
 	    $l =~ /^(.*?);/;
 	    $chars{hex($1)} = Char->new(line => $l);
 	    $chars{hex($1)}->{bound_class} = $boundclasses{hex($1)};
+	    $chars{hex($1)}->{special_lc} = $special_lc{hex($1)};
+	    $chars{hex($1)}->{special_tc} = $special_tc{hex($1)};
+	    $chars{hex($1)}->{special_uc} = $special_uc{hex($1)};
 	    next;
 	}
 
@@ -414,7 +440,7 @@ my @comb = gen_comb(%$chars);
 LOG("Generated ", scalar(@sequences), " sequence elements.");
 
 print $out "struct codepoint codepoints[] = {\n";
-print $out "\t{0,0,0,0,0,0,-1,-1,-1,-1},\n";
+print $out "\t{0,0,0,0,0,0,-1,-1,-1,-1,-1,-1,-1},\n";
 foreach my $cp (@$properties) { print $out "$cp\n"; }
 print $out "};\n\n";
 
