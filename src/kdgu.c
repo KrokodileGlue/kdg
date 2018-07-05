@@ -909,23 +909,6 @@ decompose(kdgu *k, bool compat)
 	k->norm = compat ? NORM_NFKD : NORM_NFD;
 }
 
-#if 0
-static void
-load_index(uint32_t *buf, unsigned *len, uint16_t idx)
-{
-	*len = idx >> 13;
-	uint16_t *entry = &sequences[idx & 0x1FFF];
-
-	if (*len >= 7) {
-		*len = *entry;
-		entry++;
-	}
-
-	for (unsigned i = 0; i <= *len; entry++, i++)
-		buf[i] = seqindex_decode_entry(&entry);
-}
-#endif
-
 static bool
 compose_char(kdgu *k)
 {
