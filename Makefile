@@ -16,6 +16,10 @@ all: $(TARGET)
 	cp $(TARGET) lib$(NAME).so
 	$(CC) main.c -I include -L$(shell pwd) -Wl,-rpath $(shell pwd) -l$(NAME) -o $(NAME) -g
 
+test:
+	$(CC) test.c src/unicode_data.c -I include -o test
+	./test
+
 debug: all
 debug: CFLAGS += -g -O0
 debug: LDFLAGS += -g -O0
@@ -35,6 +39,7 @@ install:
 
 clean:
 	${RM} ${TARGET} ${OBJ} $(SRC:.c=.d)
+	${RM} test
 
 -include $(DEP)
 .PHONY: all debug clean
