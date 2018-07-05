@@ -962,19 +962,7 @@ compose_char(kdgu *k)
 	if (composition == UINT32_MAX) return false;
 
 	/*
-	 * It doesn't make sense for a character that's been
-	 * composed from other characters to not have a
-	 * decomposition.
-	 *
-	 * TODO: I can't remember why this is commented out. I think
-	 * there was a bug or something. Investigate later.
-	 */
-
-	/* assert(comp_cp->decomp != UINT16_MAX); */
-
-	/*
-	 * Only at this point are we sure we have a fully
-	 * valid composition.
+	 * Only at this point are we sure we have a valid composition.
 	 */
 
 	kdgu_inc(k), kdgu_inc(k);
@@ -1338,12 +1326,8 @@ kdgu_encode(uint32_t c, uint8_t *buf, unsigned *len,
 unsigned
 kdgu_chrsize(kdgu *k)
 {
-	unsigned idx = k->idx;
-	unsigned c = kdgu_next(k);
-	unsigned ret = k->len - k->idx;
-	k->idx = idx;
-	if (c) ret = c;
-	return ret;
+	unsigned i = k->idx, c = kdgu_next(k), ret = k->len - k->idx;
+	return k->idx = i, c ? c : ret;
 }
 
 bool
