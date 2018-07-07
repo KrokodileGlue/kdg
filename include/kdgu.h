@@ -90,5 +90,6 @@ unsigned kdgu_chomp(kdgu *k);
 void kdgu_size(kdgu *k, size_t n);
 
 #include "error.h"
+#include "ktre.h"
 
 #endif /* ifndef KDGU_H */

@@ -5,6 +5,8 @@
 #include <ctype.h>
 #include <stdio.h>
 
+#define KTRE_DEBUG 1
+
 #include "ktre.h"
 
 #define WHITESPACE " \t\r\n\v\f"

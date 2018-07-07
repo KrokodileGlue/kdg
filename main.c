@@ -59,24 +59,28 @@ main(int argc, char **argv)
 	if (!text) return EXIT_FAILURE;
 	char *filename = argv[argc - 1];
 
-	kdgu *k = kdgu_new(FMT_UTF8, text, len);
+	/* kdgu *k = kdgu_new(FMT_UTF8, text, len); */
 
-	kdgu_chomp(k);
-	kdgu_debugprint1(k); putchar('\n');
-	kdgu_debugprint2(k); putchar('\n');
-	kdgu_print(k); putchar('\n');
+	/* kdgu_chomp(k); */
+	/* kdgu_debugprint1(k); putchar('\n'); */
+	/* kdgu_debugprint2(k); putchar('\n'); */
+	/* kdgu_print(k); putchar('\n'); */
 
-	kdgu_normalize(k, NORM_NFKC);
-	kdgu_uc(k);
-	kdgu_debugprint1(k); putchar('\n');
-	kdgu_debugprint2(k); putchar('\n');
-	kdgu_print(k); putchar('\n');
+	/* kdgu_normalize(k, NORM_NFKC); */
+	/* kdgu_uc(k); */
+	/* kdgu_debugprint1(k); putchar('\n'); */
+	/* kdgu_debugprint2(k); putchar('\n'); */
+	/* kdgu_print(k); putchar('\n'); */
 
-	printf("length: %u\n", kdgu_len(k));
+	/* printf("length: %u\n", kdgu_len(k)); */
 
-	print_errors(k->errlist, filename);
-	free(text);
-	kdgu_free(k);
+	/* print_errors(k->errlist, filename); */
+	/* free(text); */
+	/* kdgu_free(k); */
+
+	ktre *re = ktre_compile("\\S+", KTRE_UNANCHORED | KTRE_GLOBAL);
+	ktre_exec(re, "this is a thing", NULL);
+	putchar('\n');
 
 	return EXIT_SUCCESS;
 }
