@@ -1659,12 +1659,7 @@ print_node(struct ktre *re, struct node *n)
 static bool
 is_iteratable(struct node *n)
 {
-	switch (n->type) {
-	case NODE_SETOPT:
-		return false;
-	default:
-		return true;
-	}
+	return n->type != NODE_SETOPT;
 }
 
 static void
@@ -2214,11 +2209,301 @@ new_thread(struct ktre *re,
 	re->max_tp = (TP > re->max_tp) ? TP : re->max_tp;
 }
 
-#define FAIL do { --TP; goto breakout; } while (0)
-#define CHECKBOUNDS						\
-	do {							\
-		if (sp < 0 || sp >= (int)strlen(subject)) FAIL;	\
+#define FAIL do { --TP; return true; } while (0)
+#define CHECKBOUNDS				\
+	do {					\
+		if (sp < 0 || sp >= slen) FAIL;	\
 	} while (0)
+
+static inline bool
+execute_instr(ktre *re,
+	      int ip,
+	      int sp,
+	      int fp,
+	      int la,
+	      int ep,
+	      int opt,
+	      int loc,
+	      bool rev,
+	      int slen,
+	      int num_steps,
+	      const char *subject,
+	      int ***vec)
+{
+#ifdef KTRE_DEBUG
+	DBG("\n| %4d | %4d | %4d | %4d | %4d | ", ip, sp, TP, fp, num_steps);
+	if (sp >= 0) dbgf(subject + sp);
+	else dbgf(subject);
+	num_steps++;
+#endif
+
+	if (THREAD[TP].die) {
+		THREAD[TP].die = false;
+		FAIL;
+	}
+
+	switch (re->c[ip].op) {
+	case INSTR_JMP: THREAD[TP].ip = re->c[ip].c; break;
+	case INSTR_BACKREF:
+		THREAD[TP].ip++;
+
+		if (opt & KTRE_INSENSITIVE) {
+			for (int i = 0; i < THREAD[TP].vec[re->c[ip].c * 2 + 1]; i++)
+				if (rev
+				    ? lc(subject[sp - i]) != lc(subject[THREAD[TP].vec[re->c[ip].c * 2] + sp - i])
+				    : lc(subject[sp + i]) != lc(subject[THREAD[TP].vec[re->c[ip].c * 2] + i]))
+					FAIL;
+
+			THREAD[TP].sp += rev
+				? -THREAD[TP].vec[re->c[ip].c * 2 + 1]
+				: THREAD[TP].vec[re->c[ip].c * 2 + 1];
+		} else {
+			if (!strncmp(rev
+				     ? subject + sp + 1 - THREAD[TP].vec[re->c[ip].c * 2 + 1]
+				     : subject + sp,
+				     &subject[THREAD[TP].vec[re->c[ip].c * 2]],
+				     THREAD[TP].vec[re->c[ip].c * 2 + 1]))
+				THREAD[TP].sp += THREAD[TP].vec[re->c[ip].c * 2 + 1];
+			else FAIL;
+		}
+		break;
+	case INSTR_CLASS:
+		THREAD[TP].ip++;
+		if (!subject[sp] || sp < 0) FAIL;
+		if (strchr(re->c[ip].class, subject[sp])) THREAD[TP].sp++;
+		else if (opt & KTRE_INSENSITIVE && strchr(re->c[ip].class, lc(subject[sp])))
+			THREAD[TP].sp++;
+		else FAIL;
+		break;
+	case INSTR_STR: case INSTR_TSTR:
+		THREAD[TP].ip++;
+
+		if (opt & KTRE_INSENSITIVE) {
+			for (unsigned i = 0; i < re->c[ip].len; i++)
+				if (rev
+				    ? lc(subject[sp + 1 - re->c[ip].len + i]) != re->c[ip].class[i]
+				    : lc(subject[sp + i]) != re->c[ip].class[i])
+					FAIL;
+
+			THREAD[TP].sp += rev ? -re->c[ip].len : re->c[ip].len;
+		} else {
+			if (rev
+			    ? !strncmp(subject + sp + 1 - re->c[ip].len, re->c[ip].class, re->c[ip].len)
+			    : !strncmp(subject + sp, re->c[ip].class, re->c[ip].len))
+				THREAD[TP].sp += rev ? -re->c[ip].len : re->c[ip].len;
+			else FAIL;
+		}
+		break;
+	case INSTR_NOT:
+		THREAD[TP].ip++;
+		CHECKBOUNDS;
+		if (strchr(re->c[ip].class, subject[sp])) FAIL;
+		THREAD[TP].sp++;
+		break;
+	case INSTR_BOL:
+		if (!(sp > 0 && subject[sp - 1] == '\n') && sp != 0) FAIL;
+		THREAD[TP].ip++;
+		break;
+	case INSTR_EOL:
+		if (sp < 0 || (subject[sp] != '\n' && sp != slen)) FAIL;
+		THREAD[TP].ip++;
+		break;
+	case INSTR_BOS:
+		if (sp) FAIL;
+		THREAD[TP].ip++;
+		break;
+	case INSTR_EOS:
+		if (sp != slen) FAIL;
+		THREAD[TP].ip++;
+		break;
+	case INSTR_WB:
+		THREAD[TP].ip++;
+		CHECKBOUNDS;
+		if (sp == 0 && strchr(WORD, subject[sp])) return true;
+		if (!!strchr(WORD, subject[sp]) != !!strchr(WORD, subject[sp - 1]))
+			return true;
+		FAIL;
+		break;
+	case INSTR_NWB:
+		THREAD[TP].ip++;
+		CHECKBOUNDS;
+		if (sp == 0 && !strchr(WORD, subject[sp])) return true;
+		if (!!strchr(WORD, subject[sp]) == !!strchr(WORD, subject[sp - 1]))
+			return true;
+		FAIL;
+		break;
+	case INSTR_CHAR:
+		THREAD[TP].ip++;
+		CHECKBOUNDS;
+
+		if (opt & KTRE_INSENSITIVE
+		    ? lc(subject[sp]) != lc(re->c[ip].c)
+		    : subject[sp] != re->c[ip].c)
+			FAIL;
+		rev ? THREAD[TP].sp-- : THREAD[TP].sp++;
+		break;
+	case INSTR_ANY:
+		THREAD[TP].ip++;
+		if (sp < 0 || !subject[sp]) FAIL;
+		if (opt & KTRE_MULTILINE ? false : subject[sp] == '\n') FAIL;
+		rev ? THREAD[TP].sp-- : THREAD[TP].sp++;
+		break;
+	case INSTR_MANY:
+		THREAD[TP].ip++;
+		if (!(sp >= 0 && subject[sp])) FAIL;
+		rev ? THREAD[TP].sp-- : THREAD[TP].sp++;
+		break;
+	case INSTR_BRANCH:
+		THREAD[TP].ip = re->c[ip].b;
+		new_thread(re, sp, re->c[ip].a, opt, fp, la, ep);
+		break;
+	case INSTR_MATCH: {
+		int n = 0;
+
+		for (unsigned i = 0; i < re->num_matches; i++)
+			if (re->vec[i][0] == sp)
+				n++;
+
+		if (n) FAIL;
+		if (!(opt & KTRE_UNANCHORED) && (sp < 0 || subject[sp])) FAIL;
+
+		re->vec = realloc(re->vec, (re->num_matches + 1) * sizeof *re->vec);
+		re->cont = sp;
+
+		if (!re->vec) {
+			error(re, KTRE_ERROR_OUT_OF_MEMORY, loc, "out of memory");
+			return false;
+		}
+
+		re->vec[re->num_matches] = malloc(re->num_groups * 2 * sizeof *re->vec);
+		if (!re->vec[re->num_matches]) {
+			error(re, KTRE_ERROR_OUT_OF_MEMORY, loc, "out of memory");
+			return false;
+		}
+
+		memcpy(re->vec[re->num_matches++],
+		       THREAD[TP].vec,
+		       re->num_groups * 2 * sizeof **re->vec);
+
+		if (vec) *vec = re->vec;
+		if (!(opt & KTRE_GLOBAL)) return true;
+
+		TP = 0;
+		THREAD[TP].ip = 0;
+		THREAD[TP].sp = sp;
+
+		if (THREAD[TP].sp > slen) return true;
+	} break;
+	case INSTR_SAVE:
+		THREAD[TP].ip++;
+		THREAD[TP].vec[re->c[ip].c] = re->c[ip].c % 2 == 0
+			? sp
+			: sp - THREAD[TP].vec[re->c[ip].c - 1];
+		break;
+	case INSTR_SETOPT:
+		THREAD[TP].ip++;
+		THREAD[TP].opt = re->c[ip].c;
+		break;
+	case INSTR_SET_START:
+		THREAD[TP].ip++;
+		THREAD[TP].vec[0] = sp;
+		break;
+	case INSTR_CALL:
+		THREAD[TP].ip = re->c[ip].c;
+		THREAD[TP].frame = realloc(THREAD[TP].frame, (fp + 1) * sizeof *THREAD[TP].frame);
+		THREAD[TP].frame[THREAD[TP].fp++] = ip + 1;
+		break;
+	case INSTR_RET:
+		THREAD[TP].ip = THREAD[TP].frame[--THREAD[TP].fp];
+		break;
+	case INSTR_PROG:
+		THREAD[TP].ip++;
+		if (THREAD[TP].prog[re->c[ip].c] == sp) FAIL;
+		THREAD[TP].prog[re->c[ip].c] = sp;
+		break;
+	case INSTR_DIGIT:
+		THREAD[TP].ip++;
+		CHECKBOUNDS;
+		if (!strchr(DIGIT, subject[sp]) || !subject[sp]) FAIL;
+		rev ? THREAD[TP].sp-- : THREAD[TP].sp++;
+		break;
+	case INSTR_WORD:
+		THREAD[TP].ip++;
+		if (!strchr(WORD, subject[sp]) || !subject[sp]) FAIL;
+		rev ? THREAD[TP].sp-- : THREAD[TP].sp++;
+		break;
+	case INSTR_SPACE:
+		THREAD[TP].ip++;
+		if (!strchr(WHITESPACE, subject[sp]) || !subject[sp]) FAIL;
+		rev ? THREAD[TP].sp-- : THREAD[TP].sp++;
+		break;
+	case INSTR_TRY:
+		THREAD[TP].ip++;
+		THREAD[TP].exception = realloc(THREAD[TP].exception,
+					       (ep + 1) * sizeof *THREAD[TP].exception);
+		THREAD[TP].exception[THREAD[TP].ep++] = TP;
+		break;
+	case INSTR_CATCH:
+		TP = THREAD[TP].exception[ep - 1];
+		THREAD[TP].ip = ip + 1;
+		THREAD[TP].sp = sp;
+		break;
+	case INSTR_PLB:
+		THREAD[TP].die = true;
+		new_thread(re, sp - 1, ip + 1, opt, fp, la, ep + 1);
+		THREAD[TP].exception[ep] = TP - 1;
+		THREAD[TP].rev = true;
+		break;
+	case INSTR_PLB_WIN:
+		TP = THREAD[TP].exception[--THREAD[TP].ep];
+		THREAD[TP].rev = false;
+		THREAD[TP].die = false;
+		THREAD[TP].ip = ip + 1;
+		break;
+	case INSTR_NLB:
+		THREAD[TP].ip = re->c[ip].c;
+		new_thread(re, sp - 1, ip + 1, opt, fp, la, ep + 1);
+		THREAD[TP].exception[ep] = TP - 1;
+		THREAD[TP].rev = true;
+		break;
+	case INSTR_NLB_FAIL:
+		TP = THREAD[TP].exception[--THREAD[TP].ep] - 1;
+		break;
+	case INSTR_PLA:
+		THREAD[TP].die = true;
+		new_thread(re, sp, ip + 1, opt, fp, la, ep + 1);
+		THREAD[TP].exception[ep] = TP - 1;
+		break;
+	case INSTR_PLA_WIN:
+		TP = THREAD[TP].exception[--THREAD[TP].ep];
+		THREAD[TP].die = false;
+		THREAD[TP].ip = ip + 1;
+		break;
+	case INSTR_NLA:
+		THREAD[TP].ip = re->c[ip].a;
+		new_thread(re, sp, ip + 1, opt, fp, la, ep + 1);
+		THREAD[TP].exception[ep] = TP - 1;
+		break;
+	case INSTR_NLA_FAIL:
+		TP = THREAD[TP].exception[--THREAD[TP].ep] - 1;
+		break;
+	default:
+		DBG("\nunimplemented instruction %d\n", re->c[ip].op);
+		assert(false);
+	}
+
+	if (TP >= KTRE_MAX_THREAD - 1) {
+		error(re, KTRE_ERROR_STACK_OVERFLOW, loc, "regex exceeded the maximum number of executable threads");
+		return false;
+	}
+
+	if (fp >= KTRE_MAX_CALL_DEPTH - 1) {
+		error(re, KTRE_ERROR_CALL_OVERFLOW, loc, "regex exceeded the maximum depth for subroutine calls");
+		return false;
+	}
+
+	return true;
+}
 
 static bool
 run(struct ktre *re, const char *subject, int ***vec)
@@ -2240,329 +2525,24 @@ run(struct ktre *re, const char *subject, int ***vec)
 	/* Push the initial thread. */
 	new_thread(re, re->opt & KTRE_CONTINUE ? re->cont : 0, 0, re->opt, 0, 0, 0);
 
-#ifdef KTRE_DEBUG
 	int num_steps = 0;
 	DBG("\n|   ip |   sp |   tp |   fp | step |");
-#endif
 
-	while (TP >= 0) {
-		int ip   = THREAD[TP].ip;
-		int sp   = THREAD[TP].sp;
-		int fp   = THREAD[TP].fp;
-		int la   = THREAD[TP].la;
-		int ep   = THREAD[TP].ep;
-		int opt  = THREAD[TP].opt;
-		int loc  = re->c[ip].loc;
-		bool rev = THREAD[TP].rev;
-
-#ifdef KTRE_DEBUG
-		DBG("\n| %4d | %4d | %4d | %4d | %4d | ", ip, sp, TP, fp, num_steps);
-		if (sp >= 0) dbgf(subject + sp);
-		else dbgf(subject);
-		num_steps++;
-#endif
-
-		if (THREAD[TP].die) {
-			THREAD[TP].die = false;
-			--TP; break;
-		}
-
-		switch (re->c[ip].op) {
-		case INSTR_JMP: THREAD[TP].ip = re->c[ip].c; break;
-		case INSTR_BACKREF:
-			THREAD[TP].ip++;
-
-			if (opt & KTRE_INSENSITIVE) {
-				for (int i = 0; i < THREAD[TP].vec[re->c[ip].c * 2 + 1]; i++)
-					if (rev
-					    ? lc(subject[sp - i]) != lc(subject[THREAD[TP].vec[re->c[ip].c * 2] + sp - i])
-					    : lc(subject[sp + i]) != lc(subject[THREAD[TP].vec[re->c[ip].c * 2] + i]))
-						FAIL;
-
-				THREAD[TP].sp += rev
-					? -THREAD[TP].vec[re->c[ip].c * 2 + 1]
-					: THREAD[TP].vec[re->c[ip].c * 2 + 1];
-			} else {
-				if (!strncmp(rev
-					     ? subject + sp + 1 - THREAD[TP].vec[re->c[ip].c * 2 + 1]
-					     : subject + sp,
-					     &subject[THREAD[TP].vec[re->c[ip].c * 2]],
-					     THREAD[TP].vec[re->c[ip].c * 2 + 1]))
-					THREAD[TP].sp += THREAD[TP].vec[re->c[ip].c * 2 + 1];
-				else FAIL;
-			}
-			break;
-
-		case INSTR_CLASS:
-			THREAD[TP].ip++;
-			if (!subject[sp] || sp < 0) FAIL;
-			if (strchr(re->c[ip].class, subject[sp])) THREAD[TP].sp++;
-			else if (opt & KTRE_INSENSITIVE && strchr(re->c[ip].class, lc(subject[sp])))
-				THREAD[TP].sp++;
-			else FAIL;
-			break;
-
-		case INSTR_STR: case INSTR_TSTR:
-			THREAD[TP].ip++;
-
-			if (opt & KTRE_INSENSITIVE) {
-				for (unsigned i = 0; i < re->c[ip].len; i++)
-					if (rev
-					    ? lc(subject[sp + 1 - re->c[ip].len + i]) != re->c[ip].class[i]
-					    : lc(subject[sp + i]) != re->c[ip].class[i])
-						FAIL;
-
-				THREAD[TP].sp += rev ? -re->c[ip].len : re->c[ip].len;
-			} else {
-				if (rev
-				    ? !strncmp(subject + sp + 1 - re->c[ip].len, re->c[ip].class, re->c[ip].len)
-				    : !strncmp(subject + sp, re->c[ip].class, re->c[ip].len))
-					THREAD[TP].sp += rev ? -re->c[ip].len : re->c[ip].len;
-				else FAIL;
-			}
-			break;
-
-		case INSTR_NOT:
-			THREAD[TP].ip++;
-			CHECKBOUNDS;
-			if (strchr(re->c[ip].class, subject[sp])) FAIL;
-			THREAD[TP].sp++;
-			break;
-
-		case INSTR_BOL:
-			if (!(sp > 0 && subject[sp - 1] == '\n') && sp != 0) FAIL;
-			THREAD[TP].ip++;
-			break;
-
-		case INSTR_EOL:
-			if (sp < 0 || (subject[sp] != '\n' && sp != slen)) FAIL;
-			THREAD[TP].ip++;
-			break;
-
-		case INSTR_BOS:
-			if (sp) FAIL;
-			THREAD[TP].ip++;
-			break;
-
-		case INSTR_EOS:
-			if (sp != slen) FAIL;
-			THREAD[TP].ip++;
-			break;
-
-		case INSTR_WB:
-			THREAD[TP].ip++;
-			CHECKBOUNDS;
-			if (sp == 0 && strchr(WORD, subject[sp])) continue;
-			if (!!strchr(WORD, subject[sp]) != !!strchr(WORD, subject[sp - 1]))
-				continue;
-			FAIL;
-			break;
-
-		case INSTR_NWB:
-			THREAD[TP].ip++;
-			CHECKBOUNDS;
-			if (sp == 0 && !strchr(WORD, subject[sp])) continue;
-			if (!!strchr(WORD, subject[sp]) == !!strchr(WORD, subject[sp - 1]))
-				continue;
-			FAIL;
-			break;
-
-		case INSTR_CHAR:
-			THREAD[TP].ip++;
-			CHECKBOUNDS;
-
-			if (opt & KTRE_INSENSITIVE
-			    ? lc(subject[sp]) != lc(re->c[ip].c)
-			    : subject[sp] != re->c[ip].c)
-				FAIL;
-			rev ? THREAD[TP].sp-- : THREAD[TP].sp++;
-			break;
-
-		case INSTR_ANY:
-			THREAD[TP].ip++;
-			if (sp < 0 || !subject[sp]) FAIL;
-			if (opt & KTRE_MULTILINE ? false : subject[sp] == '\n') FAIL;
-			rev ? THREAD[TP].sp-- : THREAD[TP].sp++;
-			break;
-
-		case INSTR_MANY:
-			THREAD[TP].ip++;
-			if (!(sp >= 0 && subject[sp])) FAIL;
-			rev ? THREAD[TP].sp-- : THREAD[TP].sp++;
-			break;
-
-		case INSTR_BRANCH:
-			THREAD[TP].ip = re->c[ip].b;
-			new_thread(re, sp, re->c[ip].a, opt, fp, la, ep);
-			break;
-
-		case INSTR_MATCH: {
-			int n = 0;
-
-			for (unsigned i = 0; i < re->num_matches; i++)
-				if (re->vec[i][0] == sp)
-					n++;
-
-			if (n) FAIL;
-			if (!(opt & KTRE_UNANCHORED) && (sp < 0 || subject[sp])) FAIL;
-
-			re->vec = realloc(re->vec, (re->num_matches + 1) * sizeof *re->vec);
-			re->cont = sp;
-
-			if (!re->vec) {
-				error(re, KTRE_ERROR_OUT_OF_MEMORY, loc, "out of memory");
-				return false;
-			}
-
-			re->vec[re->num_matches] = malloc(re->num_groups * 2 * sizeof *re->vec);
-			if (!re->vec[re->num_matches]) {
-				error(re, KTRE_ERROR_OUT_OF_MEMORY, loc, "out of memory");
-				return false;
-			}
-
-			memcpy(re->vec[re->num_matches++],
-			       THREAD[TP].vec,
-			       re->num_groups * 2 * sizeof **re->vec);
-
-			if (vec) *vec = re->vec;
-			if (!(opt & KTRE_GLOBAL)) return true;
-
-			TP = 0;
-			THREAD[TP].ip = 0;
-			THREAD[TP].sp = sp;
-
-			if (THREAD[TP].sp > slen) return true;
-		} break;
-
-		case INSTR_SAVE:
-			THREAD[TP].ip++;
-			THREAD[TP].vec[re->c[ip].c] = re->c[ip].c % 2 == 0
-				? sp
-				: sp - THREAD[TP].vec[re->c[ip].c - 1];
-			break;
-
-		case INSTR_SETOPT:
-			THREAD[TP].ip++;
-			THREAD[TP].opt = re->c[ip].c;
-			break;
-
-		case INSTR_SET_START:
-			THREAD[TP].ip++;
-			THREAD[TP].vec[0] = sp;
-			break;
-
-		case INSTR_CALL:
-			THREAD[TP].ip = re->c[ip].c;
-			THREAD[TP].frame = realloc(THREAD[TP].frame, (fp + 1) * sizeof *THREAD[TP].frame);
-			THREAD[TP].frame[THREAD[TP].fp++] = ip + 1;
-			break;
-
-		case INSTR_RET:
-			THREAD[TP].ip = THREAD[TP].frame[--THREAD[TP].fp];
-			break;
-
-		case INSTR_PROG:
-			THREAD[TP].ip++;
-			if (THREAD[TP].prog[re->c[ip].c] == sp) FAIL;
-			THREAD[TP].prog[re->c[ip].c] = sp;
-			break;
-
-		case INSTR_DIGIT:
-			THREAD[TP].ip++;
-			CHECKBOUNDS;
-			if (!strchr(DIGIT, subject[sp]) || !subject[sp]) FAIL;
-			rev ? THREAD[TP].sp-- : THREAD[TP].sp++;
-			break;
-
-		case INSTR_WORD:
-			THREAD[TP].ip++;
-			if (!strchr(WORD, subject[sp]) || !subject[sp]) FAIL;
-			rev ? THREAD[TP].sp-- : THREAD[TP].sp++;
-			break;
-
-		case INSTR_SPACE:
-			THREAD[TP].ip++;
-			if (!strchr(WHITESPACE, subject[sp]) || !subject[sp]) FAIL;
-			rev ? THREAD[TP].sp-- : THREAD[TP].sp++;
-			break;
-
-		case INSTR_TRY:
-			THREAD[TP].ip++;
-			THREAD[TP].exception = realloc(THREAD[TP].exception,
-						       (ep + 1) * sizeof *THREAD[TP].exception);
-			THREAD[TP].exception[THREAD[TP].ep++] = TP;
-			break;
-
-		case INSTR_CATCH:
-			TP = THREAD[TP].exception[ep - 1];
-			THREAD[TP].ip = ip + 1;
-			THREAD[TP].sp = sp;
-			break;
-
-		case INSTR_PLB:
-			THREAD[TP].die = true;
-			new_thread(re, sp - 1, ip + 1, opt, fp, la, ep + 1);
-			THREAD[TP].exception[ep] = TP - 1;
-			THREAD[TP].rev = true;
-			break;
-
-		case INSTR_PLB_WIN:
-			TP = THREAD[TP].exception[--THREAD[TP].ep];
-			THREAD[TP].rev = false;
-			THREAD[TP].die = false;
-			THREAD[TP].ip = ip + 1;
-			break;
-
-		case INSTR_NLB:
-			THREAD[TP].ip = re->c[ip].c;
-			new_thread(re, sp - 1, ip + 1, opt, fp, la, ep + 1);
-			THREAD[TP].exception[ep] = TP - 1;
-			THREAD[TP].rev = true;
-			break;
-
-		case INSTR_NLB_FAIL:
-			TP = THREAD[TP].exception[--THREAD[TP].ep] - 1;
-			break;
-
-		case INSTR_PLA:
-			THREAD[TP].die = true;
-			new_thread(re, sp, ip + 1, opt, fp, la, ep + 1);
-			THREAD[TP].exception[ep] = TP - 1;
-			break;
-
-		case INSTR_PLA_WIN:
-			TP = THREAD[TP].exception[--THREAD[TP].ep];
-			THREAD[TP].die = false;
-			THREAD[TP].ip = ip + 1;
-			break;
-
-		case INSTR_NLA:
-			THREAD[TP].ip = re->c[ip].a;
-			new_thread(re, sp, ip + 1, opt, fp, la, ep + 1);
-			THREAD[TP].exception[ep] = TP - 1;
-			break;
-
-		case INSTR_NLA_FAIL:
-			TP = THREAD[TP].exception[--THREAD[TP].ep] - 1;
-			break;
-
-		default:
-			DBG("\nunimplemented instruction %d\n", re->c[ip].op);
-			assert(false);
+	while (TP >= 0)
+		if (!execute_instr(re,
+				   THREAD[TP].ip,
+				   THREAD[TP].sp,
+				   THREAD[TP].fp,
+				   THREAD[TP].la,
+				   THREAD[TP].ep,
+				   THREAD[TP].opt,
+				   re->c[THREAD[TP].ip].loc,
+				   THREAD[TP].rev,
+				   slen,
+				   num_steps++,
+				   subject,
+				   vec))
 			return false;
-		}
-
-	breakout:
-		if (TP >= KTRE_MAX_THREAD - 1) {
-			error(re, KTRE_ERROR_STACK_OVERFLOW, loc, "regex exceeded the maximum number of executable threads");
-			return false;
-		}
-
-		if (fp >= KTRE_MAX_CALL_DEPTH - 1) {
-			error(re, KTRE_ERROR_CALL_OVERFLOW, loc, "regex exceeded the maximum depth for subroutine calls");
-			return false;
-		}
-	}
 
 	return !!re->num_matches;
 }
