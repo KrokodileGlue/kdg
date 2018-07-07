@@ -6,8 +6,6 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "unicode_data.h"
-
 typedef struct kdgu {
 	unsigned alloc, len, idx;
 	uint8_t *s;

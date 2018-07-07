@@ -2,7 +2,7 @@
 #define ERROR_H
 
 #include <stdint.h>
-#include "kdgu.h"
+#include <stdbool.h>
 
 struct error {
 	enum errorcode {

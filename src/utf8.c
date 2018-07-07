@@ -1,8 +1,8 @@
 #include <assert.h>
 #include <string.h>
 
-#include "error.h"
 #include "kdgu.h"
+#include "error.h"
 #include "utf8.h"
 #include "unicode.h"
 
