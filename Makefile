@@ -1,5 +1,9 @@
-CFLAGS += -O2 -Iinclude -std=c11 -Wall -Wextra -pedantic
+CFLAGS += -O2 -Iinclude -std=c11 -Wall -Wextra -pedantic -D_GNU_SOURCE
+CFLAGS += -Wmissing-prototypes -Wstrict-prototypes
+CFLAGS += -Wold-style-definition -Wpointer-arith -Wcast-qual
 CFLAGS += -Wunused -Wno-implicit-fallthrough -fpic
+CFLAGS += -Wdouble-promotion -Wfloat-equal
+CFLAGS += -Wno-format-nonliteral -Wshadow
 LDFLAGS += -Wl,--as-needed,-O2,-z,relro,-z,now -shared
 
 MAJOR := 0

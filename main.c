@@ -51,17 +51,14 @@ print_errors(struct errorlist *errlist, char *path)
 	}
 }
 
-char *filename = NULL;
-
 int
 main(int argc, char **argv)
 {
 	unsigned len = 0;
 	char *text = load_file(argv[argc - 1], &len);
 	if (!text) return EXIT_FAILURE;
-	filename = argv[argc - 1];
+	char *filename = argv[argc - 1];
 
-#if 1
 	kdgu *k = kdgu_new(FMT_UTF8, text, len);
 
 	kdgu_chomp(k);
@@ -80,27 +77,6 @@ main(int argc, char **argv)
 	print_errors(k->errlist, filename);
 	free(text);
 	kdgu_free(k);
-#elif 0
-	kdgu *k = kdgu_new(FMT_UTF32, text, len);
-	kdgu_convert(k, FMT_UTF8);
-	kdgu_chomp(k);
-
-	kdgu_print(k); putchar('\n');
-	printf("length: %u\n", kdgu_len(k));
-
-	kdgu_reverse(k);
-	kdgu_uc(k);
-
-	kdgu_print(k); putchar('\n');
-	printf("length: %u\n", kdgu_len(k));
-
-	print_errors(k->errlist, filename);
-	free(text);
-	kdgu_free(k);
-#else
-	demo(text, len);
-	free(text);
-#endif
 
 	return EXIT_SUCCESS;
 }

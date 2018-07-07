@@ -11,7 +11,6 @@
 #define DIGIT      "0123456789"
 #define WORD       "_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-#ifdef KTRE_DEBUG
 #include <stdio.h>
 #include <assert.h>
 
@@ -37,112 +36,8 @@ dbgf(const char *str)
 		}
 	}
 }
-#else
-#define DBG(x, ...)
-#define dbgf(x)
-#endif /* KTRE_DEBUG */
 
 static void error(struct ktre *re, enum ktre_error err, int loc, char *fmt, ...);
-
-/* memory functions */
-#ifndef KTRE_MALLOC
-#define KTRE_MALLOC  malloc
-#define KTRE_FREE    free
-#endif
-
-static void *_ktre_malloc (struct ktre *re,            size_t n, const char *file, int line);
-static void *_ktre_realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line);
-static void  _ktre_free   (struct ktre *re, void *ptr);
-
-static void *
-_ktre_malloc(struct ktre *re, size_t n, const char *file, int line)
-{
-	if (re->info.ba + n + sizeof (struct ktre) > KTRE_MEM_CAP) {
-		error(re, KTRE_ERROR_OUT_OF_MEMORY, 0, NULL);
-		DBG("\nrunning out of memory at %d bytes:\n\trequest for %zd bytes at %s:%d",
-		    re->info.ba, n, file, line);
-		return NULL;
-	}
-
-	struct ktre_minfo *mi = KTRE_MALLOC(n + sizeof (struct ktre_minfo));
-
-	if (!mi) {
-		error(re, KTRE_ERROR_OUT_OF_MEMORY, 0, NULL);
-		return NULL;
-	}
-
-	re->info.num_alloc++;
-	re->info.ba += n + sizeof (struct ktre_minfo);
-	re->info.mba += n + sizeof (struct ktre_minfo);
-
-	mi->file = file;
-	mi->line = line;
-	mi->next = re->minfo;
-
-	if (re->minfo)
-		re->minfo->prev = mi;
-
-	mi->prev = NULL;
-	mi->size = (int)n;
-	re->minfo = mi;
-
-	return mi + 1;
-}
-
-static void *
-_ktre_realloc(struct ktre *re, void *ptr, size_t n, const char *file, int line)
-{
-	if (!ptr) return _ktre_malloc(re, n, file, line);
-
-	struct ktre_minfo *mi = (struct ktre_minfo *)ptr - 1;
-	int diff = n - mi->size;
-
-	/*
-	 * We don't need to grow the block, so just return early.
-	 */
-	if (diff <= 0) return ptr;
-
-	if (re->info.ba + diff > KTRE_MEM_CAP) {
-		KTRE_FREE(ptr);
-		error(re, KTRE_ERROR_OUT_OF_MEMORY, 0, NULL);
-		return NULL;
-	}
-
-	void *p = _ktre_malloc(re, n, file, line);
-
-	if (p)
-		memcpy(p, ptr, (int)n > mi->size ? mi->size : (int)n);
-
-	_ktre_free(re, ptr);
-
-	return p;
-}
-
-static void
-_ktre_free(struct ktre *re, void *ptr)
-{
-	if (!ptr) return;
-
-	struct ktre_minfo *mi = (struct ktre_minfo *)ptr - 1;
-	re->info.ba -= mi->size + sizeof (struct ktre_minfo);
-	re->info.bf += mi->size + sizeof (struct ktre_minfo);
-	re->info.num_free++;
-
-	if (!mi->prev) {
-		re->minfo = mi->next;
-	} else {
-		mi->prev->next = mi->next;
-	}
-
-	if (mi->next)
-		mi->next->prev = mi->prev;
-
-	KTRE_FREE(mi);
-}
-
-#define _malloc(n)      _ktre_malloc (re, n,      __FILE__, __LINE__)
-#define _realloc(ptr,n) _ktre_realloc(re, ptr, n, __FILE__, __LINE__)
-#define _free(ptr)      _ktre_free   (re, ptr)
 
 static int
 add_group(struct ktre *re)
@@ -156,7 +51,7 @@ add_group(struct ktre *re)
 		return -1;
 	}
 
-	re->group = _realloc(re->group, (re->gp + 1) * sizeof re->group[0]);
+	re->group = realloc(re->group, (re->gp + 1) * sizeof re->group[0]);
 	if (!re->group) return -1;
 
 	re->group[re->gp].is_compiled = false;
@@ -223,7 +118,7 @@ grow_code(struct ktre *re, int n)
 {
 	if (!re->info.instr_alloc) {
 		re->info.instr_alloc = 25;
-		re->c = _malloc(sizeof re->c[0] * re->info.instr_alloc);
+		re->c = malloc(sizeof re->c[0] * re->info.instr_alloc);
 	}
 
 	if (!re->c) return;
@@ -235,7 +130,7 @@ grow_code(struct ktre *re, int n)
 			re->info.instr_alloc *= 2;
 		}
 
-		re->c = _realloc(re->c, sizeof re->c[0] * re->info.instr_alloc);
+		re->c = realloc(re->c, sizeof re->c[0] * re->info.instr_alloc);
 	}
 }
 
@@ -366,12 +261,12 @@ free_node(struct ktre *re, struct node *n)
 		free_node(re, n->a);
 		break;
 	case NODE_CLASS: case NODE_NOT: case NODE_STR:
-		_free(n->class);
+		free(n->class);
 		break;
 	default: break;
 	}
 
-	_free(n);
+	free(n);
 }
 
 static void
@@ -393,7 +288,7 @@ error(struct ktre *re, enum ktre_error err, int loc, char *fmt, ...)
 		return;
 	}
 
-	re->err_str = _malloc(KTRE_MAX_ERROR_LEN);
+	re->err_str = malloc(KTRE_MAX_ERROR_LEN);
 
 	va_list args;
 	va_start(args, fmt);
@@ -431,20 +326,20 @@ uc_str(char *s)
 }
 
 static void
-append_char(struct ktre *re, char **class, char c)
+append_char(char **class, char c)
 {
 	size_t len = *class ? strlen(*class) : 0;
-	*class = _realloc(*class, len + 2);
+	*class = realloc(*class, len + 2);
 	if (!*class) return;
 	(*class)[len] = c;
 	(*class)[len + 1] = 0;
 }
 
 static void
-append_str(struct ktre *re, char **class, const char *c)
+append_str(char **class, const char *c)
 {
 	size_t len = *class ? strlen(*class) : 0;
-	*class = _realloc(*class, len + strlen(c) + 1);
+	*class = realloc(*class, len + strlen(c) + 1);
 	if (!*class) return;
 	strcpy(*class + len, c);
 }
@@ -452,7 +347,7 @@ append_str(struct ktre *re, char **class, const char *c)
 static char *
 strclone(struct ktre *re, const char *str)
 {
-	char *ret = _malloc(strlen(str) + 1);
+	char *ret = malloc(strlen(str) + 1);
 	if (!ret) return NULL;
 	re->info.parser_alloc += strlen(str) + 1;
 	strcpy(ret, str);
@@ -462,7 +357,7 @@ strclone(struct ktre *re, const char *str)
 static struct node *
 new_node(struct ktre *re)
 {
-	struct node *n = _malloc(sizeof *n);
+	struct node *n = malloc(sizeof *n);
 	if (!n) return NULL;
 	re->info.parser_alloc += sizeof *n;
 	memset(n, 0, sizeof *n);
@@ -715,7 +610,7 @@ parse_special_group(struct ktre *re)
 			}
 
 			re->group[left->gi].is_called = false;
-			re->group[left->gi].name = _malloc(b - a + 1);
+			re->group[left->gi].name = malloc(b - a + 1);
 			strncpy(re->group[left->gi].name, a, b - a);
 			re->group[left->gi].name[b - a] = 0;
 
@@ -761,7 +656,7 @@ parse_special_group(struct ktre *re)
 		}
 
 		re->group[left->gi].is_called = false;
-		re->group[left->gi].name = _malloc(b - a + 1);
+		re->group[left->gi].name = malloc(b - a + 1);
 		strncpy(re->group[left->gi].name, a, b - a);
 		re->group[left->gi].name[b - a] = 0;
 
@@ -876,7 +771,7 @@ parse_special_group(struct ktre *re)
 		}
 
 		re->group[left->gi].is_called = false;
-		re->group[left->gi].name = _malloc(b - a + 1);
+		re->group[left->gi].name = malloc(b - a + 1);
 		strncpy(re->group[left->gi].name, a, b - a);
 		re->group[left->gi].name[b - a] = 0;
 
@@ -976,17 +871,17 @@ parse_character_class_character(struct ktre *re)
 	if (*re->sp == '[') {
 		for (size_t i = 0; i < sizeof pclasses / sizeof pclasses[0]; i++) {
 			if (!strncmp(re->sp, pclasses[i].name, strlen(pclasses[i].name))) {
-				append_str(re, &a, pclasses[i].class);
+				append_str(&a, pclasses[i].class);
 				re->sp += strlen(pclasses[i].name);
 				return a;
 			}
 		}
 
-		append_char(re, &a, *re->sp);
+		append_char(&a, *re->sp);
 		next_char(re);
 		return a;
 	} else if (*re->sp != '\\') {
-		append_char(re, &a, *re->sp);
+		append_char(&a, *re->sp);
 		next_char(re);
 		return a;
 	}
@@ -1003,10 +898,10 @@ parse_character_class_character(struct ktre *re)
 
 		if (bracketed) {
 			next_char(re);
-			append_char(re, &a, parse_hex_num(re));
+			append_char(&a, parse_hex_num(re));
 
 			if (*re->sp != '}' && !re->err) {
-				if (a) _free(a);
+				if (a) free(a);
 
 				error(re, KTRE_ERROR_SYNTAX_ERROR,
 				      loc, "incomplete token");
@@ -1014,14 +909,14 @@ parse_character_class_character(struct ktre *re)
 				return NULL;
 			}
 		} else {
-			append_char(re, &a, parse_hex_num(re));
+			append_char(&a, parse_hex_num(re));
 			re->sp--;
 		}
 	} break;
 
 	case '0':
 		next_char(re);
-		append_char(re, &a, parse_oct_num(re));
+		append_char(&a, parse_oct_num(re));
 		re->sp--;
 		break;
 
@@ -1037,7 +932,7 @@ parse_character_class_character(struct ktre *re)
 		}
 
 		next_char(re);
-		append_char(re, &a, parse_oct_num(re));
+		append_char(&a, parse_oct_num(re));
 
 		if (*re->sp != '}' && !re->err) {
 			error(re, KTRE_ERROR_SYNTAX_ERROR,
@@ -1047,20 +942,20 @@ parse_character_class_character(struct ktre *re)
 		}
 		break;
 
-	case 's': append_str(re, &a, WHITESPACE); break;
-	case 'w': append_str(re, &a, WORD);  break;
-	case 'a': append_char(re, &a, '\a'); break;
-	case 'b': append_char(re, &a, '\b'); break;
-	case 'f': append_char(re, &a, '\f'); break;
-	case 'n': append_char(re, &a, '\n'); break;
-	case 't': append_char(re, &a, '\t'); break;
-	case 'r': append_char(re, &a, '\r'); break;
-	case 'd': append_str(re, &a, DIGIT); break;
-	case 'h': append_str(re, &a, " \t"); break;
-	case 'e': append_char(re, &a, 7); break;
+	case 's': append_str(&a, WHITESPACE); break;
+	case 'w': append_str(&a, WORD);  break;
+	case 'a': append_char(&a, '\a'); break;
+	case 'b': append_char(&a, '\b'); break;
+	case 'f': append_char(&a, '\f'); break;
+	case 'n': append_char(&a, '\n'); break;
+	case 't': append_char(&a, '\t'); break;
+	case 'r': append_char(&a, '\r'); break;
+	case 'd': append_str(&a, DIGIT); break;
+	case 'h': append_str(&a, " \t"); break;
+	case 'e': append_char(&a, 7); break;
 
 	case 'D': {
-		a = _malloc(256);
+		a = malloc(256);
 		int i = 0;
 
 		for (int j = 1; j < '0'; j++)
@@ -1073,7 +968,7 @@ parse_character_class_character(struct ktre *re)
 	} break;
 
 	case 'H': {
-		a = _malloc(256);
+		a = malloc(256);
 		int i = 0;
 
 		for (int j = 1; j < 256; j++)
@@ -1084,7 +979,7 @@ parse_character_class_character(struct ktre *re)
 	} break;
 
 	case 'N': {
-		a = _malloc(256);
+		a = malloc(256);
 		int i = 0;
 
 		for (int j = 1; j < 256; j++)
@@ -1095,7 +990,7 @@ parse_character_class_character(struct ktre *re)
 	} break;
 
 	case 'S': {
-		a = _malloc(256);
+		a = malloc(256);
 		int i = 0;
 
 		for (int j = 1; j < 256; j++)
@@ -1106,7 +1001,7 @@ parse_character_class_character(struct ktre *re)
 	} break;
 
 	default:
-		append_char(re, &a, *re->sp);
+		append_char(&a, *re->sp);
 		break;
 	}
 
@@ -1150,34 +1045,34 @@ parse_character_class(struct ktre *re)
 			b = parse_character_class_character(re);
 
 			if (!b) {
-				_free(a);
+				free(a);
 				free_node(re, left);
 				return NULL;
 			}
 
 			if (strlen(b) != 1) {
-				append_str(re, &class, a);
-				append_str(re, &class, b);
-				_free(a);
-				_free(b);
+				append_str(&class, a);
+				append_str(&class, b);
+				free(a);
+				free(b);
 				continue;
 			}
 
 			for (int i = *a; i <= *b; i++)
-				append_char(re, &class, i);
+				append_char(&class, i);
 
-			_free(b);
+			free(b);
 		} else {
-			append_str(re, &class, a);
+			append_str(&class, a);
 		}
 
-		_free(a);
+		free(a);
 	}
 
 	if (*re->sp != ']') {
 		error(re, KTRE_ERROR_SYNTAX_ERROR, left->loc,
 		      "unterminated character class");
-		_free(class);
+		free(class);
 		free_node(re, left);
 		return NULL;
 	}
@@ -1385,15 +1280,15 @@ again:
 	case 'x': {
 		next_char(re);
 
-		int loc = re->sp - re->pat;
+		loc = re->sp - re->pat;
 		bool bracketed = *re->sp == '{';
 
 		if (bracketed) {
 			next_char(re);
-			append_char(re, &a, parse_hex_num(re));
+			append_char(&a, parse_hex_num(re));
 
 			if (*re->sp != '}' && !re->err) {
-				if (a) _free(a);
+				if (a) free(a);
 
 				error(re, KTRE_ERROR_SYNTAX_ERROR,
 				      loc, "incomplete token");
@@ -1401,7 +1296,7 @@ again:
 				return NULL;
 			}
 		} else {
-			append_char(re, &a, parse_hex_num(re));
+			append_char(&a, parse_hex_num(re));
 			re->sp--;
 		}
 	} break;
@@ -1415,19 +1310,19 @@ again:
 			/* skip over the sign */
 			next_char(re);
 
-		int a = parse_dec_num(re);
+		int n = parse_dec_num(re);
 
-		if (neg) a = re->gp - a;
-		if (pos) a = re->gp + a;
+		if (neg) n = re->gp - n;
+		if (pos) n = re->gp + n;
 
 		left->type = NODE_BACKREF;
-		left->c = a;
+		left->c = n;
 		re->sp--;
 	} break;
 
 	case 'o':
 		next_char(re);
-		int loc = re->sp - re->pat;
+		loc = re->sp - re->pat;
 
 		if (*re->sp != '{' && !re->err) {
 			free_node(re, left);
@@ -1438,7 +1333,7 @@ again:
 		}
 
 		next_char(re);
-		append_char(re, &a, parse_oct_num(re));
+		append_char(&a, parse_oct_num(re));
 
 		if (*re->sp != '}' && !re->err) {
 			free_node(re, left);
@@ -1449,13 +1344,13 @@ again:
 		}
 		break;
 
-	case 'a': append_char(re, &a, '\a'); break;
-	case 'f': append_char(re, &a, '\f'); break;
-	case 'n': append_char(re, &a, '\n'); break;
-	case 't': append_char(re, &a, '\t'); break;
-	case 'r': append_char(re, &a, '\r'); break;
-	case 'h': append_str(re, &a, " \t"); break;
-	case 'e': append_char(re, &a, 7); break;
+	case 'a': append_char(&a, '\a'); break;
+	case 'f': append_char(&a, '\f'); break;
+	case 'n': append_char(&a, '\n'); break;
+	case 't': append_char(&a, '\t'); break;
+	case 'r': append_char(&a, '\r'); break;
+	case 'h': append_str(&a, " \t"); break;
+	case 'e': append_char(&a, 7); break;
 
 	case 's':
 		left->type = NODE_SPACE;
@@ -1515,7 +1410,7 @@ again:
 		goto again;
 
 	case 'H': {
-		a = _malloc(256);
+		a = malloc(256);
 		int i = 0;
 
 		for (int j = 1; j < 256; j++)
@@ -1526,7 +1421,7 @@ again:
 	} break;
 
 	case 'N': {
-		a = _malloc(256);
+		a = malloc(256);
 		int i = 0;
 
 		for (int j = 1; j < 256; j++)
@@ -1549,7 +1444,7 @@ again:
 		break;
 
 	default:
-		append_char(re, &a, *re->sp);
+		append_char(&a, *re->sp);
 		break;
 	}
 
@@ -1628,7 +1523,7 @@ term(struct ktre *re)
 		}
 
 		if (left->type == NODE_NONE) {
-			_free(left);
+			free(left);
 			left = right;
 		} else {
 			if ((left->type == NODE_CHAR
@@ -1638,7 +1533,7 @@ term(struct ktre *re)
 				if (left->type == NODE_CHAR) {
 					char a = left->c;
 					left->type = NODE_STR;
-					left->class = _malloc(3);
+					left->class = malloc(3);
 					re->info.parser_alloc += 3;
 
 					if (re->popt & KTRE_INSENSITIVE) {
@@ -1653,9 +1548,9 @@ term(struct ktre *re)
 					free_node(re, right);
 				} else {
 					if (re->popt & KTRE_INSENSITIVE) {
-						append_char(re, &left->class, lc(right->c));
+						append_char(&left->class, lc(right->c));
 					} else {
-						append_char(re, &left->class, right->c);
+						append_char(&left->class, right->c);
 					}
 
 					free_node(re, right);
@@ -1665,7 +1560,7 @@ term(struct ktre *re)
 				if (left->b->type == NODE_CHAR) {
 					char a = left->b->c;
 					left->b->type = NODE_STR;
-					left->b->class = _malloc(3);
+					left->b->class = malloc(3);
 					re->info.parser_alloc += 3;
 
 					if (re->popt & KTRE_INSENSITIVE) {
@@ -1680,9 +1575,9 @@ term(struct ktre *re)
 					free_node(re, right);
 				} else {
 					if (re->popt & KTRE_INSENSITIVE)
-						append_char(re, &left->b->class, lc(right->c));
+						append_char(&left->b->class, lc(right->c));
 					else
-						append_char(re, &left->b->class, right->c);
+						append_char(&left->b->class, right->c);
 
 					free_node(re, right);
 				}
@@ -1732,7 +1627,6 @@ parse(struct ktre *re)
 	return n;
 }
 
-#ifdef KTRE_DEBUG
 static void
 print_node(struct ktre *re, struct node *n)
 {
@@ -1832,9 +1726,6 @@ print_node(struct ktre *re, struct node *n)
 
 	depth--;
 }
-#else
-#define print_node(x,y)
-#endif /* KTRE_DEBUG */
 
 static bool
 is_iteratable(struct node *n)
@@ -2012,11 +1903,11 @@ compile(struct ktre *re, struct node *n, bool rev)
 				emit_c(re, INSTR_CALL, re->group[n->a->gi].address + 1, n->loc);
 			} else {
 				if (n->a->type == NODE_CHAR) {
-					char *str = _malloc(n->c + 1);
+					char *str = malloc(n->c + 1);
 					if (!str) return;
 					re->info.parser_alloc += n->c + 1;
 
-					for (int i = 0; i < n->c; i++) str[i] = n->a->c;
+					for (int j = 0; j < n->c; j++) str[i] = n->a->c;
 					str[n->c] = 0;
 					emit_class(re, INSTR_TSTR, str, n->loc);
 					break;
@@ -2160,7 +2051,7 @@ ktre_compile(const char *pat, int opt)
 {
 	if (!pat) return NULL;
 
-	struct ktre *re = KTRE_MALLOC(sizeof *re);
+	struct ktre *re = malloc(sizeof *re);
 	memset(re, 0, sizeof *re);
 
 	if (opt & KTRE_GLOBAL) opt |= KTRE_UNANCHORED;
@@ -2320,7 +2211,7 @@ ktre_compile(const char *pat, int opt)
 
 struct ktre *ktre_copy(struct ktre *re)
 {
-	struct ktre *ret = KTRE_MALLOC(sizeof *ret);
+	struct ktre *ret = malloc(sizeof *ret);
 	memset(ret, 0, sizeof *ret);
 	ret->c = re->c;
 	re->copied = true;
@@ -2333,11 +2224,11 @@ struct ktre *ktre_copy(struct ktre *re)
 #define MAKE_THREAD_VARIABLE(f,p)                                                  \
 	do {                                                                       \
 		if (!THREAD[TP].f) {                                               \
-			THREAD[TP].f = _malloc(   (p + 1) * sizeof *THREAD[TP].f); \
+			THREAD[TP].f = malloc(   (p + 1) * sizeof *THREAD[TP].f); \
 			memset(THREAD[TP].f, -1,  (p + 1) * sizeof *THREAD[TP].f); \
 			re->info.runtime_alloc += (p + 1) * sizeof *THREAD[TP].f;  \
 		} else if (THREAD[TP].p < p) {                                     \
-			THREAD[TP].f = _realloc(THREAD[TP].f,                      \
+			THREAD[TP].f = realloc(THREAD[TP].f,                      \
 			                        (p + 1) * sizeof *THREAD[TP].f);   \
 		}                                                                  \
                                                                                    \
@@ -2356,7 +2247,7 @@ struct ktre *ktre_copy(struct ktre *re)
 #define MAKE_STATIC_THREAD_VARIABLE(f,s)                                       \
 	do {                                                                   \
 		if (!THREAD[TP].f) {                                           \
-			THREAD[TP].f = _malloc(   (s) * sizeof *THREAD[TP].f); \
+			THREAD[TP].f = malloc(   (s) * sizeof *THREAD[TP].f); \
 			memset(THREAD[TP].f, -1,  (s) * sizeof *THREAD[TP].f); \
 			re->info.runtime_alloc += (s) * sizeof *THREAD[TP].f;  \
 		}                                                              \
@@ -2385,7 +2276,7 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int ep)
 		} else
 			re->info.thread_alloc *= 2;
 
-		re->t = _realloc(re->t, re->info.thread_alloc * sizeof THREAD[0]);
+		re->t = realloc(re->t, re->info.thread_alloc * sizeof THREAD[0]);
 		memset(&THREAD[TP], 0, (re->info.thread_alloc - TP) * sizeof THREAD[0]);
 	}
 
@@ -2413,7 +2304,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 	if (!re->info.thread_alloc) {
 		re->info.thread_alloc = 25;
-		re->t = _malloc(re->info.thread_alloc * sizeof THREAD[0]);
+		re->t = malloc(re->info.thread_alloc * sizeof THREAD[0]);
 		if (re->err) return false;
 		memset(re->t, 0, re->info.thread_alloc * sizeof THREAD[0]);
 	}
@@ -2696,7 +2587,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 			}
 
 			if ((opt & KTRE_UNANCHORED) || (sp >= 0 && !subject[sp])) {
-				VEC = _realloc(VEC, (re->num_matches + 1) * sizeof *VEC);
+				VEC = realloc(VEC, (re->num_matches + 1) * sizeof *VEC);
 				re->cont = sp;
 
 				if (!VEC) {
@@ -2704,7 +2595,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 					return false;
 				}
 
-				VEC[re->num_matches] = _malloc(re->num_groups * 2 * sizeof VEC[0]);
+				VEC[re->num_matches] = malloc(re->num_groups * 2 * sizeof VEC[0]);
 				if (!VEC[re->num_matches]) {
 					error(re, KTRE_ERROR_OUT_OF_MEMORY, loc, "out of memory");
 					return false;
@@ -2759,7 +2650,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 		case INSTR_CALL:
 			THREAD[TP].ip = re->c[ip].c;
-			THREAD[TP].frame = _realloc(THREAD[TP].frame, (fp + 1) * sizeof THREAD[TP].frame[0]);
+			THREAD[TP].frame = realloc(THREAD[TP].frame, (fp + 1) * sizeof THREAD[TP].frame[0]);
 			THREAD[TP].frame[THREAD[TP].fp++] = ip + 1;
 			break;
 
@@ -2804,7 +2695,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 		case INSTR_TRY:
 			THREAD[TP].ip++;
-			THREAD[TP].exception = _realloc(THREAD[TP].exception,
+			THREAD[TP].exception = realloc(THREAD[TP].exception,
 			                                (ep + 1) * sizeof THREAD[TP].exception[0]);
 			THREAD[TP].exception[THREAD[TP].ep++] = TP;
 			break;
@@ -2892,39 +2783,39 @@ ktre_free(struct ktre *re)
 
 	free_node(re, re->n);
 	if (re->err)
-		_free(re->err_str);
+		free(re->err_str);
 
 	if (re->c) {
 		for (int i = 0; i < re->ip; i++) {
 			if (re->c[i].op == INSTR_TSTR)
-				_free(re->c[i].class);
+				free(re->c[i].class);
 		}
 
-		_free(re->c);
+		free(re->c);
 	}
 
 	for (int i = 0; i <= re->max_tp; i++) {
-		_free(THREAD[i].vec);
-		_free(THREAD[i].prog);
-		_free(THREAD[i].frame);
-		_free(THREAD[i].las);
-		_free(THREAD[i].exception);
+		free(THREAD[i].vec);
+		free(THREAD[i].prog);
+		free(THREAD[i].frame);
+		free(THREAD[i].las);
+		free(THREAD[i].exception);
 	}
 
 	if (re->vec) {
 		for (int i = 0; i < re->num_matches; i++) {
-			_free((re->vec)[i]);
+			free((re->vec)[i]);
 		}
 
-		_free(re->vec);
+		free(re->vec);
 	}
 
 	for (int i = 0; i < re->gp; i++)
 		if (re->group[i].name)
-			_free(re->group[i].name);
+			free(re->group[i].name);
 
-	_free(re->group);
-	_free(re->t);
+	free(re->group);
+	free(re->t);
 	struct ktre_info info = re->info;
 
 #if defined(_MSC_VER) && defined(KTRE_DEBUG)
@@ -2968,10 +2859,10 @@ ktre_free(struct ktre *re)
 	while (mi) {
 		struct ktre_minfo *mi2 = mi;
 		mi = mi->next;
-		KTRE_FREE(mi2);
+		free(mi2);
 	}
 
-	KTRE_FREE(re);
+	free(re);
 
 	return info;
 }
@@ -2983,7 +2874,7 @@ ktre_exec(struct ktre *re, const char *subject, int ***vec)
 
 	if (re->err) {
 		if (re->err_str)
-			_free(re->err_str);
+			free(re->err_str);
 		re->err = KTRE_ERROR_NO_ERROR;
 	}
 
@@ -3050,7 +2941,7 @@ smartcopy(char *dest, const char *src, size_t n,
 	}
 }
 
-#define SIZE_STRING(ptr,n) ptr = _realloc(ptr, n * sizeof *ptr)
+#define SIZE_STRING(ptr,n) ptr = realloc(ptr, n * sizeof *ptr)
 char *ktre_filter(struct ktre *re, const char *subject, const char *replacement, const char *indicator)
 {
 	DBG("\nsubject: %s", subject);
@@ -3061,7 +2952,7 @@ char *ktre_filter(struct ktre *re, const char *subject, const char *replacement,
 		return NULL;
 	}
 
-	char *ret = _malloc(16);
+	char *ret = malloc(16);
 	*ret = 0;
 	int idx = 0;
 
@@ -3156,7 +3047,7 @@ skip_capture:
 			ret[idx + j] = 0;
 			idx += j;
 
-			_free(match);
+			free(match);
 		}
 	}
 
@@ -3167,9 +3058,9 @@ skip_capture:
 	idx += strlen(subject) - end;
 	ret[idx] = 0;
 
-	char *a = KTRE_MALLOC(strlen(ret) + 1);
+	char *a = malloc(strlen(ret) + 1);
 	strcpy(a, ret);
-	_free(ret);
+	free(ret);
 	print_finish(re, subject, re->pat, ret, vec, a);
 
 	return a;
@@ -3214,10 +3105,10 @@ char **ktre_split(ktre *re, const char *subject, int *len)
 
 int **ktre_getvec(const struct ktre *re)
 {
-	int **vec = KTRE_MALLOC(re->num_matches * sizeof re->vec[0]);
+	int **vec = malloc(re->num_matches * sizeof re->vec[0]);
 
 	for (int i = 0; i < re->num_matches; i++) {
-		vec[i] = KTRE_MALLOC(re->num_groups * 2 * sizeof re->vec[0][0]);
+		vec[i] = malloc(re->num_groups * 2 * sizeof re->vec[0][0]);
 		memcpy(vec[i], re->vec[i], re->num_groups * 2 * sizeof re->vec[0][0]);
 	}
 

@@ -304,7 +304,7 @@ kdgu_len(kdgu *k)
 	return l;
 }
 
-unsigned
+static unsigned
 decompose_char(uint32_t c,
                uint32_t *buf,
                unsigned buflen)
@@ -571,7 +571,7 @@ kdgu_new(enum fmt fmt, const uint8_t *s, size_t len)
 kdgu *
 kdgu_news(const char *s)
 {
-	return kdgu_new(FMT_ASCII, (uint8_t *)s, strlen(s));
+	return kdgu_new(FMT_ASCII, (const uint8_t *)s, strlen(s));
 }
 
 kdgu *
@@ -1093,15 +1093,6 @@ kdgu_delete(kdgu *k, size_t a, size_t b)
 	if (b > k->len || b <= a) return;
 	memmove(k->s + a, k->s + b, k->len - b);
 	k->len -= b - a;
-}
-
-void
-kdgu_replace_substr(kdgu *k1, size_t a, size_t b, kdgu *k2)
-{
-	assert(b >= a);
-	kdgu_size(k1, k1->len + k2->len);
-	memcpy(k1->s + a, k2->s, k2->len < b - a ? k2->len : b - a);
-	k1->len = k1->len + k2->len - (b - a);
 }
 
 static uint32_t cp1252[] = {
