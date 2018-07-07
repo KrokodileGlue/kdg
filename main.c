@@ -79,7 +79,7 @@ main(int argc, char **argv)
 	/* kdgu_free(k); */
 
 	ktre *re = ktre_compile("\\S+", KTRE_UNANCHORED | KTRE_GLOBAL);
-	ktre_exec(re, "this is a thing", NULL);
+	ktre_exec(re, "this    is    a    thing", NULL);
 	putchar('\n');
 
 	return EXIT_SUCCESS;

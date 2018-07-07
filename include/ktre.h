@@ -65,7 +65,7 @@ struct ktre_minfo {
 
 struct ktre {
 	/* ===== public fields ===== */
-	int num_matches;
+	unsigned num_matches;
 	int num_groups;
 	int opt;
 
