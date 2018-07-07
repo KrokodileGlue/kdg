@@ -22,19 +22,21 @@ static void
 dbgf(const char *str)
 {
 	for (int i = 0; i < (int)strlen(str); i++) {
-		if ((strchr(WHITESPACE, str[i]) || str[i] == '\\') && str[i] != ' ') {
-			fputc('\\', stderr);
-			switch (str[i]) {
-			case '\t': fputc('t', stderr); break;
-			case '\r': fputc('r', stderr); break;
-			case '\n': fputc('n', stderr); break;
-			case '\v': fputc('v', stderr); break;
-			case '\f': fputc('f', stderr); break;
-			case '\\': fputc('\\',stderr); break;
-			default: fputc(str[i], stderr);
-			}
-		} else {
+		if ((!strchr(WHITESPACE, str[i]) && str[i] != '\\')
+		    || str[i] == ' ') {
 			fputc(str[i], stderr);
+			continue;
+		}
+
+		fputc('\\', stderr);
+		switch (str[i]) {
+		case '\t': fputc('t', stderr); break;
+		case '\r': fputc('r', stderr); break;
+		case '\n': fputc('n', stderr); break;
+		case '\v': fputc('v', stderr); break;
+		case '\f': fputc('f', stderr); break;
+		case '\\': fputc('\\',stderr); break;
+		default: fputc(str[i], stderr);
 		}
 	}
 }
@@ -53,7 +55,7 @@ add_group(struct ktre *re)
 		return -1;
 	}
 
-	re->group = realloc(re->group, (re->gp + 1) * sizeof re->group[0]);
+	re->group = realloc(re->group, (re->gp + 1) * sizeof *re->group);
 	if (!re->group) return -1;
 
 	re->group[re->gp].is_compiled = false;
@@ -112,6 +114,7 @@ struct instr {
 		char *class;
 	};
 
+	unsigned len;
 	int loc;
 };
 
@@ -120,11 +123,9 @@ grow_code(struct ktre *re, int n)
 {
 	if (!re->info.instr_alloc) {
 		re->info.instr_alloc = 25;
-		re->c = malloc(sizeof re->c[0] * re->info.instr_alloc);
+		re->c = malloc(re->info.instr_alloc * sizeof *re->c);
 	}
-
 	if (!re->c) return;
-
 	if (re->ip + n >= re->info.instr_alloc) {
 		if (re->ip + n >= re->info.instr_alloc * 2) {
 			re->info.instr_alloc = re->ip + n;
@@ -132,7 +133,7 @@ grow_code(struct ktre *re, int n)
 			re->info.instr_alloc *= 2;
 		}
 
-		re->c = realloc(re->c, sizeof re->c[0] * re->info.instr_alloc);
+		re->c = realloc(re->c, re->info.instr_alloc * sizeof *re->c);
 	}
 }
 
@@ -173,6 +174,7 @@ emit_class(struct ktre *re, int instr, char *class, int loc)
 	re->c[re->ip].op = instr;
 	re->c[re->ip].class = class;
 	re->c[re->ip].loc = loc;
+	re->c[re->ip].len = strlen(class);
 
 	re->ip++;
 }
@@ -198,33 +200,37 @@ struct node {
 		NODE_OR,
 		NODE_GROUP,
 		NODE_QUESTION,
-		NODE_ANY,     /* matches anything */
-		NODE_MANY,    /* multiline any (internal instruction) */
-		NODE_CLASS,   /* character class */
-		NODE_NOT,     /* negated character class */
+		NODE_ANY,     /* matches anything                   */
+		NODE_MANY,    /* multiline any                      */
+		NODE_CLASS,   /* character class                    */
+		NODE_NOT,     /* negated character class            */
 		NODE_STR,
 		NODE_BACKREF, /* backreference to an existing group */
 		NODE_BOL,
 		NODE_EOL,
-		NODE_BOS, /* beginning of string */
-		NODE_EOS, /* end of string */
+		NODE_BOS,     /* beginning of string                */
+		NODE_EOS,     /* end of string                      */
 
 		/*
 		 * Sets the options for the current thread of
 		 * execution.
 		 */
 		NODE_SETOPT,
-		NODE_REP,	/* counted repetition */
-		NODE_ATOM,	/* ctomic group */
-		NODE_SET_START, /* Set the start position of the group
-		                 * capturing the entire match. */
-		NODE_WB,	/* word boundary */
-		NODE_NWB,       /* negated word boundary */
+		NODE_REP,	/* counted repetition               */
+		NODE_ATOM,	/* atomic group                     */
+
+		/*
+		 * Sets the start position of the group capturing the
+		 * entire match.
+		 */
+		NODE_SET_START,
+		NODE_WB,	/* word boundary                    */
+		NODE_NWB,       /* negated word boundary            */
 		NODE_CALL,
-		NODE_PLA,	/* positive lookahead */
-		NODE_PLB,	/* positive lookbehind */
-		NODE_NLA,	/* negative lookahead */
-		NODE_NLB,	/* negative lookbehind */
+		NODE_PLA,	/* positive lookahead               */
+		NODE_PLB,	/* positive lookbehind              */
+		NODE_NLA,	/* negative lookahead               */
+		NODE_NLB,	/* negative lookbehind              */
 
 		/*
 		 * Attempts to match the entire regex again at the
@@ -248,7 +254,7 @@ struct node {
 static void
 free_node(struct ktre *re, struct node *n)
 {
-	/* sometimes parse errors can produce NULL nodes */
+	/* Sometimes parse errors can produce NULL nodes. */
 	if (!n) return;
 
 	switch (n->type) {
@@ -313,20 +319,6 @@ uc(char c)
 	return c >= 'a' && c <= 'z' ? (c - 'a') + 'A' : c;
 }
 
-static inline void
-lc_str(char *s)
-{
-	for (int i = 0; i < (int)strlen(s); i++)
-		s[i] = lc(s[i]);
-}
-
-static inline void
-uc_str(char *s)
-{
-	for (int i = 0; i < (int)strlen(s); i++)
-		s[i] = uc(s[i]);
-}
-
 static void
 append_char(char **class, char c)
 {
@@ -388,14 +380,13 @@ hex_num(const char **s)
 
 	while (**s
 	       && ((lc(**s) >= 'a' && lc(**s) <= 'f')
-	           || (**s >= '0' && **s <= '9')))
-		{
-			if (n < 0) n = 0;
-			char c = lc(**s);
-			n *= 16;
-			n += (c >= 'a' && c <= 'f') ? c - 'a' + 10 : c - '0';
-			(*s)++;
-		}
+	           || (**s  >= '0' &&    **s <= '9'))) {
+		if (n < 0) n = 0;
+		char c = lc(**s);
+		n *= 16;
+		n += (c >= 'a' && c <= 'f') ? c - 'a' + 10 : c - '0';
+		(*s)++;
+	}
 
 	return n;
 }
@@ -625,13 +616,13 @@ parse_named_group(struct ktre *re)
 	return left;
 }
 
+/* Parses a backreference to a named group. */
 static struct node *
 parse_named_backreference(struct ktre *re)
 {
 	struct node *left = new_node(re);
 
 	if (*re->sp == '=') {
-		/* This is a backreference to a named group */
 		next_char(re);
 
 		const char *a = re->sp;
@@ -652,11 +643,10 @@ parse_named_backreference(struct ktre *re)
 		for (int i = 0; i < re->gp; i++) {
 			if (!re->group[i].name) continue;
 			if (!strncmp(re->group[i].name, a, b - a)
-			    && b - a == (int)strlen(re->group[i].name))
-				{
-					left->c = i;
-					break;
-				}
+			    && b - a == (int)strlen(re->group[i].name)) {
+				left->c = i;
+				break;
+			}
 		}
 
 		if (left->c < 0) {
@@ -834,9 +824,7 @@ parse_group(struct ktre *re)
 		return NULL;
 	}
 
-	/* skip over the `)` */
 	next_char(re);
-
 	return left;
 }
 
@@ -879,7 +867,7 @@ parse_character_class_character(struct ktre *re)
 
 	if (*re->sp == '[') {
 		for (size_t i = 0;
-		     i < sizeof pclasses / sizeof pclasses[0];
+		     i < sizeof pclasses / sizeof *pclasses;
 		     i++) {
 			if (!strncmp(re->sp, pclasses[i].name, strlen(pclasses[i].name))) {
 				append_str(&a, pclasses[i].class);
@@ -897,7 +885,7 @@ parse_character_class_character(struct ktre *re)
 		return a;
 	}
 
-	/* skip over the `\` */
+	/* Skip over the `\`. */
 	next_char(re);
 	int i = 0;
 
@@ -1086,9 +1074,7 @@ parse_character_class(struct ktre *re)
 
 	left->class = class;
 
-	/*
-	 * Skip over the `]`.
-	 */
+	/* Skip over the `]`. */
 	next_char(re);
 	return left;
 }
@@ -1110,7 +1096,6 @@ parse_g(struct ktre *re)
 		if (*re->sp == '+') pos = true;
 		if (*re->sp == '-') neg = true;
 
-		/* skip over the sign */
 		if (pos || neg) next_char(re);
 		n = parse_dec_num(re);
 
@@ -1125,7 +1110,6 @@ parse_g(struct ktre *re)
 		if (*re->sp == '+') pos = true;
 		if (*re->sp == '-') neg = true;
 
-		/* skip over the sign */
 		if (pos || neg) next_char(re);
 		n = parse_dec_num(re);
 
@@ -1169,11 +1153,10 @@ parse_k(struct ktre *re)
 	for (int i = 0; i < re->gp; i++) {
 		if (!re->group[i].name) continue;
 		if (!strncmp(re->group[i].name, a, b - a)
-		    && b - a == (int)strlen(re->group[i].name))
-			{
-				left->c = i;
-				break;
-			}
+		    && b - a == (int)strlen(re->group[i].name)) {
+			left->c = i;
+			break;
+		}
 	}
 
 	if (left->c < 0) {
@@ -1215,11 +1198,11 @@ parse_primary(struct ktre *re)
 
 	if (*re->sp != '\\') {
 		switch (*re->sp) {
-		case '[': { /* character classes */
+		case '[':
 			free_node(re, left);
 			next_char(re);
 			left = parse_character_class(re);
-		} break;
+			break;
 
 		case '(':
 			free_node(re, left);
@@ -1241,7 +1224,7 @@ parse_primary(struct ktre *re)
 			left->type = NODE_EOL;
 			break;
 
-		case '#': /* extended mode comments */
+		case '#':
 			if (re->popt & KTRE_EXTENDED) {
 				while (*re->sp && *re->sp != '\n')
 					next_char(re);
@@ -1255,7 +1238,6 @@ parse_primary(struct ktre *re)
 		default:
 			if (re->popt & KTRE_EXTENDED
 			    && strchr(WHITESPACE, *re->sp)) {
-				/* ignore whitespace */
 				while (*re->sp
 				       && strchr(WHITESPACE, *re->sp))
 					next_char(re);
@@ -1277,6 +1259,22 @@ parse_primary(struct ktre *re)
 	next_char(re);
 
 	switch (*re->sp) {
+	case 'a': append_char(&a, '\a');	break;
+	case 'f': append_char(&a, '\f');	break;
+	case 'n': append_char(&a, '\n');	break;
+	case 't': append_char(&a, '\t');	break;
+	case 'r': append_char(&a, '\r');	break;
+	case 'h': append_str(&a, " \t");	break;
+	case 'e': append_char(&a, 7);		break;
+	case 's': left->type = NODE_SPACE;	break;
+	case 'K': left->type = NODE_SET_START;	break;
+	case 'b': left->type = NODE_WB;		break;
+	case 'B': left->type = NODE_NWB;	break;
+	case 'A': left->type = NODE_BOS;	break;
+	case 'Z': left->type = NODE_EOS;	break;
+	case 'd': left->type = NODE_DIGIT;	break;
+	case 'w': left->type = NODE_WORD;	break;
+
 	case 'x': {
 		next_char(re);
 
@@ -1304,9 +1302,7 @@ parse_primary(struct ktre *re)
 	case '5': case '6': case '7': case '8': case '9': {
 		bool neg = (*re->sp == '-');
 		bool pos = (*re->sp == '+');
-		if (neg || pos)
-			/* skip over the sign */
-			next_char(re);
+		if (neg || pos) next_char(re);
 
 		int n = parse_dec_num(re);
 
@@ -1342,25 +1338,9 @@ parse_primary(struct ktre *re)
 		}
 		break;
 
-	case 'a': append_char(&a, '\a'); break;
-	case 'f': append_char(&a, '\f'); break;
-	case 'n': append_char(&a, '\n'); break;
-	case 't': append_char(&a, '\t'); break;
-	case 'r': append_char(&a, '\r'); break;
-	case 'h': append_str(&a, " \t"); break;
-	case 'e': append_char(&a, 7); break;
-
-	case 's':
-		left->type = NODE_SPACE;
-		break;
-
 	case 'S':
 		left->type = NODE_NOT;
 		left->class = strclone(re, WHITESPACE);
-		break;
-
-	case 'd':
-		left->type = NODE_DIGIT;
 		break;
 
 	case 'D':
@@ -1368,33 +1348,9 @@ parse_primary(struct ktre *re)
 		left->class = strclone(re, DIGIT);
 		break;
 
-	case 'w':
-		left->type = NODE_WORD;
-		break;
-
 	case 'W':
 		left->type = NODE_NOT;
 		left->class = strclone(re, WORD);
-		break;
-
-	case 'K':
-		left->type = NODE_SET_START;
-		break;
-
-	case 'b':
-		left->type = NODE_WB;
-		break;
-
-	case 'B':
-		left->type = NODE_NWB;
-		break;
-
-	case 'A':
-		left->type = NODE_BOS;
-		break;
-
-	case 'Z':
-		left->type = NODE_EOS;
 		break;
 
 	case 'Q':
@@ -1463,46 +1419,42 @@ factor(struct ktre *re)
 	       && (*re->sp == '*'
 		   || *re->sp == '+'
 		   || *re->sp == '?'
-		   || *re->sp == '{'))
-		{
-			struct node *n = new_node(re);
+		   || *re->sp == '{')) {
+		struct node *n = new_node(re);
 
-			switch (*re->sp) {
-			case '*': n->type = NODE_ASTERISK; next_char(re); break;
-			case '?': n->type = NODE_QUESTION; next_char(re); break;
-			case '+': n->type = NODE_PLUS;     next_char(re); break;
-			case '{': { /* counted repetition */
-				n->type = NODE_REP; n->c = -1; n->d = 0;
+		switch (*re->sp) {
+		case '*': n->type = NODE_ASTERISK; next_char(re); break;
+		case '?': n->type = NODE_QUESTION; next_char(re); break;
+		case '+': n->type = NODE_PLUS;     next_char(re); break;
+		case '{': { /* counted repetition */
+			n->type = NODE_REP; n->c = -1; n->d = 0;
 
+			next_char(re);
+			n->c = parse_dec_num(re);
+
+			if (*re->sp == ',') {
 				next_char(re);
-				n->c = parse_dec_num(re);
-
-				if (*re->sp == ',') {
-					next_char(re);
-					if (isdigit(*re->sp))
-						n->d = parse_dec_num(re);
-					else
-						n->d = -1;
-				}
-
-				if (*re->sp != '}') {
-					error(re, KTRE_ERROR_SYNTAX_ERROR, re->sp - re->pat - 1, "unmatched '{'");
-					free_node(re, n);
-					free_node(re, left);
-					return NULL;
-				}
-
-				next_char(re);
-			} break;
+				n->d = isdigit(*re->sp) ? parse_dec_num(re) : -1;
 			}
 
-			n->a = left;
-			left = n;
+			if (*re->sp != '}') {
+				error(re, KTRE_ERROR_SYNTAX_ERROR,
+				      re->sp - re->pat - 1,
+				      "unmatched '{'");
+				free_node(re, n);
+				free_node(re, left);
+				return NULL;
+			}
+
+			next_char(re);
+		} break;
 		}
 
-	if (left)
-		left->loc = re->sp - re->pat - 1;
+		n->a = left;
+		left = n;
+	}
 
+	if (left) left->loc = re->sp - re->pat - 1;
 	return left;
 }
 
@@ -1524,77 +1476,70 @@ term(struct ktre *re)
 		if (left->type == NODE_NONE) {
 			free(left);
 			left = right;
-		} else {
-			if ((left->type == NODE_CHAR
-			     || left->type == NODE_STR)
-			    && right->type == NODE_CHAR)
-				{
-					if (left->type == NODE_CHAR) {
-						char a = left->c;
-						left->type = NODE_STR;
-						left->class = malloc(3);
-						re->info.parser_alloc += 3;
+			continue;
+		}
 
-						if (re->popt & KTRE_INSENSITIVE) {
-							left->class[0] = lc(a);
-							left->class[1] = lc(right->c);
-						} else {
-							left->class[0] = a;
-							left->class[1] = right->c;
-						}
+		if ((left->type == NODE_CHAR
+		     || left->type == NODE_STR)
+		    && right->type == NODE_CHAR) {
+			if (left->type == NODE_CHAR) {
+				char a = left->c;
+				left->type = NODE_STR;
+				left->class = malloc(3);
+				re->info.parser_alloc += 3;
 
-						left->class[2] = 0;
-						free_node(re, right);
-					} else {
-						if (re->popt & KTRE_INSENSITIVE) {
-							append_char(&left->class, lc(right->c));
-						} else {
-							append_char(&left->class, right->c);
-						}
-
-						free_node(re, right);
-					}
-				} else if (right->type == NODE_CHAR && left->type == NODE_SEQUENCE
-					   && (left->b->type == NODE_CHAR || left->b->type == NODE_STR)) {
-				if (left->b->type == NODE_CHAR) {
-					char a = left->b->c;
-					left->b->type = NODE_STR;
-					left->b->class = malloc(3);
-					re->info.parser_alloc += 3;
-
-					if (re->popt & KTRE_INSENSITIVE) {
-						left->b->class[0] = lc(a);
-						left->b->class[1] = lc(right->c);
-					} else {
-						left->b->class[0] = a;
-						left->b->class[1] = right->c;
-					}
-
-					left->b->class[2] = 0;
-					free_node(re, right);
+				if (re->popt & KTRE_INSENSITIVE) {
+					left->class[0] = lc(a);
+					left->class[1] = lc(right->c);
 				} else {
-					if (re->popt & KTRE_INSENSITIVE)
-						append_char(&left->b->class, lc(right->c));
-					else
-						append_char(&left->b->class, right->c);
-
-					free_node(re, right);
+					left->class[0] = a;
+					left->class[1] = right->c;
 				}
+
+				left->class[2] = 0;
+				free_node(re, right);
 			} else {
-				struct node *tmp = new_node(re);
+				append_char(&left->class, re->popt & KTRE_INSENSITIVE ? lc(right->c) : right->c);
+				free_node(re, right);
+			}
+		} else if (right->type == NODE_CHAR
+			   && left->type == NODE_SEQUENCE
+			   && (left->b->type == NODE_CHAR
+			       || left->b->type == NODE_STR)) {
+			if (left->b->type == NODE_CHAR) {
+				char a = left->b->c;
+				left->b->type = NODE_STR;
+				left->b->class = malloc(3);
+				re->info.parser_alloc += 3;
 
-				if (!tmp) {
-					free_node(re, left);
-					free_node(re, right);
-					return NULL;
+				if (re->popt & KTRE_INSENSITIVE) {
+					left->b->class[0] = lc(a);
+					left->b->class[1] = lc(right->c);
+				} else {
+					left->b->class[0] = a;
+					left->b->class[1] = right->c;
 				}
 
-				tmp->loc = re->sp - re->pat;
-				tmp->a = left;
-				tmp->b = right;
-				tmp->type = NODE_SEQUENCE;
-				left = tmp;
+				left->b->class[2] = 0;
+				free_node(re, right);
+			} else {
+				append_char(&left->class, re->popt & KTRE_INSENSITIVE ? lc(right->c) : right->c);
+				free_node(re, right);
 			}
+		} else {
+			struct node *tmp = new_node(re);
+
+			if (!tmp) {
+				free_node(re, left);
+				free_node(re, right);
+				return NULL;
+			}
+
+			tmp->loc = re->sp - re->pat;
+			tmp->a = left;
+			tmp->b = right;
+			tmp->type = NODE_SEQUENCE;
+			left = tmp;
 		}
 	}
 
@@ -1629,25 +1574,16 @@ parse(struct ktre *re)
 static void
 print_node(struct ktre *re, struct node *n)
 {
-#define joinarm arm[l - 1] = 0
-#define splitarm arm[l - 1] = 1
 	static int depth = 0;
 	static int l = 0, arm[2048] = { 0 };
 
 	if (depth > 100) return;
-	depth++;
-	DBG("\n");
-	arm[l] = 0;
+	depth++, DBG("\n"), arm[l] = 0;
 
-	for (int i = 0; i < l - 1; i++) {
-		if (arm[i]) DBG("|   ");
-		else DBG("    ");
-	}
-
-	if (l) {
-		if (arm[l - 1]) DBG("|-- ");
-		else DBG("`-- ");
-	}
+	for (int i = 0; i < l - 1; i++)
+		arm[i] ?    DBG("|   ") : DBG("    ");
+	if (l) arm[l - 1] ? DBG("|-- ") : DBG("`-- ");
+	if (!n) { DBG("(null)"); return; }
 
 #define N0(...)					\
 	do {					\
@@ -1666,16 +1602,13 @@ print_node(struct ktre *re, struct node *n)
 	do {					\
 		DBG(__VA_ARGS__);		\
 		DBG(" %d", n->loc);		\
-		l++; splitarm;			\
-		print_node(re, n->a); joinarm;	\
+		l++;				\
+		arm[l - 1] = 1;			\
+		print_node(re, n->a);		\
+		arm[l - 1] = 0;			\
 		print_node(re, n->b);		\
 		l--;				\
 	} while(0)
-
-	if (!n) {
-		DBG("(null)");
-		return;
-	}
 
 	switch (n->type) {
 	case NODE_ANY:       N0("(any)");                                     break;
@@ -1711,11 +1644,8 @@ print_node(struct ktre *re, struct node *n)
 	case NODE_PLB:       N1 ("(lookbehind)");                             break;
 	case NODE_NLB:       N1 ("(negative lookbehind)");                    break;
 	case NODE_GROUP:
-		if (re->group[n->gi].name) {
-			N1("(group '%s')", re->group[n->gi].name);
-		} else {
-			N1("(group %d)", n->gi);
-		}
+		if (re->group[n->gi].name) N1("(group '%s')", re->group[n->gi].name);
+		else                       N1("(group %d)", n->gi);
 		break;
 
 	default:
@@ -1747,13 +1677,14 @@ compile(struct ktre *re, struct node *n, bool rev)
 
 	if (!n) return;
 
-	if (n->type == NODE_ASTERISK
-	    || n->type == NODE_PLUS
-	    || n->type == NODE_QUESTION) {
-		if (!is_iteratable(n->a)) {
-			error(re, KTRE_ERROR_SYNTAX_ERROR, n->loc, "iteration on non-iteratable value");
-			return;
-		}
+	if ((n->type == NODE_ASTERISK
+	     || n->type == NODE_PLUS
+	     || n->type == NODE_QUESTION)
+	    && !is_iteratable(n->a)) {
+		error(re, KTRE_ERROR_SYNTAX_ERROR,
+		      n->loc,
+		      "iteration on non-iteratable value");
+		return;
 	}
 
 	switch (n->type) {
@@ -1836,7 +1767,7 @@ compile(struct ktre *re, struct node *n, bool rev)
 
 	case NODE_PLUS:
 		switch (n->a->type) {
-		case NODE_ASTERISK: /* fall through */
+		case NODE_ASTERISK:
 		case NODE_PLUS:
 		case NODE_QUESTION:
 		case NODE_REP:
@@ -1880,12 +1811,18 @@ compile(struct ktre *re, struct node *n, bool rev)
 
 	case NODE_BACKREF:
 		if (n->c <= 0 || n->c >= re->num_groups) {
-			error(re, KTRE_ERROR_SYNTAX_ERROR, n->loc, "backreference number is invalid or references a group that does not yet exist");
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      n->loc,
+			      "backreference number references a group "
+			      "that does not yet exist");
 			return;
 		}
 
 		if (!re->group[n->c].is_compiled) {
-			error(re, KTRE_ERROR_SYNTAX_ERROR, n->loc, "backreferences may not reference the group they occur in");
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      n->loc,
+			      "backreferences may not reference the "
+			      "group they occur in");
 			return;
 		}
 
@@ -1916,61 +1853,45 @@ compile(struct ktre *re, struct node *n, bool rev)
 
 		if (n->d == -1) {
 			if (n->a->type == NODE_GROUP) {
-				/* basically just manually emit the
-				 * bytecode for * */
+				/* Emit the bytecode for a Kleene star. */
 				emit_ab(re, INSTR_BRANCH, re->ip + 1, re->ip + 2, n->loc);
 				emit_c(re, INSTR_CALL, re->group[n->a->gi].address + 1, n->loc);
 				emit_ab(re, INSTR_BRANCH, re->ip - 1, re->ip + 1, n->loc);
 			} else {
 				emit_ab(re, INSTR_BRANCH, a, re->ip + 1, n->loc);
 			}
-		} else {
-			for (int i = 0; i < n->d - n->c; i++) {
-				a = re->ip;
-				emit_ab(re, INSTR_BRANCH, re->ip + 1, -1, n->loc);
 
-				if (n->a->type == NODE_GROUP) {
-					emit_c(re, INSTR_CALL, re->group[n->a->gi].address + 1, n->loc);
-				} else {
-					compile(re, n->a, rev);
-				}
+			break;
+		}
 
-				PATCH_B(a, re->ip);
-			}
+		for (int i = 0; i < n->d - n->c; i++) {
+			a = re->ip;
+			emit_ab(re, INSTR_BRANCH, re->ip + 1, -1, n->loc);
+
+			if (n->a->type == NODE_GROUP)
+				emit_c(re, INSTR_CALL, re->group[n->a->gi].address + 1, n->loc);
+			else compile(re, n->a, rev);
+
+			PATCH_B(a, re->ip);
 		}
 		break;
 
-	case NODE_ATOM:
-		emit(re, INSTR_TRY, n->loc);
-		compile(re, n->a, rev);
-		emit(re, INSTR_CATCH, n->loc);
-		break;
+#define GROUPY(A,B,C)				\
+		emit(re, INSTR_##A, n->loc);	\
+		compile(re, n->a, B);		\
+		emit(re, INSTR_##C, n->loc)	\
 
-	case NODE_PLA:
-		emit(re, INSTR_PLA, n->loc);
-		compile(re, n->a, false);
-		emit(re, INSTR_PLA_WIN, n->loc);
-		break;
-
+	case NODE_ATOM: GROUPY(TRY,rev,CATCH); break;
+	case NODE_PLA: GROUPY(PLA,false,PLA_WIN); break;
+	case NODE_PLB: GROUPY(PLB,true,PLB_WIN); break;
 	case NODE_NLA:
 		a = re->ip;
-		emit(re, INSTR_NLA, n->loc);
-		compile(re, n->a, false);
-		emit(re, INSTR_NLA_FAIL, n->loc);
+		GROUPY(NLA,false,NLA_FAIL);
 		PATCH_C(a, re->ip);
 		break;
-
-	case NODE_PLB:
-		emit(re, INSTR_PLB, n->loc);
-		compile(re, n->a, true);
-		emit(re, INSTR_PLB_WIN, n->loc);
-		break;
-
 	case NODE_NLB:
 		a = re->ip;
-		emit_c(re, INSTR_NLB, -1, n->loc);
-		compile(re, n->a, true);
-		emit(re, INSTR_NLB_FAIL, n->loc);
+		GROUPY(NLB,true,NLB_FAIL);
 		PATCH_C(a, re->ip);
 		break;
 
@@ -2006,36 +1927,44 @@ print_compile_error(struct ktre *re)
 	    re->err, re->err_str ? re->err_str : "no error message");
 	DBG("\t%s\n\t", re->pat);
 	for (int i = 0; i < re->loc; i++)
-		if (re->pat[i] == '\t') DBG("\t");
-		else DBG(" ");
+		DBG(re->pat[i] == '\t' ? "\t" : " ");
 	DBG("^");
 }
 
 static void
 print_finish(struct ktre *re, const char *subject, const char *regex, bool ret, int **vec, const char *replaced)
 {
-	if (ret) {
-		for (unsigned i = 0; i < re->num_matches; i++) {
-			DBG("\nmatch %d: `%.*s`", i + 1, vec[i][1], subject + vec[i][0]);
-
-			for (int j = 1; j < re->num_groups; j++) {
-				if (vec[i][j * 2 + 1] && vec[i][j * 2] != (int)strlen(subject))
-					DBG("\ngroup %d: `%.*s`", j, vec[i][j * 2 + 1], subject + vec[i][j * 2]);
-			}
-		}
-
-		if (replaced) {
-			DBG("\nreplace: `%s`", replaced);
-		}
-	} else if (re->err) {
+	if (!ret && !re->err) { DBG("\nno matches."); return; }
+	if (re->err) {
 		DBG("\nfailed at runtime with error code %d: %s\n",
-		    re->err, re->err_str ? re->err_str : "no error message");
+		    re->err, re->err_str
+		    ? re->err_str
+		    : "no error message");
 		DBG("\t%s\n\t", regex);
 		for (int i = 0; i < re->loc; i++) DBG(" ");
 		DBG("^");
-	} else {
-		DBG("\nno matches.");
+		return;
 	}
+
+	for (unsigned i = 0; i < re->num_matches; i++) {
+		DBG("\nmatch %d: `%.*s`",
+		    i + 1,
+		    vec[i][1],
+		    subject + vec[i][0]);
+
+		for (int j = 1, n = (int)strlen(subject);
+		     j < re->num_groups;
+		     j++) {
+			if (vec[i][j * 2 + 1] && vec[i][j * 2] == n)
+				continue;
+			DBG("\ngroup %d: `%.*s`",
+			    j,
+			    vec[i][j * 2 + 1],
+			    subject + vec[i][j * 2]);
+		}
+	}
+
+	if (replaced) DBG("\nreplace: `%s`", replaced);
 }
 
 struct ktre *
@@ -2063,12 +1992,12 @@ ktre_compile(const char *pat, int opt)
 	}
 #endif
 
+	re->err_str = "no error";
+	re->max_tp  = -1;
+	re->popt    = opt;
 	re->pat     = pat;
 	re->opt     = opt;
 	re->sp      = pat;
-	re->popt    = opt;
-	re->max_tp  = -1;
-	re->err_str = "no error";
 	re->n       = new_node(re);
 
 	if ((opt & KTRE_CONTINUE) && (opt & KTRE_GLOBAL)) {
@@ -2136,12 +2065,7 @@ ktre_compile(const char *pat, int opt)
 
 	compile(re, re->n, false);
 	re->num_groups = re->gp;
-
-	if (re->err) {
-		print_compile_error(re);
-		return re;
-	}
-
+	if (re->err) return print_compile_error(re), re;
 	emit(re, INSTR_MATCH, re->sp - re->pat);
 
 #ifdef KTRE_DEBUG
@@ -2154,42 +2078,42 @@ ktre_compile(const char *pat, int opt)
 		DBG("\n%3d: [%3d] ", i, re->c[i].loc);
 
 		switch (re->c[i].op) {
-		case INSTR_CLASS: DBG("CLASS   '"); dbgf(re->c[i].class); DBG("'");    break;
-		case INSTR_STR:   DBG("STR     '"); dbgf(re->c[i].class); DBG("'");    break;
-		case INSTR_NOT:   DBG("NOT     '"); dbgf(re->c[i].class); DBG("'");    break;
-		case INSTR_TSTR:  DBG("TSTR    '"); dbgf(re->c[i].class); DBG("'");    break;
+		case INSTR_CLASS: DBG("CLASS   '"); dbgf(re->c[i].class); DBG("'");   break;
+		case INSTR_STR:   DBG("STR     '"); dbgf(re->c[i].class); DBG("'");   break;
+		case INSTR_NOT:   DBG("NOT     '"); dbgf(re->c[i].class); DBG("'");   break;
+		case INSTR_TSTR:  DBG("TSTR    '"); dbgf(re->c[i].class); DBG("'");   break;
 		case INSTR_BRANCH:    DBG("BRANCH   %d, %d", re->c[i].a, re->c[i].b); break;
-		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].a);                 break;
-		case INSTR_SAVE:      DBG("SAVE     %d",  re->c[i].a);                 break;
-		case INSTR_JMP:       DBG("JMP      %d",  re->c[i].a);                 break;
-		case INSTR_SETOPT:    DBG("SETOPT   %d",  re->c[i].a);                 break;
-		case INSTR_BACKREF:   DBG("BACKREF  %d",  re->c[i].a);                 break;
-		case INSTR_CALL:      DBG("CALL     %d",  re->c[i].a);                 break;
-		case INSTR_PROG:      DBG("PROG     %d",  re->c[i].a);                 break;
-		case INSTR_SET_START: DBG("SET_START");                                break;
-		case INSTR_TRY:       DBG("TRY");                                      break;
-		case INSTR_CATCH:     DBG("CATCH");                                    break;
-		case INSTR_ANY:       DBG("ANY");                                      break;
-		case INSTR_MANY:      DBG("MANY");                                     break;
-		case INSTR_DIGIT:     DBG("DIGIT");                                    break;
-		case INSTR_WORD:      DBG("WORD");                                     break;
-		case INSTR_SPACE:     DBG("SPACE");                                    break;
-		case INSTR_BOL:       DBG("BOL");                                      break;
-		case INSTR_EOL:       DBG("EOL");                                      break;
-		case INSTR_BOS:       DBG("BOS");                                      break;
-		case INSTR_EOS:       DBG("EOS");                                      break;
-		case INSTR_RET:       DBG("RET");                                      break;
-		case INSTR_WB:        DBG("WB");                                       break;
-		case INSTR_NWB:       DBG("NWB");                                      break;
-		case INSTR_MATCH:     DBG("MATCH");                                    break;
-		case INSTR_PLA:       DBG("PLA");                                      break;
-		case INSTR_PLA_WIN:   DBG("PLA_WIN");                                  break;
-		case INSTR_NLA:       DBG("NLA      %d",  re->c[i].a);                 break;
-		case INSTR_NLA_FAIL:  DBG("NLA_FAIL");                                 break;
-		case INSTR_PLB:       DBG("PLB");                                      break;
-		case INSTR_PLB_WIN:   DBG("PLB_WIN");                                  break;
-		case INSTR_NLB:       DBG("NLB      %d",  re->c[i].a);                 break;
-		case INSTR_NLB_FAIL:  DBG("NLB_FAIL");                                 break;
+		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].a);                break;
+		case INSTR_SAVE:      DBG("SAVE     %d",  re->c[i].a);                break;
+		case INSTR_JMP:       DBG("JMP      %d",  re->c[i].a);                break;
+		case INSTR_SETOPT:    DBG("SETOPT   %d",  re->c[i].a);                break;
+		case INSTR_BACKREF:   DBG("BACKREF  %d",  re->c[i].a);                break;
+		case INSTR_CALL:      DBG("CALL     %d",  re->c[i].a);                break;
+		case INSTR_PROG:      DBG("PROG     %d",  re->c[i].a);                break;
+		case INSTR_SET_START: DBG("SET_START");                               break;
+		case INSTR_TRY:       DBG("TRY");                                     break;
+		case INSTR_CATCH:     DBG("CATCH");                                   break;
+		case INSTR_ANY:       DBG("ANY");                                     break;
+		case INSTR_MANY:      DBG("MANY");                                    break;
+		case INSTR_DIGIT:     DBG("DIGIT");                                   break;
+		case INSTR_WORD:      DBG("WORD");                                    break;
+		case INSTR_SPACE:     DBG("SPACE");                                   break;
+		case INSTR_BOL:       DBG("BOL");                                     break;
+		case INSTR_EOL:       DBG("EOL");                                     break;
+		case INSTR_BOS:       DBG("BOS");                                     break;
+		case INSTR_EOS:       DBG("EOS");                                     break;
+		case INSTR_RET:       DBG("RET");                                     break;
+		case INSTR_WB:        DBG("WB");                                      break;
+		case INSTR_NWB:       DBG("NWB");                                     break;
+		case INSTR_MATCH:     DBG("MATCH");                                   break;
+		case INSTR_PLA:       DBG("PLA");                                     break;
+		case INSTR_PLA_WIN:   DBG("PLA_WIN");                                 break;
+		case INSTR_NLA:       DBG("NLA      %d",  re->c[i].a);                break;
+		case INSTR_NLA_FAIL:  DBG("NLA_FAIL");                                break;
+		case INSTR_PLB:       DBG("PLB");                                     break;
+		case INSTR_PLB_WIN:   DBG("PLB_WIN");                                 break;
+		case INSTR_NLB:       DBG("NLB      %d",  re->c[i].a);                break;
+		case INSTR_NLB_FAIL:  DBG("NLB_FAIL");                                break;
 
 		default:
  			DBG("\nunimplemented instruction printer %d\n", re->c[i].op);
@@ -2216,7 +2140,7 @@ struct ktre *ktre_copy(struct ktre *re)
 #define MAKE_THREAD_VARIABLE(f,p)					\
 	do {								\
 		if (!THREAD[TP].f) {					\
-			THREAD[TP].f = malloc(   (p + 1) * sizeof *THREAD[TP].f); \
+			THREAD[TP].f = malloc(    (p + 1) * sizeof *THREAD[TP].f); \
 			memset(THREAD[TP].f, -1,  (p + 1) * sizeof *THREAD[TP].f); \
 			re->info.runtime_alloc += (p + 1) * sizeof *THREAD[TP].f; \
 		} else if (THREAD[TP].p < p) {				\
@@ -2230,7 +2154,7 @@ struct ktre *ktre_copy(struct ktre *re)
 			memcpy(THREAD[TP].f,				\
 			       THREAD[TP - 1].f,			\
 			       THREAD[TP - 1].p > p			\
-			       ? p * sizeof THREAD[0].f[0]		\
+			       ? p * sizeof *THREAD[0].f		\
 			       : THREAD[TP - 1].p * sizeof *THREAD[0].f); \
 		}							\
 	} while (0)
@@ -2239,7 +2163,7 @@ struct ktre *ktre_copy(struct ktre *re)
 #define MAKE_STATIC_THREAD_VARIABLE(f,s)				\
 	do {								\
 		if (!THREAD[TP].f) {					\
-			THREAD[TP].f = malloc(   (s) * sizeof *THREAD[TP].f); \
+			THREAD[TP].f = malloc(    (s) * sizeof *THREAD[TP].f); \
 			memset(THREAD[TP].f, -1,  (s) * sizeof *THREAD[TP].f); \
 			re->info.runtime_alloc += (s) * sizeof *THREAD[TP].f; \
 		}							\
@@ -2252,7 +2176,13 @@ struct ktre *ktre_copy(struct ktre *re)
 	} while (0)
 
 static void
-new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int ep)
+new_thread(struct ktre *re,
+	   int sp,
+	   int ip,
+	   int opt,
+	   int fp,
+	   int la,
+	   int ep)
 {
 	++TP;
 
@@ -2265,11 +2195,10 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int ep)
 			 * to bump up against the thread limit.
 			 */
 			TP = (TP >= KTRE_MAX_THREAD) ? KTRE_MAX_THREAD - 1 : TP;
-		} else
-			re->info.thread_alloc *= 2;
+		} else re->info.thread_alloc *= 2;
 
-		re->t = realloc(re->t, re->info.thread_alloc * sizeof THREAD[0]);
-		memset(&THREAD[TP], 0, (re->info.thread_alloc - TP) * sizeof THREAD[0]);
+		re->t = realloc(re->t, re->info.thread_alloc * sizeof *THREAD);
+		memset(&THREAD[TP], 0, (re->info.thread_alloc - TP) * sizeof *THREAD);
 	}
 
 	MAKE_STATIC_THREAD_VARIABLE(vec, re->num_groups * 2);
@@ -2286,7 +2215,6 @@ new_thread(struct ktre *re, int ip, int sp, int opt, int fp, int la, int ep)
 }
 
 #define FAIL do { --TP; goto breakout; } while (0)
-
 #define CHECKBOUNDS						\
 	do {							\
 		if (sp < 0 || sp >= (int)strlen(subject)) FAIL;	\
@@ -2301,16 +2229,16 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 	if (!re->info.thread_alloc) {
 		re->info.thread_alloc = 25;
-		re->t = malloc(re->info.thread_alloc * sizeof THREAD[0]);
+		re->t = malloc(re->info.thread_alloc * sizeof *THREAD);
 		if (re->err) return false;
-		memset(re->t, 0, re->info.thread_alloc * sizeof THREAD[0]);
+		memset(re->t, 0, re->info.thread_alloc * sizeof *THREAD);
 	}
 
-	if (re->opt & KTRE_CONTINUE && re->cont >= (int)strlen(subject))
-		return false;
+	int slen = (int)strlen(subject);
+	if (re->opt & KTRE_CONTINUE && re->cont >= slen) return false;
 
-	/* push the initial thread */
-	new_thread(re, 0, re->opt & KTRE_CONTINUE ? re->cont : 0, re->opt, 0, 0, 0);
+	/* Push the initial thread. */
+	new_thread(re, re->opt & KTRE_CONTINUE ? re->cont : 0, 0, re->opt, 0, 0, 0);
 
 #ifdef KTRE_DEBUG
 	int num_steps = 0;
@@ -2340,6 +2268,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 		}
 
 		switch (re->c[ip].op) {
+		case INSTR_JMP: THREAD[TP].ip = re->c[ip].c; break;
 		case INSTR_BACKREF:
 			THREAD[TP].ip++;
 
@@ -2377,18 +2306,18 @@ run(struct ktre *re, const char *subject, int ***vec)
 			THREAD[TP].ip++;
 
 			if (opt & KTRE_INSENSITIVE) {
-				for (int i = 0; i < (int)strlen(re->c[ip].class); i++)
+				for (unsigned i = 0; i < re->c[ip].len; i++)
 					if (rev
-					    ? lc(subject[sp + 1 - strlen(re->c[ip].class) + i]) != re->c[ip].class[i]
+					    ? lc(subject[sp + 1 - re->c[ip].len + i]) != re->c[ip].class[i]
 					    : lc(subject[sp + i]) != re->c[ip].class[i])
 						FAIL;
 
-				THREAD[TP].sp += rev ? -strlen(re->c[ip].class) : strlen(re->c[ip].class);
+				THREAD[TP].sp += rev ? -re->c[ip].len : re->c[ip].len;
 			} else {
 				if (rev
-				    ? !strncmp(subject + sp + 1 - strlen(re->c[ip].class), re->c[ip].class, strlen(re->c[ip].class))
-				    : !strncmp(subject + sp, re->c[ip].class, strlen(re->c[ip].class)))
-					THREAD[TP].sp += rev ? -strlen(re->c[ip].class) : strlen(re->c[ip].class);
+				    ? !strncmp(subject + sp + 1 - re->c[ip].len, re->c[ip].class, re->c[ip].len)
+				    : !strncmp(subject + sp, re->c[ip].class, re->c[ip].len))
+					THREAD[TP].sp += rev ? -re->c[ip].len : re->c[ip].len;
 				else FAIL;
 			}
 			break;
@@ -2406,7 +2335,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 			break;
 
 		case INSTR_EOL:
-			if (sp < 0 || (subject[sp] != '\n' && sp != (int)strlen(subject))) FAIL;
+			if (sp < 0 || (subject[sp] != '\n' && sp != slen)) FAIL;
 			THREAD[TP].ip++;
 			break;
 
@@ -2416,7 +2345,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 			break;
 
 		case INSTR_EOS:
-			if (sp != (int)strlen(subject)) FAIL;
+			if (sp != slen) FAIL;
 			THREAD[TP].ip++;
 			break;
 
@@ -2464,7 +2393,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 		case INSTR_BRANCH:
 			THREAD[TP].ip = re->c[ip].b;
-			new_thread(re, re->c[ip].a, sp, opt, fp, la, ep);
+			new_thread(re, sp, re->c[ip].a, opt, fp, la, ep);
 			break;
 
 		case INSTR_MATCH: {
@@ -2502,7 +2431,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 			THREAD[TP].ip = 0;
 			THREAD[TP].sp = sp;
 
-			if (THREAD[TP].sp > (int)strlen(subject)) return true;
+			if (THREAD[TP].sp > slen) return true;
 		} break;
 
 		case INSTR_SAVE:
@@ -2511,8 +2440,6 @@ run(struct ktre *re, const char *subject, int ***vec)
 				? sp
 				: sp - THREAD[TP].vec[re->c[ip].c - 1];
 			break;
-
-		case INSTR_JMP: THREAD[TP].ip = re->c[ip].c; break;
 
 		case INSTR_SETOPT:
 			THREAD[TP].ip++;
@@ -2562,7 +2489,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 		case INSTR_TRY:
 			THREAD[TP].ip++;
 			THREAD[TP].exception = realloc(THREAD[TP].exception,
-						       (ep + 1) * sizeof THREAD[TP].exception[0]);
+						       (ep + 1) * sizeof *THREAD[TP].exception);
 			THREAD[TP].exception[THREAD[TP].ep++] = TP;
 			break;
 
@@ -2574,7 +2501,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 		case INSTR_PLB:
 			THREAD[TP].die = true;
-			new_thread(re, ip + 1, sp - 1, opt, fp, la, ep + 1);
+			new_thread(re, sp - 1, ip + 1, opt, fp, la, ep + 1);
 			THREAD[TP].exception[ep] = TP - 1;
 			THREAD[TP].rev = true;
 			break;
@@ -2588,7 +2515,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 		case INSTR_NLB:
 			THREAD[TP].ip = re->c[ip].c;
-			new_thread(re, ip + 1, sp - 1, opt, fp, la, ep + 1);
+			new_thread(re, sp - 1, ip + 1, opt, fp, la, ep + 1);
 			THREAD[TP].exception[ep] = TP - 1;
 			THREAD[TP].rev = true;
 			break;
@@ -2599,7 +2526,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 		case INSTR_PLA:
 			THREAD[TP].die = true;
-			new_thread(re, ip + 1, sp, opt, fp, la, ep + 1);
+			new_thread(re, sp, ip + 1, opt, fp, la, ep + 1);
 			THREAD[TP].exception[ep] = TP - 1;
 			break;
 
@@ -2611,7 +2538,7 @@ run(struct ktre *re, const char *subject, int ***vec)
 
 		case INSTR_NLA:
 			THREAD[TP].ip = re->c[ip].a;
-			new_thread(re, ip + 1, sp, opt, fp, la, ep + 1);
+			new_thread(re, sp, ip + 1, opt, fp, la, ep + 1);
 			THREAD[TP].exception[ep] = TP - 1;
 			break;
 
@@ -2677,39 +2604,6 @@ ktre_free(struct ktre *re)
 	free(re->group);
 	free(re->t);
 	struct ktre_info info = re->info;
-
-#ifdef KTRE_DEBUG
-	DBG("\nFinished with %d allocations, %d frees, and %zd bytes allocated.",
-	    info.num_alloc, info.num_free,
-	    info.mba + sizeof (struct ktre));
-
-	DBG("\n%5zd bytes were allocated for the main structure.",
-	    sizeof (struct ktre));
-	DBG("\n%5zd bytes were allocated for the bytecode.",
-	    info.instr_alloc * sizeof (struct instr));
-	DBG("\n%5zd bytes were allocated for the runtime.",
-	    info.runtime_alloc + info.thread_alloc * sizeof (struct thread));
-	DBG("\n%5d bytes were allocated for the parser.",
-	    info.parser_alloc);
-
-	if (info.ba) {
-		DBG("\nThere were %zd leaked bytes from %d unmatched allocations.",
-		    info.ba - (info.num_alloc - info.num_free) * sizeof (struct ktre_minfo),
-		    info.num_alloc - info.num_free);
-
-		struct ktre_minfo *mi = re->minfo;
-		int i = 0;
-
-		while (mi->next) mi = mi->next;
-
-		while (mi) {
-			DBG("\n\tleak %d: %d bytes at %s:%d",
-			    i + 1, mi->size, mi->file, mi->line);
-			mi = mi->prev;
-			i++;
-		}
-	}
-#endif
 	struct ktre_minfo *mi = re->minfo;
 
 	while (mi) {
@@ -2719,7 +2613,6 @@ ktre_free(struct ktre *re)
 	}
 
 	free(re);
-
 	return info;
 }
 
@@ -2729,8 +2622,7 @@ ktre_exec(struct ktre *re, const char *subject, int ***vec)
 	DBG("\nsubject: %s", subject);
 
 	if (re->err) {
-		if (re->err_str)
-			free(re->err_str);
+		if (re->err_str) free(re->err_str);
 		re->err = KTRE_ERROR_NO_ERROR;
 	}
 
@@ -2962,11 +2854,11 @@ char **ktre_split(ktre *re, const char *subject, int *len)
 
 int **ktre_getvec(const struct ktre *re)
 {
-	int **vec = malloc(re->num_matches * sizeof re->vec[0]);
+	int **vec = malloc(re->num_matches * sizeof *re->vec);
 
 	for (unsigned i = 0; i < re->num_matches; i++) {
-		vec[i] = malloc(re->num_groups * 2 * sizeof re->vec[0][0]);
-		memcpy(vec[i], re->vec[i], re->num_groups * 2 * sizeof re->vec[0][0]);
+		vec[i] = malloc(re->num_groups * 2 * sizeof **re->vec);
+		memcpy(vec[i], re->vec[i], re->num_groups * 2 * sizeof **re->vec);
 	}
 
 	return vec;
