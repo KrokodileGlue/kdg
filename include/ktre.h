@@ -33,7 +33,8 @@ enum {
 	KTRE_EXTENDED    = 1 << 2,
 	KTRE_GLOBAL      = 1 << 3,
 	KTRE_MULTILINE   = 1 << 4,
-	KTRE_CONTINUE    = 1 << 5
+	KTRE_CONTINUE    = 1 << 5,
+	KTRE_DEBUG       = 1 << 6
 };
 
 /* settings and limits */

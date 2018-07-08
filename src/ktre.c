@@ -5,8 +5,6 @@
 #include <ctype.h>
 #include <stdio.h>
 
-#define KTRE_DEBUG 1
-
 #include "ktre.h"
 
 #define WHITESPACE " \t\r\n\v\f"
@@ -17,7 +15,7 @@
 #include <assert.h>
 
 static void print_node(struct ktre *re, struct node *n);
-#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#define DBG(...) ((re->opt & KTRE_DEBUG) ? fprintf(stderr, __VA_ARGS__) : 0)
 static void
 dbgf(const char *str)
 {
@@ -1574,6 +1572,7 @@ parse(struct ktre *re)
 static void
 print_node(struct ktre *re, struct node *n)
 {
+	if ((re->opt & KTRE_DEBUG) == 0) return;
 	static int depth = 0;
 	static int l = 0, arm[2048] = { 0 };
 
@@ -1656,18 +1655,65 @@ print_node(struct ktre *re, struct node *n)
 	depth--;
 }
 
+static void
+print_instruction(ktre *re, struct instr instr)
+{
+	switch (instr.op) {
+	case INSTR_CLASS: DBG("CLASS   '"); dbgf(instr.class); DBG("'"); break;
+	case INSTR_STR:   DBG("STR     '"); dbgf(instr.class); DBG("'"); break;
+	case INSTR_NOT:   DBG("NOT     '"); dbgf(instr.class); DBG("'"); break;
+	case INSTR_TSTR:  DBG("TSTR    '"); dbgf(instr.class); DBG("'"); break;
+	case INSTR_BRANCH:    DBG("BRANCH   %d, %d", instr.a, instr.b);  break;
+	case INSTR_CHAR:      DBG("CHAR    '%c'", instr.a);              break;
+	case INSTR_SAVE:      DBG("SAVE     %d",  instr.a);              break;
+	case INSTR_JMP:       DBG("JMP      %d",  instr.a);              break;
+	case INSTR_SETOPT:    DBG("SETOPT   %d",  instr.a);              break;
+	case INSTR_BACKREF:   DBG("BACKREF  %d",  instr.a);              break;
+	case INSTR_CALL:      DBG("CALL     %d",  instr.a);              break;
+	case INSTR_PROG:      DBG("PROG     %d",  instr.a);              break;
+	case INSTR_SET_START: DBG("SET_START");                          break;
+	case INSTR_TRY:       DBG("TRY");                                break;
+	case INSTR_CATCH:     DBG("CATCH");                              break;
+	case INSTR_ANY:       DBG("ANY");                                break;
+	case INSTR_MANY:      DBG("MANY");                               break;
+	case INSTR_DIGIT:     DBG("DIGIT");                              break;
+	case INSTR_WORD:      DBG("WORD");                               break;
+	case INSTR_SPACE:     DBG("SPACE");                              break;
+	case INSTR_BOL:       DBG("BOL");                                break;
+	case INSTR_EOL:       DBG("EOL");                                break;
+	case INSTR_BOS:       DBG("BOS");                                break;
+	case INSTR_EOS:       DBG("EOS");                                break;
+	case INSTR_RET:       DBG("RET");                                break;
+	case INSTR_WB:        DBG("WB");                                 break;
+	case INSTR_NWB:       DBG("NWB");                                break;
+	case INSTR_MATCH:     DBG("MATCH");                              break;
+	case INSTR_PLA:       DBG("PLA");                                break;
+	case INSTR_PLA_WIN:   DBG("PLA_WIN");                            break;
+	case INSTR_NLA:       DBG("NLA      %d",  instr.a);              break;
+	case INSTR_NLA_FAIL:  DBG("NLA_FAIL");                           break;
+	case INSTR_PLB:       DBG("PLB");                                break;
+	case INSTR_PLB_WIN:   DBG("PLB_WIN");                            break;
+	case INSTR_NLB:       DBG("NLB      %d",  instr.a);              break;
+	case INSTR_NLB_FAIL:  DBG("NLB_FAIL");                           break;
+	default:
+		DBG("\nunimplemented instruction printer %d\n", instr.op);
+		assert(false);
+	}
+}
+
 static bool
 is_iteratable(struct node *n)
 {
 	return n->type != NODE_SETOPT;
 }
 
-static void
-compile(struct ktre *re, struct node *n, bool rev)
-{
 #define PATCH_A(loc, _a) if (re->c) re->c[loc].a = _a
 #define PATCH_B(loc, _b) if (re->c) re->c[loc].b = _b
 #define PATCH_C(loc, _c) if (re->c) re->c[loc].c = _c
+
+static void
+compile(struct ktre *re, struct node *n, bool rev)
+{
 	int a = -1, b = -1;
 
 	if (!n) return;
@@ -1918,6 +1964,7 @@ compile(struct ktre *re, struct node *n, bool rev)
 static void
 print_compile_error(struct ktre *re)
 {
+	if ((re->opt & KTRE_DEBUG) == 0) return;
 	DBG("\nfailed to compile with error code %d: %s\n",
 	    re->err, re->err_str ? re->err_str : "no error message");
 	DBG("\t%s\n\t", re->pat);
@@ -1927,9 +1974,15 @@ print_compile_error(struct ktre *re)
 }
 
 static void
-print_finish(struct ktre *re, const char *subject, const char *regex, bool ret, int **vec, const char *replaced)
+print_finish(struct ktre *re,
+	     const char *subject,
+	     const char *regex,
+	     bool ret,
+	     int **vec,
+	     const char *replaced)
 {
-	if (!ret && !re->err) { DBG("\nno matches."); return; }
+	if ((re->opt & KTRE_DEBUG) == 0) return;
+	if (!ret && !re->err) { DBG("\nno matches.\n"); return; }
 	if (re->err) {
 		DBG("\nfailed at runtime with error code %d: %s\n",
 		    re->err, re->err_str
@@ -1937,7 +1990,7 @@ print_finish(struct ktre *re, const char *subject, const char *regex, bool ret, 
 		    : "no error message");
 		DBG("\t%s\n\t", regex);
 		for (int i = 0; i < re->loc; i++) DBG(" ");
-		DBG("^");
+		DBG("^\n");
 		return;
 	}
 
@@ -1960,6 +2013,7 @@ print_finish(struct ktre *re, const char *subject, const char *regex, bool ret, 
 	}
 
 	if (replaced) DBG("\nreplace: `%s`", replaced);
+	DBG("\n");
 }
 
 struct ktre *
@@ -1972,21 +2026,6 @@ ktre_compile(const char *pat, int opt)
 
 	if (opt & KTRE_GLOBAL) opt |= KTRE_UNANCHORED;
 
-#ifdef KTRE_DEBUG
-	DBG("regexpr: %s", pat);
-	if (opt) DBG("\noptions:");
-	for (size_t i = 0; i < sizeof opt; i++) {
-		switch (opt & 1 << i) {
-		case KTRE_INSENSITIVE: DBG("\n\tINSENSITIVE"); break;
-		case KTRE_UNANCHORED:  DBG("\n\tUNANCHORED");  break;
-		case KTRE_EXTENDED:    DBG("\n\tEXTENDED");    break;
-		case KTRE_GLOBAL:      DBG("\n\tGLOBAL");      break;
-		case KTRE_CONTINUE:    DBG("\n\tCONTINUE");    break;
-		default: continue;
-		}
-	}
-#endif
-
 	re->err_str = "no error";
 	re->max_tp  = -1;
 	re->popt    = opt;
@@ -1994,6 +2033,21 @@ ktre_compile(const char *pat, int opt)
 	re->opt     = opt;
 	re->sp      = pat;
 	re->n       = new_node(re);
+
+	if (opt & KTRE_DEBUG) {
+		DBG("regexpr: %s", pat);
+		if (opt) DBG("\noptions:");
+		for (size_t i = 0; i < sizeof opt; i++) {
+			switch (opt & 1 << i) {
+			case KTRE_INSENSITIVE: DBG("\n\tINSENSITIVE"); break;
+			case KTRE_UNANCHORED:  DBG("\n\tUNANCHORED");  break;
+			case KTRE_EXTENDED:    DBG("\n\tEXTENDED");    break;
+			case KTRE_GLOBAL:      DBG("\n\tGLOBAL");      break;
+			case KTRE_CONTINUE:    DBG("\n\tCONTINUE");    break;
+			default: continue;
+			}
+		}
+	}
 
 	if ((opt & KTRE_CONTINUE) && (opt & KTRE_GLOBAL)) {
 		error(re, KTRE_ERROR_INVALID_OPTIONS, 0,
@@ -2063,59 +2117,15 @@ ktre_compile(const char *pat, int opt)
 	if (re->err) return print_compile_error(re), re;
 	emit(re, INSTR_MATCH, re->sp - re->pat);
 
-#ifdef KTRE_DEBUG
+	if ((opt & KTRE_DEBUG) == 0) return re;
+
 	for (int i = 0; i < re->ip; i++) {
-		for (int j = 0; j < re->num_groups; j++) {
+		for (int j = 0; j < re->num_groups; j++)
 			if (re->group[j].address == i)
 				DBG("\ngroup %d:", j);
-		}
-
 		DBG("\n%3d: [%3d] ", i, re->c[i].loc);
-
-		switch (re->c[i].op) {
-		case INSTR_CLASS: DBG("CLASS   '"); dbgf(re->c[i].class); DBG("'");   break;
-		case INSTR_STR:   DBG("STR     '"); dbgf(re->c[i].class); DBG("'");   break;
-		case INSTR_NOT:   DBG("NOT     '"); dbgf(re->c[i].class); DBG("'");   break;
-		case INSTR_TSTR:  DBG("TSTR    '"); dbgf(re->c[i].class); DBG("'");   break;
-		case INSTR_BRANCH:    DBG("BRANCH   %d, %d", re->c[i].a, re->c[i].b); break;
-		case INSTR_CHAR:      DBG("CHAR    '%c'", re->c[i].a);                break;
-		case INSTR_SAVE:      DBG("SAVE     %d",  re->c[i].a);                break;
-		case INSTR_JMP:       DBG("JMP      %d",  re->c[i].a);                break;
-		case INSTR_SETOPT:    DBG("SETOPT   %d",  re->c[i].a);                break;
-		case INSTR_BACKREF:   DBG("BACKREF  %d",  re->c[i].a);                break;
-		case INSTR_CALL:      DBG("CALL     %d",  re->c[i].a);                break;
-		case INSTR_PROG:      DBG("PROG     %d",  re->c[i].a);                break;
-		case INSTR_SET_START: DBG("SET_START");                               break;
-		case INSTR_TRY:       DBG("TRY");                                     break;
-		case INSTR_CATCH:     DBG("CATCH");                                   break;
-		case INSTR_ANY:       DBG("ANY");                                     break;
-		case INSTR_MANY:      DBG("MANY");                                    break;
-		case INSTR_DIGIT:     DBG("DIGIT");                                   break;
-		case INSTR_WORD:      DBG("WORD");                                    break;
-		case INSTR_SPACE:     DBG("SPACE");                                   break;
-		case INSTR_BOL:       DBG("BOL");                                     break;
-		case INSTR_EOL:       DBG("EOL");                                     break;
-		case INSTR_BOS:       DBG("BOS");                                     break;
-		case INSTR_EOS:       DBG("EOS");                                     break;
-		case INSTR_RET:       DBG("RET");                                     break;
-		case INSTR_WB:        DBG("WB");                                      break;
-		case INSTR_NWB:       DBG("NWB");                                     break;
-		case INSTR_MATCH:     DBG("MATCH");                                   break;
-		case INSTR_PLA:       DBG("PLA");                                     break;
-		case INSTR_PLA_WIN:   DBG("PLA_WIN");                                 break;
-		case INSTR_NLA:       DBG("NLA      %d",  re->c[i].a);                break;
-		case INSTR_NLA_FAIL:  DBG("NLA_FAIL");                                break;
-		case INSTR_PLB:       DBG("PLB");                                     break;
-		case INSTR_PLB_WIN:   DBG("PLB_WIN");                                 break;
-		case INSTR_NLB:       DBG("NLB      %d",  re->c[i].a);                break;
-		case INSTR_NLB_FAIL:  DBG("NLB_FAIL");                                break;
-
-		default:
- 			DBG("\nunimplemented instruction printer %d\n", re->c[i].op);
-			assert(false);
-		}
+		print_instruction(re, re->c[i]);
 	}
-#endif
 
 	return re;
 }
@@ -2230,12 +2240,11 @@ execute_instr(ktre *re,
 	      const char *subject,
 	      int ***vec)
 {
-#ifdef KTRE_DEBUG
-	DBG("\n| %4d | %4d | %4d | %4d | %4d | ", ip, sp, TP, fp, num_steps);
-	if (sp >= 0) dbgf(subject + sp);
-	else dbgf(subject);
-	num_steps++;
-#endif
+	if (re->opt & KTRE_DEBUG) {
+		DBG("\n| %4d | %4d | %4d | %4d | %4d | ", ip, sp, TP, fp, num_steps);
+		if (sp >= 0) dbgf(subject + sp);
+		else dbgf(subject);
+	}
 
 	if (THREAD[TP].die) {
 		THREAD[TP].die = false;

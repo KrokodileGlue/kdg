@@ -78,9 +78,8 @@ main(int argc, char **argv)
 	/* free(text); */
 	/* kdgu_free(k); */
 
-	ktre *re = ktre_compile("[+-]?(\\d+(\\.\\d+)?|\\.\\d+)([eE][+-]?\\d+)?", KTRE_UNANCHORED | KTRE_GLOBAL);
+	ktre *re = ktre_compile("[+-]?(\\d+(\\.\\d+)?|\\.\\d+)([eE][+-]?\\d+)?", KTRE_UNANCHORED | KTRE_GLOBAL | KTRE_DEBUG);
 	ktre_exec(re, "-123.4e-56", NULL);
-	putchar('\n');
 
 	ktre_free(re);
 	free(text);
