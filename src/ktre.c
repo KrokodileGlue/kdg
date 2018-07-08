@@ -119,19 +119,19 @@ struct instr {
 static void
 grow_code(struct ktre *re, int n)
 {
-	if (!re->info.instr_alloc) {
-		re->info.instr_alloc = 25;
-		re->c = malloc(re->info.instr_alloc * sizeof *re->c);
+	if (!re->instr_alloc) {
+		re->instr_alloc = 25;
+		re->c = malloc(re->instr_alloc * sizeof *re->c);
 	}
 	if (!re->c) return;
-	if (re->ip + n >= re->info.instr_alloc) {
-		if (re->ip + n >= re->info.instr_alloc * 2) {
-			re->info.instr_alloc = re->ip + n;
+	if (re->ip + n >= re->instr_alloc) {
+		if (re->ip + n >= re->instr_alloc * 2) {
+			re->instr_alloc = re->ip + n;
 		} else {
-			re->info.instr_alloc *= 2;
+			re->instr_alloc *= 2;
 		}
 
-		re->c = realloc(re->c, re->info.instr_alloc * sizeof *re->c);
+		re->c = realloc(re->c, re->instr_alloc * sizeof *re->c);
 	}
 }
 
@@ -337,11 +337,10 @@ append_str(char **class, const char *c)
 }
 
 static char *
-strclone(struct ktre *re, const char *str)
+strclone(const char *str)
 {
 	char *ret = malloc(strlen(str) + 1);
 	if (!ret) return NULL;
-	re->info.parser_alloc += strlen(str) + 1;
 	strcpy(ret, str);
 	return ret;
 }
@@ -351,7 +350,6 @@ new_node(struct ktre *re)
 {
 	struct node *n = malloc(sizeof *n);
 	if (!n) return NULL;
-	re->info.parser_alloc += sizeof *n;
 	memset(n, 0, sizeof *n);
 	n->loc = re->sp - re->pat;
 	return n;
@@ -1338,17 +1336,17 @@ parse_primary(struct ktre *re)
 
 	case 'S':
 		left->type = NODE_NOT;
-		left->class = strclone(re, WHITESPACE);
+		left->class = strclone(WHITESPACE);
 		break;
 
 	case 'D':
 		left->type = NODE_NOT;
-		left->class = strclone(re, DIGIT);
+		left->class = strclone(DIGIT);
 		break;
 
 	case 'W':
 		left->type = NODE_NOT;
-		left->class = strclone(re, WORD);
+		left->class = strclone(WORD);
 		break;
 
 	case 'Q':
@@ -1484,7 +1482,6 @@ term(struct ktre *re)
 				char a = left->c;
 				left->type = NODE_STR;
 				left->class = malloc(3);
-				re->info.parser_alloc += 3;
 
 				if (re->popt & KTRE_INSENSITIVE) {
 					left->class[0] = lc(a);
@@ -1508,7 +1505,6 @@ term(struct ktre *re)
 				char a = left->b->c;
 				left->b->type = NODE_STR;
 				left->b->class = malloc(3);
-				re->info.parser_alloc += 3;
 
 				if (re->popt & KTRE_INSENSITIVE) {
 					left->b->class[0] = lc(a);
@@ -1882,7 +1878,6 @@ compile(struct ktre *re, struct node *n, bool rev)
 				if (n->a->type == NODE_CHAR) {
 					char *str = malloc(n->c + 1);
 					if (!str) return;
-					re->info.parser_alloc += n->c + 1;
 
 					for (int j = 0; j < n->c; j++) str[i] = n->a->c;
 					str[n->c] = 0;
@@ -2147,7 +2142,6 @@ struct ktre *ktre_copy(struct ktre *re)
 		if (!THREAD[TP].f) {					\
 			THREAD[TP].f = malloc(    (p + 1) * sizeof *THREAD[TP].f); \
 			memset(THREAD[TP].f, -1,  (p + 1) * sizeof *THREAD[TP].f); \
-			re->info.runtime_alloc += (p + 1) * sizeof *THREAD[TP].f; \
 		} else if (THREAD[TP].p < p) {				\
 			THREAD[TP].f = realloc(THREAD[TP].f,		\
 					       (p + 1) * sizeof *THREAD[TP].f);	\
@@ -2170,7 +2164,6 @@ struct ktre *ktre_copy(struct ktre *re)
 		if (!THREAD[TP].f) {					\
 			THREAD[TP].f = malloc(    (s) * sizeof *THREAD[TP].f); \
 			memset(THREAD[TP].f, -1,  (s) * sizeof *THREAD[TP].f); \
-			re->info.runtime_alloc += (s) * sizeof *THREAD[TP].f; \
 		}							\
 									\
 		if (TP > 0) {						\
@@ -2191,19 +2184,19 @@ new_thread(struct ktre *re,
 {
 	++TP;
 
-	if (TP >= re->info.thread_alloc) {
-		if (re->info.thread_alloc * 2 >= KTRE_MAX_THREAD) {
-			re->info.thread_alloc = KTRE_MAX_THREAD;
+	if (TP >= re->thread_alloc) {
+		if (re->thread_alloc * 2 >= KTRE_MAX_THREAD) {
+			re->thread_alloc = KTRE_MAX_THREAD;
 
 			/*
 			 * Account for the case where we're just about
 			 * to bump up against the thread limit.
 			 */
 			TP = (TP >= KTRE_MAX_THREAD) ? KTRE_MAX_THREAD - 1 : TP;
-		} else re->info.thread_alloc *= 2;
+		} else re->thread_alloc *= 2;
 
-		re->t = realloc(re->t, re->info.thread_alloc * sizeof *THREAD);
-		memset(&THREAD[TP], 0, (re->info.thread_alloc - TP) * sizeof *THREAD);
+		re->t = realloc(re->t, re->thread_alloc * sizeof *THREAD);
+		memset(&THREAD[TP], 0, (re->thread_alloc - TP) * sizeof *THREAD);
 	}
 
 	MAKE_STATIC_THREAD_VARIABLE(vec, re->num_groups * 2);
@@ -2521,11 +2514,11 @@ run(struct ktre *re, const char *subject, int ***vec)
 	re->num_matches = 0;
 	TP = -1;
 
-	if (!re->info.thread_alloc) {
-		re->info.thread_alloc = 25;
-		re->t = malloc(re->info.thread_alloc * sizeof *THREAD);
+	if (!re->thread_alloc) {
+		re->thread_alloc = 25;
+		re->t = malloc(re->thread_alloc * sizeof *THREAD);
 		if (re->err) return false;
-		memset(re->t, 0, re->info.thread_alloc * sizeof *THREAD);
+		memset(re->t, 0, re->thread_alloc * sizeof *THREAD);
 	}
 
 	int slen = (int)strlen(subject);
@@ -2556,10 +2549,10 @@ run(struct ktre *re, const char *subject, int ***vec)
 	return !!re->num_matches;
 }
 
-struct ktre_info
+void
 ktre_free(struct ktre *re)
 {
-	if (re->copied) return re->info;
+	if (re->copied) return;
 	free_node(re, re->n);
 	if (re->err) free(re->err_str);
 
@@ -2592,17 +2585,9 @@ ktre_free(struct ktre *re)
 
 	free(re->group);
 	free(re->t);
-	struct ktre_info info = re->info;
-	struct ktre_minfo *mi = re->minfo;
-
-	while (mi) {
-		struct ktre_minfo *mi2 = mi;
-		mi = mi->next;
-		free(mi2);
-	}
-
 	free(re);
-	return info;
+
+	return;
 }
 
 _Bool

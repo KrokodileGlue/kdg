@@ -1,21 +1,7 @@
 #ifndef KTRE_H
 #define KTRE_H
 
-/*
- * Manually disable warnings and errors about "unsafe" functions on
- * Windows.
- */
-#ifdef _MSC_VER
-#pragma warning(disable:4996)
-#endif
-
-#if defined(_MSC_VER) && defined(KTRE_DEBUG)
-#define _CRTDBG_MAP_ALLOC
-#include <stdlib.h>
-#include <crtdbg.h>
-#endif
-
-/* error codes */
+/* Error codes. */
 enum ktre_error {
 	KTRE_ERROR_NO_ERROR,
 	KTRE_ERROR_STACK_OVERFLOW,
@@ -26,7 +12,7 @@ enum ktre_error {
 	KTRE_ERROR_INVALID_OPTIONS
 };
 
-/* options */
+/* Options. */
 enum {
 	KTRE_INSENSITIVE = 1 << 0,
 	KTRE_UNANCHORED  = 1 << 1,
@@ -37,35 +23,15 @@ enum {
 	KTRE_DEBUG       = 1 << 6
 };
 
-/* settings and limits */
+/* Compile-time settings. */
 #define KTRE_MAX_ERROR_LEN 100
 #define KTRE_MAX_GROUPS 100
 #define KTRE_MAX_THREAD 200
 #define KTRE_MAX_CALL_DEPTH 100
 #define KTRE_MEM_CAP 100000000
 
-struct ktre_info {
-	int ba;  /* bytes allocated */
-	int mba; /* max bytes allocated */
-	int bf;  /* bytes freed */
-	int num_alloc, num_free;
-
-	int thread_alloc;
-	int instr_alloc;
-
-	int parser_alloc;
-	int runtime_alloc;
-};
-
-struct ktre_minfo {
-	const char *file;
-	int line;
-	int size;
-	struct ktre_minfo *prev, *next;
-};
-
 struct ktre {
-	/* ===== public fields ===== */
+	/* ===================== public fields ==================== */
 	unsigned num_matches;
 	int num_groups;
 	int opt;
@@ -75,7 +41,7 @@ struct ktre {
 	 * during parsing or compilation.
 	 */
 	char *err_str;
-	enum ktre_error err; /* error status code */
+	enum ktre_error err; /* Error status code                   */
 
 	/*
 	 * The location of any error that occurred, as an index in the
@@ -83,16 +49,16 @@ struct ktre {
 	 */
 	int loc;
 
-	/* ===== private fields ===== */
-	struct instr *c; /* code */
-	int ip;          /* instruction pointer */
-	int num_prog;    /* number of progress instructions */
-	char const *pat; /* pattern that's currently begin compiled */
-	char const *sp;  /* to the character currently being parsed */
-	int popt;        /* the options, as seen by the parser */
-	int gp;          /* group pointer */
-	struct node *n;  /* the head node of the ast */
-	_Bool literal;   /* whether to escape metacharacters or not */
+	/* ==================== private fields ==================== */
+	struct instr *c; /* Code                                    */
+	int ip;          /* Instruction pointer                     */
+	int num_prog;    /* Number of progress instructions         */
+	char const *pat; /* Pattern currently being compiled        */
+	char const *sp;  /* To the character currently being parsed */
+	int popt;        /* The options, as seen by the parser      */
+	int gp;          /* Group pointer                           */
+	struct node *n;  /* The head node of the ast                */
+	_Bool literal;   /* Whether to escape metacharacters or not */
 	int cont;
 
 	struct group {
@@ -120,10 +86,8 @@ struct ktre {
 	int tp, max_tp;
 	int **vec;
 
-	struct ktre_info info;
-	struct ktre_minfo *minfo;
-
 	_Bool copied;
+	int instr_alloc, thread_alloc;
 };
 
 typedef struct ktre ktre;
@@ -137,6 +101,6 @@ char *ktre_filter(ktre *re, const char *subject, const char *replacement, const 
 char *ktre_replace(const char *subject, const char *pat, const char *replacement, const char *indicator, int opt);
 char **ktre_split(ktre *re, const char *subject, int *len);
 int **ktre_getvec(const ktre *re);
-struct ktre_info ktre_free(ktre *re);
+void ktre_free(ktre *re);
 
 #endif
