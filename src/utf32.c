@@ -38,18 +38,18 @@ utf32validate(kdgu *k, const uint8_t *s, size_t *l, int endian)
 
 	if (!endian && buflen >= 4) {
 		/* Check the BOM. */
-		uint32_t c = READUTF32(ENDIAN_BIG, s);
+		uint32_t c = READUTF32(KDGU_ENDIAN_BIG, s);
 
 		if (c == (uint32_t)0xFEFF) {
-			endian = ENDIAN_BIG;
+			endian = KDGU_ENDIAN_BIG;
 			s += 4;
 			buflen -= 4;
 		} else if (c == (uint32_t)0xFFFE0000) {
-			endian = ENDIAN_LITTLE;
+			endian = KDGU_ENDIAN_LITTLE;
 			s += 4;
 			buflen -= 4;
 		} else {
-			endian = ENDIAN_BIG;
+			endian = KDGU_ENDIAN_BIG;
 		}
 	}
 

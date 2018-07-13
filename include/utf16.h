@@ -5,7 +5,7 @@
 #include "encoding.h"
 
 #define READUTF16(X,Y)	  \
-	((X == ENDIAN_LITTLE) \
+	((X == KDGU_ENDIAN_LITTLE) \
 	 ? (uint8_t)*(Y)   << 8 | (uint8_t)*(Y+1) \
 	 : (uint8_t)*(Y+1) << 8 | (uint8_t)*(Y))
 

@@ -5,10 +5,8 @@
 #
 #     - UnicodeData.txt
 #     - SpecialCasing.txt
-#     - DerivedCoreProperties.txt
 #     - GraphemeBreakProperty.txt
 #     - CompositionExclusions.txt
-#     - CaseFolding.txt
 #
 # Don't run this script directly if you're generating the file for the
 # first time. Instead, run `./gen.sh' in this directory and all of the
@@ -278,7 +276,7 @@ sub gen_chars {
 	if ($l !~ /^([0-9A-F]+);<([^;>,]+), First>;/i) {
 	    $l =~ /^(.*?);/;
 	    $chars{hex($1)} = Char->new(line => $l);
-	    $chars{hex($1)}->{bound_class} = $boundclasses{hex($1)};
+	    $chars{hex($1)}->{bound_class} = defined $boundclasses{hex($1)} ? $boundclasses{hex($1)} : "XX";
 	    $chars{hex($1)}->{special_lc} = $special_lc{hex($1)};
 	    $chars{hex($1)}->{special_tc} = $special_tc{hex($1)};
 	    $chars{hex($1)}->{special_uc} = $special_uc{hex($1)};

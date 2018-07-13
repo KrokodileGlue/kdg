@@ -1,4 +1,4 @@
-CFLAGS += -O2 -Iinclude -std=c11 -Wall -Wextra -pedantic -D_GNU_SOURCE
+CFLAGS += -Iinclude -std=c11 -Wall -Wextra -pedantic -D_GNU_SOURCE
 CFLAGS += -Wmissing-prototypes -Wstrict-prototypes
 CFLAGS += -Wold-style-definition -Wpointer-arith -Wcast-qual
 CFLAGS += -Wunused -Wno-implicit-fallthrough -fpic
@@ -20,9 +20,13 @@ all: $(TARGET)
 	cp $(TARGET) lib$(NAME).so
 	$(CC) main.c -I include -L$(shell pwd) -Wl,-rpath $(shell pwd) -l$(NAME) -o $(NAME) -g
 
-test: test.c all
-	$(CC) test.c -I include -L$(shell pwd) -Wl,-rpath $(shell pwd) -l$(NAME) -o test -g
-	./test
+test1: test.c all
+	$(CC) test.c -I include -L$(shell pwd) -Wl,-rpath $(shell pwd) -l$(NAME) -o test1 -g
+	./test1
+
+test2: test/test.c all
+	$(CC) ./test/test.c -I include -L$(shell pwd) -Wl,-rpath $(shell pwd) -l$(NAME) -o ./test/test2 -g
+	./test/test.py ./test/test.txt
 
 debug: all
 debug: CFLAGS += -g -O0
@@ -34,16 +38,17 @@ $(TARGET): $(OBJ)
 $(SRCS:.c=.d):%.d:%.c
 	$(CC) ${LDFLAGS} -o $@ $^
 
-install:
-	cp $(TARGET) /usr/local/lib/$(TARGET)
-	ln -sf /usr/local/lib/$(TARGET) /usr/local/lib/lib$(NAME).so
-	rsync -av include/* /usr/local/include/$(NAME)/
+install: all
+	cp $(TARGET) /usr/lib/$(TARGET)
+	ln -sf /usr/lib/$(TARGET) /usr/lib/lib$(NAME).so
+	rsync -av include/* /usr/include/$(NAME)/
 	ldconfig
-	cp $(NAME) /usr/local/bin/$(NAME)
+	cp $(NAME) /usr/bin/$(NAME)
 
 clean:
 	${RM} ${TARGET} ${OBJ} $(SRC:.c=.d)
-	${RM} test
+	${RM} ./test1
+	${RM} ./test/test2
 
 -include $(DEP)
 .PHONY: all debug clean

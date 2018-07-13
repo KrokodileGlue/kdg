@@ -159,8 +159,8 @@ test_comparison(uint32_t *s1, unsigned l1, uint32_t *s2, unsigned l2)
 	kdgu *k2 = kdgu_new(FMT_UTF32, (uint8_t *)s2, l2 * sizeof *s2);
 	kdgu_convert(k1, FMT_UTF8);
 	kdgu_convert(k2, FMT_UTF8);
-	kdgu_print(k1), putchar('\n');
-	kdgu_print(k2), putchar('\n');
+	kdgu_print(k1, stdout), printf(" = ");
+	kdgu_print(k2, stdout), putchar('\n');
 	assert(kdgu_cmp(k1, k2));
 }
 

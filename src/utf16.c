@@ -12,7 +12,7 @@ utf16encode(uint32_t c, uint8_t *buf, unsigned *len,
 	struct error err = ERR(ERR_NO_ERROR, idx);
 	*len = 2;
 
-	if (endian == ENDIAN_BIG) {
+	if (endian == KDGU_ENDIAN_BIG) {
 		buf[1] = (c >> 8) & 0xFF;
 		buf[0] = c & 0xFF;
 	} else {
@@ -27,7 +27,7 @@ utf16encode(uint32_t c, uint8_t *buf, unsigned *len,
 	uint16_t high = (c >> 10) + 0xD800;
 	uint16_t low = (c & 0x3FF) + 0xDC00;
 	if (UTF16HIGH_SURROGATE(high)) *len = 4;
-	if (endian == ENDIAN_BIG) {
+	if (endian == KDGU_ENDIAN_BIG) {
 		buf[0] = (high >> 8) & 0xFF;
 		buf[1] = high & 0xFF;
 		buf[2] = (low >> 8) & 0xFF;
@@ -104,11 +104,11 @@ utf16validate(kdgu *k, const uint8_t *s, size_t *l, int endian)
 		uint16_t c = (uint8_t)s[1] << 8 | (uint8_t)s[0];
 
 		if (c == (uint16_t)0xFFFE) {
-			endian = ENDIAN_LITTLE;
+			endian = KDGU_ENDIAN_LITTLE;
 			s += 2;
 			buflen -= 2;
 		} else if (c == (uint16_t)0xFEFF) {
-			endian = ENDIAN_BIG;
+			endian = KDGU_ENDIAN_BIG;
 			s += 2;
 			buflen -= 2;
 		}

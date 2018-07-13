@@ -113,44 +113,42 @@ kdgu_print_error(struct error err)
 	}
 }
 
-static void
-delete_point(kdgu *k)
+static bool
+delete_point(kdgu *k, unsigned idx)
 {
-	unsigned idx = k->idx;
-	unsigned l = kdgu_inc(k);
+	unsigned l = kdgu_inc(k, &(unsigned){idx});
+	if (!l) return false;
 
-	if (!l) l = k->len - k->idx;
-	if (!l) return;
-
-	k->idx = idx;
-	memmove(k->s + k->idx,
-	        k->s + k->idx + l,
-	        k->len - k->idx - l);
+	memmove(k->s + idx,
+	        k->s + idx + l,
+	        k->len - idx - l);
 	k->len -= l;
+
+	return true;
 }
 
 static int
-overwritechr(kdgu *k, uint8_t *b, unsigned l1)
+overwritechr(kdgu *k, unsigned idx, uint8_t *b, unsigned l1)
 {
-	unsigned l2 = kdgu_chrsize(k);
+	unsigned l2 = kdgu_chrsize(k, idx);
 
 	if (l1 == l2) {
-		memcpy(k->s + k->idx, b, l1);
+		memcpy(k->s + idx, b, l1);
 		return 0;
 	} else if (l1 > l2) {
 		kdgu_size(k, k->len + l1 - l2);
-		memmove(k->s + k->idx + l1,
-		        k->s + k->idx + l2,
-		        k->len - k->idx - l2);
-		memcpy(k->s + k->idx, b, l1);
+		memmove(k->s + idx + l1,
+		        k->s + idx + l2,
+		        k->len - idx - l2);
+		memcpy(k->s + idx, b, l1);
 		k->len += l1 - l2;
 		return l1 - l2;
 	} else if (l1 < l2) {
 		kdgu_size(k, k->len + l2 - l1);
-		memmove(k->s + k->idx + l1,
-		        k->s + k->idx + l2,
-		        k->len - k->idx - l2);
-		memcpy(k->s + k->idx, b, l1);
+		memmove(k->s + idx + l1,
+		        k->s + idx + l2,
+		        k->len - idx - l2);
+		memcpy(k->s + idx, b, l1);
 		k->len -= l2 - l1;
 		return l1 - l2;
 	}
@@ -210,55 +208,55 @@ grapheme_break(enum boundclass l, enum boundclass r)
 }
 
 unsigned
-kdgu_next(kdgu *k)
+kdgu_next(const kdgu *k, unsigned *idx)
 {
-	unsigned now = k->idx;
+	if (!k) return 0;
+	unsigned now = *idx;
 
 	do {
-		unsigned idx = k->idx;
-		uint32_t c1 = kdgu_decode(k);
-		kdgu_inc(k);
-		uint32_t c2 = kdgu_decode(k);
-		k->idx = idx;
+		unsigned tmp = *idx;
+		uint32_t c1 = kdgu_decode(k, *idx);
+		kdgu_inc(k, idx);
+		uint32_t c2 = kdgu_decode(k, *idx);
+		*idx = tmp;
 		if (grapheme_break(codepoint(c1)->bound,
 		                   codepoint(c2)->bound))
 			break;
-	} while (kdgu_inc(k));
-	if (!kdgu_inc(k)) k->idx = now;
+	} while (kdgu_inc(k, idx));
+	if (!kdgu_inc(k, idx)) *idx = now;
 
-	return k->idx - now;
+	return *idx - now;
 }
 
 unsigned
-kdgu_prev(kdgu *k)
+kdgu_prev(const kdgu *k, unsigned *idx)
 {
-	unsigned now = k->idx;
+	if (!k) return 0;
+	unsigned now = *idx;
 
 	do {
-		unsigned idx = k->idx;
-		uint32_t c1 = kdgu_decode(k);
-		kdgu_dec(k);
-		uint32_t c2 = kdgu_decode(k);
-		k->idx = idx;
+		unsigned tmp = *idx;
+		uint32_t c1 = kdgu_decode(k, *idx);
+		kdgu_dec(k, idx);
+		uint32_t c2 = kdgu_decode(k, *idx);
+		*idx = tmp;
 		if (grapheme_break(codepoint(c1)->bound,
 		                   codepoint(c2)->bound))
 			break;
-	} while (kdgu_dec(k));
-	if (!kdgu_dec(k)) k->idx = now;
+	} while (kdgu_dec(k, idx));
+	if (!kdgu_dec(k, idx)) *idx = now;
 
-	return now - k->idx;
+	return *idx - now;
 }
 
-static int
-insert_point(kdgu *k, uint32_t c)
+static unsigned
+insert_point(kdgu *k, unsigned idx, uint32_t c)
 {
 	if (!k) return 0;
 
 	uint8_t buf[4];
 	unsigned len;
-
-	struct error err =
-		kdgu_encode(c, buf, &len, k->fmt, k->idx, k->endian);
+	struct error err = kdgu_encode(c, buf, &len, k->fmt, idx, k->endian);
 
 	if (err.kind) {
 		err.codepoint = c;
@@ -267,39 +265,38 @@ insert_point(kdgu *k, uint32_t c)
 		return 0;
 	}
 
-	kdgu_size(k, k->len + len);
-	memmove(k->s + k->idx + len,
-	        k->s + k->idx,
-	        k->len - k->idx);
-	memcpy(k->s + k->idx, buf, len);
+	kdgu_size(k, k->len + len + 5);
+	memmove(k->s + idx + len,
+	        k->s + idx,
+	        k->len - idx);
+	memcpy(k->s + idx, buf, len);
 	k->len += len;
 
 	return len;
 }
 
-static int
-insert_buffer(kdgu *k, uint8_t *buf, unsigned len)
+static unsigned
+insert_buffer(kdgu *k, unsigned idx, uint8_t *buf, unsigned len)
 {
 	if (!k) return 0;
 
 	kdgu_size(k, k->len + len);
-	memmove(k->s + k->idx + len,
-	        k->s + k->idx,
-	        k->len - k->idx);
-	memcpy(k->s + k->idx, buf, len);
+	memmove(k->s + idx + len,
+	        k->s + idx,
+	        k->len - idx);
+	memcpy(k->s + idx, buf, len);
 	k->len += len;
 
 	return len;
 }
 
 unsigned
-kdgu_len(kdgu *k)
+kdgu_len(const kdgu *k)
 {
 	if (!k || !k->len) return 0;
 
-	k->idx = 0;
-	size_t l = 0;
-	while (kdgu_next(k)) l++;
+	unsigned l = 0, idx = 0;
+	while (kdgu_next(k, &idx)) l++;
 
 	return l;
 }
@@ -336,13 +333,19 @@ decompose_char(uint32_t c,
 }
 
 bool
+kdgu_chrset(kdgu *k, unsigned idx, uint32_t c)
+{
+	return delete_point(k, idx), insert_point(k, idx, c);
+}
+
+bool
 kdgu_uc(kdgu *k)
 {
 	if (!k || !k->len) return false;
-	k->idx = 0;
+	unsigned idx = 0;
 
 	do {
-		uint32_t c = kdgu_decode(k);
+		uint32_t c = kdgu_decode(k, idx);
 		struct codepoint *cp = codepoint(c);
 		uint32_t buf[20];
 		unsigned len;
@@ -353,10 +356,10 @@ kdgu_uc(kdgu *k)
 			len = write_sequence(buf, cp->special_uc);
 		} else continue;
 
-		delete_point(k);
+		delete_point(k, idx);
 		for (unsigned i = 0; i < len; i++)
-			insert_point(k, buf[i]);
-	} while (kdgu_inc(k));
+			insert_point(k, idx, buf[i]);
+	} while (kdgu_inc(k, &idx));
 
 	return true;
 }
@@ -365,10 +368,10 @@ bool
 kdgu_lc(kdgu *k)
 {
 	if (!k || !k->len) return false;
-	k->idx = 0;
+	unsigned idx = 0;
 
 	do {
-		uint32_t c = kdgu_decode(k);
+		uint32_t c = kdgu_decode(k, idx);
 		struct codepoint *cp = codepoint(c);
 		uint32_t buf[20];
 		unsigned len;
@@ -379,10 +382,10 @@ kdgu_lc(kdgu *k)
 			len = write_sequence(buf, cp->special_lc);
 		} else continue;
 
-		delete_point(k);
+		delete_point(k, idx);
 		for (unsigned i = 0; i < len; i++)
-			insert_point(k, buf[i]);
-	} while (kdgu_inc(k));
+			insert_point(k, buf[i], idx);
+	} while (kdgu_inc(k, &idx));
 
 	return true;
 }
@@ -393,21 +396,22 @@ kdgu_reverse(kdgu *k)
 	if (!k || !k->len || k->len == 1) return false;
 
 	unsigned end = kdgu_len(k) - 1;
-	k->idx = 0; while (kdgu_next(k)); kdgu_prev(k);
-	unsigned a = 0, b = k->idx;
+	while (kdgu_next(k, &end));
+	kdgu_prev(k, &end);
+	unsigned a = 0, b = end;
 
 	for (unsigned i = 0; i < end / 2 + 1; i++) {
-		k->idx = a; uint8_t c1[kdgu_chrsize(k)];
-		k->idx = b; uint8_t c2[kdgu_chrsize(k)];
+		uint8_t c1[kdgu_chrsize(k, a)];
+		uint8_t c2[kdgu_chrsize(k, b)];
 
 		memcpy(c1, k->s + a, sizeof c1);
 		memcpy(c2, k->s + b, sizeof c2);
 
-		k->idx = a, b += overwritechr(k, c2, sizeof c2);
-		k->idx = b, overwritechr(k, c1, sizeof c1);
+		b += overwritechr(k, a, c2, sizeof c2);
+		overwritechr(k, b, c1, sizeof c1);
 
-		k->idx = a, kdgu_next(k), a = k->idx;
-		k->idx = b, kdgu_prev(k), b = k->idx;
+		kdgu_next(k, &a);
+		kdgu_prev(k, &b);
 	}
 
 	return true;
@@ -418,8 +422,7 @@ kdgu_size(kdgu *k, size_t n)
 {
 	if (n <= k->alloc) return;
 
-	if (!k->alloc) k->alloc = n / 2 + 1;
-	else if (n >= k->alloc * 2) k->alloc = n;
+	if (!k->alloc || n >= k->alloc * 2) k->alloc = n;
 	else k->alloc *= 2;
 
 	void *p = realloc(k->s, k->alloc);
@@ -463,10 +466,10 @@ static uint32_t whitespace[] = {
 };
 
 bool
-kdgu_whitespace(kdgu *k)
+kdgu_whitespace(const kdgu *k, unsigned idx)
 {
 	if (!k) return false;
-	uint32_t c = kdgu_decode(k);
+	uint32_t c = kdgu_decode(k, idx);
 
 	for (unsigned i = 0;
 	     i < sizeof whitespace / sizeof *whitespace;
@@ -509,16 +512,16 @@ safenize(kdgu *k)
 {
 	unsigned non_starter_count = 0;
 
-	for (k->idx = 0; k->idx < k->len; kdgu_inc(k)) {
-		uint32_t c = kdgu_decode(k);
+	for (unsigned i = 0; i < k->len; kdgu_inc(k, &i)) {
+		uint32_t c = kdgu_decode(k, i);
 		uint32_t buf[100];
 		unsigned len = decompose_char(c, buf, 100);
 
 		if (leading_nonstarters(buf, len)
-		    + non_starter_count > 5) {
+		    + non_starter_count > 30) {
 			/* Insert the combining grapheme joiner. */
-			insert_point(k, 0x34F);
-			kdgu_inc(k);
+			insert_point(k, i, 0x34F);
+			kdgu_inc(k, &i);
 			non_starter_count = 0;
 		}
 
@@ -535,24 +538,24 @@ kdgu_new(enum fmt fmt, const uint8_t *s, size_t len)
 	kdgu *k = malloc(sizeof *k);
 	if (!k) return NULL;
 
-	memset(k, 0, sizeof *k);
-	k->fmt = fmt;
+	memset(k, 0, sizeof *k), k->fmt = fmt;
+	if (!len) return k;
 
-	int endian = ENDIAN_NONE;
+	int endian = KDGU_ENDIAN_NONE;
 
 	switch (fmt) {
-	case FMT_CP1252: k->s = cp1252validate(k, s, &len); break;
-	case FMT_ASCII: k->s = asciivalidate(k, s, &len); break;
-	case FMT_EBCDIC: k->s = ebcdicvalidate(k, s, &len); break;
-	case FMT_UTF8: k->s = utf8validate(k, s, &len); break;
-	case FMT_UTF16LE: endian = ENDIAN_LITTLE;
-	case FMT_UTF16BE: if (!endian) endian = ENDIAN_BIG;
-	case FMT_UTF16:
+	case KDGU_FMT_CP1252: k->s = cp1252validate(k, s, &len); break;
+	case KDGU_FMT_ASCII: k->s = asciivalidate(k, s, &len); break;
+	case KDGU_FMT_EBCDIC: k->s = ebcdicvalidate(k, s, &len); break;
+	case KDGU_FMT_UTF8: k->s = utf8validate(k, s, &len); break;
+	case KDGU_FMT_UTF16LE: endian = KDGU_ENDIAN_LITTLE;
+	case KDGU_FMT_UTF16BE: if (!endian) endian = KDGU_ENDIAN_BIG;
+	case KDGU_FMT_UTF16:
 		k->s = utf16validate(k, s, &len, endian);
 		break;
-	case FMT_UTF32LE: endian = ENDIAN_LITTLE;
-	case FMT_UTF32BE: if (!endian) endian = ENDIAN_BIG;
-	case FMT_UTF32:
+	case KDGU_FMT_UTF32LE: endian = KDGU_ENDIAN_LITTLE;
+	case KDGU_FMT_UTF32BE: if (!endian) endian = KDGU_ENDIAN_BIG;
+	case KDGU_FMT_UTF32:
 		k->s = utf32validate(k, s, &len, endian);
 		break;
 	}
@@ -563,7 +566,7 @@ kdgu_new(enum fmt fmt, const uint8_t *s, size_t len)
 	}
 
 	k->len = len, k->alloc = k->len;
-	kdgu_normalize(k, NORM_NFC), safenize(k);
+	kdgu_normalize(k, KDGU_NORM_NFC), safenize(k);
 
 	return k;
 }
@@ -571,11 +574,11 @@ kdgu_new(enum fmt fmt, const uint8_t *s, size_t len)
 kdgu *
 kdgu_news(const char *s)
 {
-	return kdgu_new(FMT_ASCII, (const uint8_t *)s, strlen(s));
+	return kdgu_new(KDGU_FMT_UTF8, (const uint8_t *)s, strlen(s));
 }
 
 kdgu *
-kdgu_copy(kdgu *k)
+kdgu_copy(const kdgu *k)
 {
 	kdgu *r = malloc(sizeof *r);
 	if (!r) return NULL;
@@ -584,7 +587,6 @@ kdgu_copy(kdgu *k)
 	r->endian = k->endian;
 	r->fmt = k->fmt;
 	r->len = k->len;
-	r->idx = k->idx;
 	r->alloc = k->len;
 	r->s = malloc(k->len);
 
@@ -592,23 +594,6 @@ kdgu_copy(kdgu *k)
 	memcpy(r->s, k->s, k->len);
 
 	return r;
-}
-
-bool
-kdgu_cat(kdgu *k1, kdgu *k2)
-{
-	if (!k1 || !k2 || k1->fmt != k2->fmt)
-		return false;
-
-	k1->alloc += k2->len;
-	uint8_t *p = realloc(k1->s, k1->alloc);
-	if (!p) return false;
-
-	k1->s = p;
-	memcpy(k1->s + k1->len, k2->s, k2->len);
-	k1->len += k2->len;
-
-	return true;
 }
 
 void
@@ -622,136 +607,135 @@ kdgu_free(kdgu *k)
 }
 
 unsigned
-kdgu_inc(kdgu *k)
+kdgu_inc(const kdgu *k, unsigned *idx)
 {
-	if (!k) return 0;
-	if (k->idx >= k->len) return 0;
-	unsigned idx = k->idx;
+	if (!k || *idx >= k->len) return 0;
+	unsigned now = *idx;
 
 	switch (k->fmt) {
-	case FMT_CP1252:
-	case FMT_EBCDIC:
-	case FMT_ASCII:
-		idx++;
+	case KDGU_FMT_CP1252:
+	case KDGU_FMT_EBCDIC:
+	case KDGU_FMT_ASCII:
+		now++;
 		break;
 
-	case FMT_UTF8:
+	case KDGU_FMT_UTF8:
 		do {
-			idx++;
-		} while (idx < k->len && UTF8CONT(k->s[idx]));
+			now++;
+		} while (now < k->len && UTF8CONT(k->s[now]));
 		break;
 
-	case FMT_UTF16BE:
-	case FMT_UTF16LE:
-	case FMT_UTF16:
-		idx += 2;
-		if (idx >= k->len) break;
+	case KDGU_FMT_UTF16BE:
+	case KDGU_FMT_UTF16LE:
+	case KDGU_FMT_UTF16:
+		now += 2;
+		if (now >= k->len) break;
 		if (UTF16HIGH_SURROGATE(READUTF16(k->endian,
-		                                  k->s + idx)))
-			idx += 2;
+		                                  k->s + now)))
+			now += 2;
 		break;
 
-	case FMT_UTF32BE:
-	case FMT_UTF32LE:
-	case FMT_UTF32:
-		idx += 4;
+	case KDGU_FMT_UTF32BE:
+	case KDGU_FMT_UTF32LE:
+	case KDGU_FMT_UTF32:
+		now += 4;
 		break;
 	}
 
-	if (idx > k->len) return 0;
-
-	unsigned r = idx - k->idx;
-	k->idx = idx;
+	if (now > k->len) return 0;
+	unsigned r = now - *idx;
+	*idx = now;
 
 	return r;
 }
 
 unsigned
-kdgu_dec(kdgu *k)
+kdgu_dec(const kdgu *k, unsigned *idx)
 {
-	if (!k || !k->idx) return 0;
-	unsigned idx = k->idx;
+	if (!k || !idx) return 0;
+	unsigned now = *idx;
+	if (!now) return 0;
 
 	switch (k->fmt) {
-	case FMT_CP1252:
-	case FMT_EBCDIC:
-	case FMT_ASCII:
-		idx--;
+	case KDGU_FMT_CP1252:
+	case KDGU_FMT_EBCDIC:
+	case KDGU_FMT_ASCII:
+		now--;
 		break;
 
-	case FMT_UTF8:
+	case KDGU_FMT_UTF8:
 		do {
-			idx--;
-		} while (idx && UTF8CONT(k->s[idx]));
+			now--;
+		} while (now && UTF8CONT(k->s[now]));
 		break;
 
-	case FMT_UTF16BE:
-	case FMT_UTF16LE:
-	case FMT_UTF16:
-		idx -= 2;
+	case KDGU_FMT_UTF16BE:
+	case KDGU_FMT_UTF16LE:
+	case KDGU_FMT_UTF16:
+		now -= 2;
 		if (UTF16LOW_SURROGATE(READUTF16(k->endian,
-		                                 k->s + idx - 2)))
-			idx -= 2;
+		                                 k->s + now - 2)))
+			now -= 2;
 		break;
 
-	case FMT_UTF32BE:
-	case FMT_UTF32LE:
-	case FMT_UTF32:
-		idx -= 4;
+	case KDGU_FMT_UTF32BE:
+	case KDGU_FMT_UTF32LE:
+	case KDGU_FMT_UTF32:
+		now -= 4;
 		break;
 	}
 
-	if (idx >= k->len) return 0;
+	if (now >= k->len) return 0;
 
-	unsigned r = k->idx - idx;
-	k->idx = idx;
+	unsigned r = *idx - now;
+	*idx = now;
 
 	return r;
 }
 
 bool
-kdgu_nth(kdgu *k, unsigned n)
+kdgu_nth(const kdgu *k, unsigned *idx, unsigned n)
 {
 	if (!k) return false;
 
-	if (k->fmt == FMT_ASCII
-	    || k->fmt == FMT_EBCDIC
-	    || k->fmt == FMT_CP1252) {
+	if (k->fmt == KDGU_FMT_ASCII
+	    || k->fmt == KDGU_FMT_EBCDIC
+	    || k->fmt == KDGU_FMT_CP1252) {
 		if (n >= k->len) return false;
-		k->idx = n;
+		*idx = n;
 		return true;
 	}
 
-	if (k->fmt == FMT_UTF32) {
+	if (k->fmt == KDGU_FMT_UTF32) {
 		if (n >= k->len / 4) return false;
-		k->idx = n * 4;
+		*idx = n * 4;
 		return true;
 	}
 
-	k->idx = 0;
-	for (unsigned i = 0; i < n; i++)
-		if (!kdgu_next(k))
+	unsigned i;
+	for (i = 0; i < n; i++)
+		if (!kdgu_next(k, &i))
 			return false;
 
-	return true;
+	return *idx = i, true;
 }
 
-kdgu *
-kdgu_getnth(kdgu *k, unsigned n)
-{
-	if (!k || !k->len) return NULL;
+/* kdgu * */
+/* kdgu_getnth(kdgu *k, unsigned n) */
+/* { */
+/* 	if (!k || !k->len) return NULL; */
 
-	unsigned idx = k->idx;
-	kdgu *chr = NULL;
+/* 	unsigned idx = idx; */
+/* 	kdgu *chr = NULL; */
 
-	if (!kdgu_nth(k, n)) return NULL;
-	chr = kdgu_new(k->fmt,
-	               k->s + k->idx,
-	               kdgu_chrsize(k));
-	k->idx = idx;
+/* 	if (!kdgu_nth(k, n)) return NULL; */
+/* 	chr = kdgu_new(k->fmt, */
+/* 	               k->s + idx, */
+/* 	               kdgu_chrsize(k)); */
+/* 	idx = idx; */
 
-	return chr;
-}
+/* 	return chr; */
+/* } */
 
 bool
 kdgu_convert(kdgu *k, enum fmt fmt)
@@ -762,18 +746,18 @@ kdgu_convert(kdgu *k, enum fmt fmt)
 		return true;
 	}
 
-	k->idx = 0;
+	unsigned idx = 0;
 	int endian = k->endian;
-	if (!endian) endian = ENDIAN_BIG;
+	if (!endian) endian = KDGU_ENDIAN_BIG;
 
-	while (k->idx < k->len) {
+	while (idx < k->len) {
 		unsigned len;
-		uint32_t c = kdgu_decode(k);
+		uint32_t c = kdgu_decode(k, idx);
 		uint8_t buf[4];
 
 		struct error err =
 			kdgu_encode(c, buf, &len,
-				    fmt, k->idx, endian);
+				    fmt, idx, endian);
 
 		if (err.kind) {
 			err.codepoint = c;
@@ -781,12 +765,12 @@ kdgu_convert(kdgu *k, enum fmt fmt)
 			pusherror(k, err);
 
 			kdgu_encode(KDGU_REPLACEMENT, buf, &len,
-				    fmt, k->idx, endian);
+				    fmt, idx, endian);
 		}
 
-		delete_point(k);
-		insert_buffer(k, buf, len);
-		k->idx += len;
+		delete_point(k, idx);
+		insert_buffer(k, idx, buf, len);
+		idx += len;
 	}
 
 	k->fmt = fmt;
@@ -834,8 +818,8 @@ sort_combining_marks(uint32_t *buf, unsigned len)
 static void
 decompose(kdgu *k, bool compat)
 {
-	if ((k->norm == NORM_NFD && !compat)
-	    || (k->norm == NORM_NFKD && compat))
+	if ((k->norm == KDGU_NORM_NFD && !compat)
+	    || (k->norm == KDGU_NORM_NFKD && compat))
 		return;
 
 	/*
@@ -848,10 +832,12 @@ decompose(kdgu *k, bool compat)
 	unsigned len;
 
 	/* This first loop decomposes all decomposable characters. */
-	for (k->idx = 0; k->idx < k->len; kdgu_inc(k)) {
-		uint32_t c = kdgu_decode(k);
+	for (unsigned i = 0; i < k->len; kdgu_inc(k, &i)) {
+		uint32_t c = kdgu_decode(k, i);
 		if (c == UINT32_MAX) break;
 		struct codepoint *cp = codepoint(c);
+
+		/* printf("the thing is: %u\n", i); */
 
 		/*
 		 * We don't need to continue if the character has no
@@ -865,31 +851,31 @@ decompose(kdgu *k, bool compat)
 				     sizeof buf / sizeof *buf);
 
 		if (!len) continue;
-		delete_point(k);
+		delete_point(k, i);
 
-		for (unsigned i = 0; i < len; i++) {
-			insert_point(k, buf[i]);
-			if (i != len - 1) kdgu_inc(k);
+		for (unsigned j = 0; j < len; j++) {
+			insert_point(k, i, buf[j]);
+			if (j != len - 1) kdgu_inc(k, &i);
 		}
 	}
 
 	/* This loop sorts all sequences of combining marks. */
-	for (k->idx = 0; k->idx < k->len; kdgu_inc(k)) {
-		uint32_t c = kdgu_decode(k);
+	for (unsigned i = 0; i < k->len; kdgu_inc(k, &i)) {
+		uint32_t c = kdgu_decode(k, i);
 		struct codepoint *cp = codepoint(c);
 
 		/* It's a starter. No sequence here! */
 		if (!cp->ccc) continue;
 
-		unsigned beginning = k->idx;
+		unsigned now = i;
 		len = 0;
 
 		/* Search for the end of the sequence. */
 		do {
 			buf[len++] = c;
-			kdgu_inc(k);
+			kdgu_inc(k, &i);
 
-			c = kdgu_decode(k);
+			c = kdgu_decode(k, i);
 			cp = codepoint(c);
 		} while (cp->ccc
 		         && len < sizeof buf / sizeof *buf);
@@ -897,29 +883,29 @@ decompose(kdgu *k, bool compat)
 		sort_combining_marks(buf, len);
 
 		/* Delete the sequence. */
-		kdgu_delete(k, beginning, k->idx);
-		k->idx = beginning;
+		kdgu_delete(k, now, i);
+		i = now;
 
-		for (unsigned i = 0; i < len; i++) {
-			insert_point(k, buf[i]);
-			if (i != len - 1) kdgu_inc(k);
+		for (unsigned j = 0; j < len; j++) {
+			insert_point(k, i, buf[j]);
+			if (j != len - 1) kdgu_inc(k, &i);
 		}
 	}
 
-	k->norm = compat ? NORM_NFKD : NORM_NFD;
+	k->norm = compat ? KDGU_NORM_NFKD : KDGU_NORM_NFD;
 }
 
 static bool
-compose_char(kdgu *k)
+compose_char(kdgu *k, unsigned idx)
 {
-	unsigned beginning = k->idx;
+	unsigned now = idx;
 
 	/* Read the pair of code points. */
-	uint32_t c1 = kdgu_decode(k);
-	if (!kdgu_inc(k) || k->idx == k->len) return false;
-	uint32_t c2 = kdgu_decode(k);
+	uint32_t c1 = kdgu_decode(k, idx);
+	if (!kdgu_inc(k, &idx) || idx == k->len) return false;
+	uint32_t c2 = kdgu_decode(k, idx);
 
-	k->idx = beginning;
+	idx = now;
 
 	struct codepoint *cp1 = codepoint(c1);
 	struct codepoint *cp2 = codepoint(c2);
@@ -933,10 +919,9 @@ compose_char(kdgu *k)
 	 * Only at this point are we sure we have a valid composition.
 	 */
 
-	kdgu_inc(k), kdgu_inc(k);
-	kdgu_delete(k, beginning, k->idx);
-	k->idx = beginning;
-	insert_point(k, composition);
+	kdgu_inc(k, &idx), kdgu_inc(k, &idx);
+	kdgu_delete(k, now, idx);
+	insert_point(k, now, composition);
 
 	return true;
 }
@@ -958,13 +943,13 @@ compose_char(kdgu *k)
 static void
 compose(kdgu *k, bool compat)
 {
-	if ((k->norm == NORM_NFC && !compat)
-	    || (k->norm == NORM_NFKC && compat))
+	if ((k->norm == KDGU_NORM_NFC && !compat)
+	    || (k->norm == KDGU_NORM_NFKC && compat))
 		return;
 
 	decompose(k, compat);
 
-	for (k->idx = 0; k->idx < k->len; kdgu_inc(k)) {
+	for (unsigned i = 0; i < k->len; kdgu_inc(k, &i)) {
 		/*
 		 * We decrement here to offset the increment that will
 		 * occur in the next iteration of the loop. This is
@@ -974,117 +959,165 @@ compose(kdgu *k, bool compat)
 		 * combining marks on a single starter code point.
 		 */
 
-		if (compose_char(k) && !kdgu_dec(k)) {
+		if (compose_char(k, i) && !kdgu_dec(k, &i)) {
 			compose(k, compat);
 			break;
 		}
 	}
 
-	k->norm = compat ? NORM_NFKC : NORM_NFC;
+	k->norm = compat ? KDGU_NORM_NFKC : KDGU_NORM_NFC;
 }
 
 bool
 kdgu_normalize(kdgu *k, enum normalization norm)
 {
 	if (!k || !k->len) return false;
+	if (k->fmt == KDGU_FMT_ASCII) return true;
 
 	switch (norm) {
-	case NORM_NONE:                      break;
-	case NORM_NFD:  decompose(k, false); break;
-	case NORM_NFC:  compose(k, false);   break;
-	case NORM_NFKD: decompose(k, true);  break;
-	case NORM_NFKC: compose(k, true);    break;
+	case KDGU_NORM_NONE:                      break;
+	case KDGU_NORM_NFD:  decompose(k, false); break;
+	case KDGU_NORM_NFC:  compose(k, false);   break;
+	case KDGU_NORM_NFKD: decompose(k, true);  break;
+	case KDGU_NORM_NFKC: compose(k, true);    break;
 	}
 
 	return true;
 }
 
 bool
-kdgu_cmp(kdgu *k1, kdgu *k2)
+kdgu_cmp(const kdgu *k1, const kdgu *k2)
 {
 	if (!k1 || !k2) return false;
-	kdgu_normalize(k1, NORM_NFC), kdgu_normalize(k2, NORM_NFC);
-	k1->idx = 0, k2->idx = 0;
+	unsigned i = 0, j = 0;
 
 	do {
-		if (kdgu_decode(k1) != kdgu_decode(k2))
+		if (kdgu_decode(k1, i) != kdgu_decode(k2, j))
 			return false;
-	} while (kdgu_inc(k1) && kdgu_inc(k2));
+	} while (kdgu_inc(k1, &i) && kdgu_inc(k2, &j));
 
-	if (kdgu_inc(k1) || kdgu_inc(k2)) return false;
-	return true;
+	return i >= k1->len && j >= k2->len;
+}
+
+bool
+kdgu_fuzzy(const kdgu *k1, const kdgu *k2)
+{
+	if (!k1 || !k2) return false;
+	unsigned i = 0, j = 0;
+
+	do {
+		while (kdgu_chrcmp(k1, i, '-')
+		       || kdgu_chrcmp(k1, i, '_')
+		       || kdgu_chrcmp(k1, i, ' '))
+			kdgu_inc(k1, &i);
+		while (kdgu_chrcmp(k2, j, '-')
+		       || kdgu_chrcmp(k2, j, '_')
+		       || kdgu_chrcmp(k2, j, ' '))
+			kdgu_inc(k2, &j);
+		if (tolower(kdgu_decode(k1, i)) != tolower(kdgu_decode(k2, j)))
+			return false;
+	} while (kdgu_inc(k1, &i) && kdgu_inc(k2, &j));
+
+	return i >= k1->len && j >= k2->len;
+}
+
+bool
+kdgu_ncmp(const kdgu *k1,
+	  const kdgu *k2,
+	  unsigned i,
+	  unsigned j,
+	  int n,
+	  bool insensitive)
+{
+	if (!k1 || !k2 || i > k1->len || j > k2->len) return false;
+	int c = 0;
+
+	do {
+		uint32_t c1 = kdgu_decode(k1, i), c2 = kdgu_decode(k2, j);
+		/* fprintf(stderr, "\nthing: U+%"PRIx32" (%c) - U+%"PRIx32" (%c)", c1, c1, c2, c2); */
+		if (insensitive
+		    ? tolower(c1) != tolower(c2)
+		    : c1 != c2)
+			return false;
+	} while ((n < 0
+		  ? ++c < -n && kdgu_dec(k1, &i) && kdgu_dec(k2, &j)
+		  : ++c < n && kdgu_inc(k1, &i) && kdgu_inc(k2, &j))
+		 && i < k1->len && j < k2->len);
+
+	/* fprintf(stderr, "\nreturning %s", c == abs(n) ? "true" : "false"); */
+	return c == abs(n);
 }
 
 void
-kdgu_print(kdgu *k)
+kdgu_print(const kdgu *k, FILE *f)
 {
 	if (!k) return;
 
 	for (unsigned i = 0; i < k->len; i++)
-		putchar((uint8_t)k->s[i]);
+		fputc((uint8_t)k->s[i], f);
 }
 
 void
-kdgu_debugprint1(kdgu *k)
+kdgu_debugprint1(const kdgu *k, FILE *f)
 {
 	if (!k) return;
 
-	printf("{%u} <", k->len);
+	fprintf(f, "{%u} <", k->len);
 
 	for (unsigned i = 0; i < k->len; i++) {
-		printf("%02X", (uint8_t)k->s[i]);
-		if (i != k->len - 1) putchar(' ');
+		fprintf(f, "%02X", (uint8_t)k->s[i]);
+		if (i != k->len - 1) fputc(' ', f);
 	}
 
-	putchar('>');
+	fputc('>', f);
 }
 
 void
-kdgu_debugprint2(kdgu *k)
+kdgu_debugprint2(const kdgu *k, FILE *f)
 {
 	if (!k) return;
 
-	printf("{%u} <", kdgu_len(k));
-	k->idx = 0;
+	fprintf(f, "{%u} <", kdgu_len(k));
+	unsigned i = 0;
 
 	do {
-		uint32_t c1 = kdgu_decode(k);
+		uint32_t c1 = kdgu_decode(k, i);
 		if (c1 == UINT32_MAX) break;
 
-		kdgu_inc(k);
-		uint32_t c2 = kdgu_decode(k);
+		kdgu_inc(k, &i);
+		uint32_t c2 = kdgu_decode(k, i);
 
-		printf("U+%02"PRIX32, c1);
+		fprintf(f, "U+%02"PRIX32, c1);
 		if (c2 == UINT32_MAX) break;
 
 		if (grapheme_break(codepoint(c1)->bound,
 		                   codepoint(c2)->bound))
-			printf(" | ");
-		else putchar(' ');
+			fprintf(f, " | ");
+		else fputc(' ', f);
 	} while (true);
 
-	putchar('>');
+	fputc('>', f);
 }
 
 void
-kdgu_pchr(kdgu *k, FILE *f)
+kdgu_pchr(const kdgu *k, unsigned idx, FILE *f)
 {
-	if (!k || k->idx >= k->len) return;
-	unsigned len = kdgu_chrsize(k);
+	if (!k || idx >= k->len) return;
+	unsigned len = kdgu_chrsize(k, idx);
 	for (unsigned i = 0; i < len; i++)
-		fputc(k->s[k->idx + i], f);
+		fputc(k->s[idx + i], f);
 }
 
 unsigned
 kdgu_chomp(kdgu *k)
 {
-	k->idx = k->len;
+	unsigned i = k->len;
 
-	while (kdgu_dec(k) && kdgu_whitespace(k));
-	kdgu_inc(k);
-	kdgu_delete(k, k->idx, k->len);
+	while (kdgu_dec(k, &i) && kdgu_whitespace(k, i));
+	kdgu_inc(k, &i);
+	kdgu_delete(k, i, k->len);
 
-	return k->len - k->idx;
+	return k->len - i;
 }
 
 void
@@ -1166,47 +1199,47 @@ static uint32_t ebcdic[] = {
 };
 
 uint32_t
-kdgu_decode(kdgu *k)
+kdgu_decode(const kdgu *k, unsigned idx)
 {
-	if (!k->len || k->idx >= k->len) return UINT32_MAX;
+	if (!k->len || idx >= k->len) return UINT32_MAX;
 	uint32_t c = 0;
 
 	switch (k->fmt) {
-	case FMT_CP1252:
-		return cp1252[(uint8_t)k->s[k->idx]];
+	case KDGU_FMT_CP1252:
+		return cp1252[(uint8_t)k->s[idx]];
 
-	case FMT_EBCDIC:
-		return ebcdic[(uint8_t)k->s[k->idx]];
+	case KDGU_FMT_EBCDIC:
+		return ebcdic[(uint8_t)k->s[idx]];
 
-	case FMT_ASCII:
-		return (uint32_t)k->s[k->idx];
+	case KDGU_FMT_ASCII:
+		return (uint32_t)k->s[idx];
 
-	case FMT_UTF8: {
-		unsigned len = utf8chrlen(k->s + k->idx,
-		                          k->len - k->idx);
+	case KDGU_FMT_UTF8: {
+		unsigned len = utf8chrlen(k->s + idx,
+		                          k->len - idx);
 
-		c = (k->s[k->idx] & ((1 << (8 - len)) - 1))
+		c = (k->s[idx] & ((1 << (8 - len)) - 1))
 			<< (len - 1) * 6;
 		for (unsigned i = 1; i < len; i++)
-			c |= (k->s[k->idx + i] & 0x3F)
+			c |= (k->s[idx + i] & 0x3F)
 				<< (len - i - 1) * 6;
 	} break;
 
-	case FMT_UTF16BE:
-	case FMT_UTF16LE:
-	case FMT_UTF16: {
-		uint16_t d = READUTF16(k->endian, k->s + k->idx);
+	case KDGU_FMT_UTF16BE:
+	case KDGU_FMT_UTF16LE:
+	case KDGU_FMT_UTF16: {
+		uint16_t d = READUTF16(k->endian, k->s + idx);
 		if (d <= 0xD7FF || d >= 0xE000) return d;
 
 		/* It's a surrogate upper byte. */
-		uint16_t e = READUTF16(k->endian, k->s + k->idx + 2);
+		uint16_t e = READUTF16(k->endian, k->s + idx + 2);
 		c = (d - 0xD800) * 0x400 + e - 0xDC00 + 0x10000;
 	} break;
 
-	case FMT_UTF32BE:
-	case FMT_UTF32LE:
-	case FMT_UTF32:
-		return READUTF32(k->endian, k->s + k->idx);
+	case KDGU_FMT_UTF32BE:
+	case KDGU_FMT_UTF32LE:
+	case KDGU_FMT_UTF32:
+		return READUTF32(k->endian, k->s + idx);
 	}
 
 	return c;
@@ -1220,15 +1253,15 @@ kdgu_encode(uint32_t c, uint8_t *buf, unsigned *len,
 	struct error err = ERR(ERR_NO_ERROR, 0);
 
 	switch (fmt) {
-	case FMT_CP1252:
+	case KDGU_FMT_CP1252:
 		if (c == KDGU_REPLACEMENT) c = '?';
 		*len = 1, buf[0] = c & 0x7F;
 		if (!IS_VALID_CP1252(c))
 			ENCERR(kdgu_encode, buf, len,
-			       FMT_CP1252, idx, endian);
+			       KDGU_FMT_CP1252, idx, endian);
 		break;
 
-	case FMT_EBCDIC: {
+	case KDGU_FMT_EBCDIC: {
 		if (c == KDGU_REPLACEMENT) c = '?';
 		uint32_t o = -1;
 
@@ -1238,30 +1271,30 @@ kdgu_encode(uint32_t c, uint8_t *buf, unsigned *len,
 		*len = 1, buf[0] = o;
 		if (o != UINT32_MAX) break;
 		ENCERR(kdgu_encode, buf, len,
-		       FMT_EBCDIC, idx, endian);
+		       KDGU_FMT_EBCDIC, idx, endian);
 	} break;
 
-	case FMT_ASCII:
+	case KDGU_FMT_ASCII:
 		if (c == KDGU_REPLACEMENT) c = '?';
 		*len = 1, buf[0] = c & 0xFF;
 		if (c > 127)
 			ENCERR(kdgu_encode, buf, len,
-			       FMT_ASCII, idx, endian);
+			       KDGU_FMT_ASCII, idx, endian);
 		break;
 
-	case FMT_UTF8: err = utf8encode(c, buf, len, idx); break;
-	case FMT_UTF16LE:
-	case FMT_UTF16BE:
-	case FMT_UTF16:
+	case KDGU_FMT_UTF8: err = utf8encode(c, buf, len, idx); break;
+	case KDGU_FMT_UTF16LE:
+	case KDGU_FMT_UTF16BE:
+	case KDGU_FMT_UTF16:
 		err = utf16encode(c, buf, len, idx, endian);
 		break;
 
-	case FMT_UTF32LE:
-	case FMT_UTF32BE:
-	case FMT_UTF32:
+	case KDGU_FMT_UTF32LE:
+	case KDGU_FMT_UTF32BE:
+	case KDGU_FMT_UTF32:
 		*len = 4;
 
-		if (endian == ENDIAN_LITTLE) {
+		if (endian == KDGU_ENDIAN_LITTLE) {
 			buf[0] = c & 0xFF;
 			buf[1] = (c >> 8) & 0xFF;
 			buf[2] = (c >> 16) & 0xFF;
@@ -1279,18 +1312,73 @@ kdgu_encode(uint32_t c, uint8_t *buf, unsigned *len,
 }
 
 unsigned
-kdgu_chrsize(kdgu *k)
+kdgu_chrsize(const kdgu *k, unsigned idx)
 {
-	unsigned i = k->idx, c = kdgu_next(k), ret = k->len - k->idx;
-	return k->idx = i, c ? c : ret;
+	return kdgu_next(k, &idx);
 }
 
 bool
-kdgu_append(kdgu *k, const uint8_t *s, size_t l)
+kdgu_chrbound(const kdgu *k, unsigned idx)
 {
-	kdgu_size(k, k->len + l);
-	memcpy(k->s + k->len, s, l);
-	k->len = k->len + l;
+	uint32_t c = kdgu_decode(k, idx);
+	if (!kdgu_inc(k, &idx)) return true;
+	if (grapheme_break(codepoint(c)->bound,
+			   codepoint(kdgu_decode(k, idx))->bound)) {
+		kdgu_dec(k, &idx);
+		return true;
+	} else {
+		kdgu_dec(k, &idx);
+		return false;
+	}
 
+	return false;
+}
+
+bool
+kdgu_chrcmp(const kdgu *k, unsigned idx, uint32_t c)
+{
+	return kdgu_decode(k, idx) == c && kdgu_chrbound(k, idx);
+}
+
+kdgu *
+kdgu_substr(const kdgu *k, unsigned a, unsigned b)
+{
+	return kdgu_new(k->fmt, k->s + a, b - a);
+}
+
+bool
+kdgu_chrappend(kdgu *k, uint32_t c)
+{
+	if (!k) return false;
+	return insert_point(k, k->len, c);
+}
+
+bool
+kdgu_append(kdgu *k1, const kdgu *k2)
+{
+	if (!k1 || !k2) return false;
+	for (unsigned i = 0; i < k2->len; kdgu_inc(k2, &i))
+		if (!insert_point(k1, k1->len, kdgu_decode(k2, i)))
+			return false;
 	return true;
+}
+
+bool
+kdgu_contains(const kdgu *k, uint32_t c)
+{
+	for (unsigned i = 0; i < k->len; kdgu_next(k, &i))
+		if (kdgu_chrcmp(k, i, c)) return true;
+	return false;
+}
+
+kdgu *
+kdgu_chrget(const kdgu *k, unsigned idx)
+{
+	return kdgu_new(k->fmt, k->s + idx, kdgu_chrsize(k, idx));
+}
+
+struct codepoint *
+kdgu_codepoint(uint32_t c)
+{
+	return codepoint(c);
 }

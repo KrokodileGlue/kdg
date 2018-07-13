@@ -1,6 +1,8 @@
 #ifndef KTRE_H
 #define KTRE_H
 
+#include "kdgu.h"
+
 /* Error codes. */
 enum ktre_error {
 	KTRE_ERROR_NO_ERROR,
@@ -20,7 +22,8 @@ enum {
 	KTRE_GLOBAL      = 1 << 3,
 	KTRE_MULTILINE   = 1 << 4,
 	KTRE_CONTINUE    = 1 << 5,
-	KTRE_DEBUG       = 1 << 6
+	KTRE_DEBUG       = 1 << 6,
+	KTRE_ECMA        = 1 << 7
 };
 
 /* Compile-time settings. */
@@ -50,12 +53,12 @@ struct ktre {
 	int loc;
 
 	/* ==================== private fields ==================== */
+	const kdgu *s;   /* The pattern                             */
+	unsigned i;      /* The current character being parsed      */
 	struct instr *c; /* Code                                    */
 	int ip;          /* Instruction pointer                     */
 	int num_prog;    /* Number of progress instructions         */
-	char const *pat; /* Pattern currently being compiled        */
-	char const *sp;  /* To the character currently being parsed */
-	int popt;        /* The options, as seen by the parser      */
+	int popt;        /* The options as seen by the parser       */
 	int gp;          /* Group pointer                           */
 	struct node *n;  /* The head node of the ast                */
 	_Bool literal;   /* Whether to escape metacharacters or not */
@@ -73,12 +76,12 @@ struct ktre {
 		 */
 		_Bool is_compiled;
 		_Bool is_called;
-		char *name;
+		kdgu *name;
 	} *group;
 
 	/* runtime */
 	struct thread {
-		int ip, sp, fp, la, ep, opt;
+		unsigned ip, sp, fp, la, ep, opt;
 		int *frame, *vec, *prog, *las, *exception;
 		_Bool die, rev;
 	} *t;
@@ -93,13 +96,13 @@ struct ktre {
 typedef struct ktre ktre;
 
 /* API prototypes */
-ktre *ktre_compile(const char *pat, int opt);
+ktre *ktre_compile(const kdgu *pat, int opt);
 ktre *ktre_copy(ktre *re);
-_Bool ktre_exec(ktre *re, const char *subject, int ***vec);
-_Bool ktre_match(const char *subject, const char *pat, int opt, int ***vec);
-char *ktre_filter(ktre *re, const char *subject, const char *replacement, const char *indicator);
-char *ktre_replace(const char *subject, const char *pat, const char *replacement, const char *indicator, int opt);
-char **ktre_split(ktre *re, const char *subject, int *len);
+_Bool ktre_exec(ktre *re, const kdgu *subject, int ***vec);
+_Bool ktre_match(const kdgu *subject, const kdgu *pat, int opt, int ***vec);
+kdgu *ktre_filter(ktre *re, const kdgu *subject, const kdgu *replacement, const kdgu *indicator);
+kdgu *ktre_replace(const kdgu *subject, const kdgu *pat, const kdgu *replacement, const kdgu *indicator, int opt);
+kdgu **ktre_split(ktre *re, const kdgu *subject, int *len);
 int **ktre_getvec(const ktre *re);
 void ktre_free(ktre *re);
 

@@ -38,7 +38,7 @@ enum category {
 
 enum boundclass {
 	BOUNDCLASS_START,              /* Start                   */
-	BOUNDCLASS_OTHER,              /* Other                   */
+	BOUNDCLASS_XX,                 /* Other                   */
 	BOUNDCLASS_CR,                 /* Cr                      */
 	BOUNDCLASS_LF,                 /* Lf                      */
 	BOUNDCLASS_CONTROL,            /* Control                 */
