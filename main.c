@@ -57,12 +57,10 @@ main(int argc, char **argv)
 	unsigned len = 0;
 	char *text = load_file(argv[argc - 1], &len);
 	if (!text) return EXIT_FAILURE;
-	char *filename = argv[argc - 1];
 
-	ktre *re = ktre_compile(kdgu_news("ab[\\u{63}-\\u{64}]{2}\\p{spaceseparator}"), KTRE_UNANCHORED | KTRE_GLOBAL | KTRE_DEBUG);
+	ktre *re = ktre_compile(kdgu_news("\\N{SHALLOW PAN OF FOOD}abc"), KTRE_UNANCHORED | KTRE_GLOBAL | KTRE_DEBUG);
 	if (!re->err)
 		ktre_exec(re, kdgu_news("abcd "), NULL);
-		/* kdgu_free(ktre_filter(re, kdgu_news("the kcrows run down the picklës"), &KDGU("\\U$0"), &KDGU("$"))); */
 
 	ktre_free(re);
 	free(text);

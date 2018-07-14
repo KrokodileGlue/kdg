@@ -123,15 +123,31 @@ struct codepoint {
 	uint16_t decomp;
 };
 
-extern struct codepoint codepoints[];
-extern uint16_t stage1[];
-extern uint16_t stage2[];
-extern uint16_t sequences[];
-extern uint32_t compositions[];
+struct name {
+	uint32_t c;
+	char *name;
+};
 
-struct codepoint *codepoint(uint32_t c);
+struct name_alias {
+	uint32_t c;
+	int num;
+	char **name;
+};
+
+extern const struct codepoint codepoints[];
+extern const struct name names[];
+extern const struct name_alias name_aliases[];
+extern const uint16_t stage1[];
+extern const uint16_t stage2[];
+extern const uint16_t sequences[];
+extern const uint32_t compositions[];
+
+const struct codepoint *codepoint(uint32_t c);
 unsigned write_sequence(uint32_t *buf, uint16_t idx);
 uint32_t lookup_comp(uint32_t a, uint32_t b);
+
+extern int num_names;
+extern int num_aliases;
 
 #define HANGUL_SBASE  0xAC00
 #define HANGUL_LBASE  0x1100

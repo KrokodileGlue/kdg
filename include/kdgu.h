@@ -103,7 +103,9 @@ bool kdgu_append(kdgu *k1, const kdgu *k2);
 
 #include "unicode_data.h"
 
-struct codepoint *kdgu_codepoint(uint32_t c);
+const struct codepoint *kdgu_codepoint(uint32_t c);
+const char *kdgu_getname(uint32_t c);
+uint32_t kdgu_getcode(const kdgu *k);
 
 #include "error.h"
 #include "ktre.h"

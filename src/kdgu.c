@@ -306,7 +306,7 @@ decompose_char(uint32_t c,
                uint32_t *buf,
                unsigned buflen)
 {
-	struct codepoint *cp = codepoint(c);
+	const struct codepoint *cp = codepoint(c);
 	int32_t hangul_s = c - HANGUL_SBASE;
 
 	if (hangul_s >= 0 && hangul_s < HANGUL_SCOUNT) {
@@ -346,7 +346,7 @@ kdgu_uc(kdgu *k)
 
 	do {
 		uint32_t c = kdgu_decode(k, idx);
-		struct codepoint *cp = codepoint(c);
+		const struct codepoint *cp = codepoint(c);
 		uint32_t buf[20];
 		unsigned len;
 
@@ -372,7 +372,7 @@ kdgu_lc(kdgu *k)
 
 	do {
 		uint32_t c = kdgu_decode(k, idx);
-		struct codepoint *cp = codepoint(c);
+		const struct codepoint *cp = codepoint(c);
 		uint32_t buf[20];
 		unsigned len;
 
@@ -791,8 +791,8 @@ sort_combining_marks(uint32_t *buf, unsigned len)
  sort:
 	/* We use `len - 1' because we read pairs of numbers here. */
 	for (unsigned i = 0; i < len - 1; i++) {
-		struct codepoint *cp1 = codepoint(buf[i]);
-		struct codepoint *cp2 = codepoint(buf[i + 1]);
+		const struct codepoint *cp1 = codepoint(buf[i]);
+		const struct codepoint *cp2 = codepoint(buf[i + 1]);
 
 		if (!cp2->ccc
 		    || !cp1->ccc
@@ -835,7 +835,7 @@ decompose(kdgu *k, bool compat)
 	for (unsigned i = 0; i < k->len; kdgu_inc(k, &i)) {
 		uint32_t c = kdgu_decode(k, i);
 		if (c == UINT32_MAX) break;
-		struct codepoint *cp = codepoint(c);
+		const struct codepoint *cp = codepoint(c);
 
 		/* printf("the thing is: %u\n", i); */
 
@@ -862,7 +862,7 @@ decompose(kdgu *k, bool compat)
 	/* This loop sorts all sequences of combining marks. */
 	for (unsigned i = 0; i < k->len; kdgu_inc(k, &i)) {
 		uint32_t c = kdgu_decode(k, i);
-		struct codepoint *cp = codepoint(c);
+		const struct codepoint *cp = codepoint(c);
 
 		/* It's a starter. No sequence here! */
 		if (!cp->ccc) continue;
@@ -907,8 +907,8 @@ compose_char(kdgu *k, unsigned idx)
 
 	idx = now;
 
-	struct codepoint *cp1 = codepoint(c1);
-	struct codepoint *cp2 = codepoint(c2);
+	const struct codepoint *cp1 = codepoint(c1);
+	const struct codepoint *cp2 = codepoint(c2);
 	if (!cp1 || !cp2) return false;
 
 	uint32_t composition = lookup_comp(c1, c2);
@@ -1034,8 +1034,8 @@ kdgu_ncmp(const kdgu *k1,
 
 	do {
 		uint32_t c1 = kdgu_decode(k1, i), c2 = kdgu_decode(k2, j);
-		/* fprintf(stderr, "\nthing: U+%"PRIx32" (%c) - U+%"PRIx32" (%c)", c1, c1, c2, c2); */
 		if (insensitive
+		    /* TODO: Don't use tolower. */
 		    ? tolower(c1) != tolower(c2)
 		    : c1 != c2)
 			return false;
@@ -1044,7 +1044,6 @@ kdgu_ncmp(const kdgu *k1,
 		  : ++c < n && kdgu_inc(k1, &i) && kdgu_inc(k2, &j))
 		 && i < k1->len && j < k2->len);
 
-	/* fprintf(stderr, "\nreturning %s", c == abs(n) ? "true" : "false"); */
 	return c == abs(n);
 }
 
@@ -1377,8 +1376,88 @@ kdgu_chrget(const kdgu *k, unsigned idx)
 	return kdgu_new(k->fmt, k->s + idx, kdgu_chrsize(k, idx));
 }
 
-struct codepoint *
+const struct codepoint *
 kdgu_codepoint(uint32_t c)
 {
 	return codepoint(c);
+}
+
+const char *
+kdgu_getname(uint32_t c)
+{
+	if (c > 0x10FFFF) return NULL;
+	for (int i = 0; i < num_names; i++)
+		if (c == names[i].c)
+			return names[i].name;
+	return NULL;
+}
+
+static kdgu *
+fuzzify(const kdgu *k)
+{
+	kdgu *r = kdgu_new(k->fmt, NULL, 0);
+	unsigned i = 0;
+
+	do {
+		if (kdgu_chrcmp(k, i, '-')
+		       || kdgu_chrcmp(k, i, '_')
+		       || kdgu_chrcmp(k, i, ' '))
+			continue;
+		kdgu_chrappend(r, tolower(kdgu_decode(k, i)));
+	} while (kdgu_inc(k, &i));
+
+	return r;
+}
+
+uint32_t
+kdgu_getcode(const kdgu *k)
+{
+	for (int i = 0; i < num_names; i++)
+		if (kdgu_fuzzy(k, &KDGU(names[i].name)))
+			return names[i].c;
+
+	for (int i = 0; i < num_aliases; i++) {
+		for (int j = 0; j < name_aliases[i].num; j++)
+		if (kdgu_fuzzy(k, &KDGU(name_aliases[i].name[j])))
+			return name_aliases[i].c;
+	}
+
+	kdgu *r = fuzzify(k);
+	enum category cat = 0;
+	kdgu *str = NULL;
+
+	/* TODO: Write number-parsing routines. */
+
+	/*
+	 * The reserved and control categories are here because they
+	 * are excluded by http://unicode.org/reports/tr18/#RL2.5 and
+	 * handled in gen.pl, respectively.
+	 */
+
+	if (kdgu_ncmp(r, (cat = CATEGORY_CO, str = &KDGU("privateuse")), 0, 0, 10, false)
+	    || kdgu_ncmp(r, (cat = CATEGORY_CS, str = &KDGU("surrogate")), 0, 0, 9, false)
+	    || kdgu_ncmp(r, (cat = CATEGORY_CN, str = &KDGU("noncharacter")), 0, 0, 12, false)) {
+		unsigned idx = 0;
+		for (unsigned i = 0, n = kdgu_len(str); i < n; i++)
+			kdgu_next(r, &idx);
+
+		int32_t n = 0;
+		uint32_t c = tolower(kdgu_decode(r, idx));
+
+		while (idx < r->len
+		       && ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))
+		       && kdgu_chrbound(r, idx)) {
+			if (n < 0) n = 0;
+			n *= 16;
+			n += (c >= 'a' && c <= 'f') ? c - 'a' + 10 : c - '0';
+			kdgu_next(r, &idx);
+			c = tolower(kdgu_decode(r, idx));
+		}
+
+		if (n <= 0x10FFFF && n >= 0 && idx == r->len
+		    && codepoint(n)->category == cat)
+			return n;
+	}
+
+	return UINT32_MAX;
 }

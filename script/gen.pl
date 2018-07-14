@@ -4,6 +4,7 @@
 # This script generates `unicode_data.c' from the following files:
 #
 #     - UnicodeData.txt
+#     - NameAliases.txt
 #     - SpecialCasing.txt
 #     - GraphemeBreakProperty.txt
 #     - CompositionExclusions.txt
@@ -161,6 +162,7 @@ my $fh;
 open($fh, '<:encoding(UTF-8)', "CompositionExclusions.txt")
     or die "$0: Could not open `CompositionExclusions.txt': $!\n";
 my %exclusions;
+LOG("Parsing `CompositionExclusions.txt'...");
 while (my $l = <$fh>) {
     if ($l =~ /^([0-9A-F]+)/i) {
 	$exclusions{hex($1)} = 1;
@@ -170,6 +172,7 @@ while (my $l = <$fh>) {
 open($fh, '<:encoding(UTF-8)', "GraphemeBreakProperty.txt")
     or die "$0: Could not open `GraphemeBreakProperty.txt': $!\n";
 my %boundclasses;
+LOG("Parsing `GraphemeBreakProperty.txt'...");
 while (my $l = <$fh>) {
     if ($l =~ /^([0-9A-F]+)\.\.([0-9A-F]+)\s*;\s*([A-Za-z_]+)/) {
 	for (my $i = hex($1); $i < hex($2); $i++) {
@@ -183,12 +186,23 @@ while (my $l = <$fh>) {
 open($fh, '<:encoding(UTF-8)', "SpecialCasing.txt")
     or die "$0: Could not open `SpecialCasing.txt': $!\n";
 my (%special_lc, %special_tc, %special_uc);
+LOG("Parsing `SpecialCasing.txt'...");
 while (my $l = <$fh>) {
     last if $l =~ /Conditional Mappings/;
     if ($l =~ /^(\S+); (.*?); (.*?); (.*?); # .*/) {
 	$special_lc{hex($1)} = [map { hex } split ' ', $2];
 	$special_tc{hex($1)} = [map { hex } split ' ', $3];
 	$special_uc{hex($1)} = [map { hex } split ' ', $4];
+    }
+}
+
+open($fh, '<:encoding(UTF-8)', "Jamo.txt")
+    or die "$0: Could not open `Jamo.txt': $!\n";
+my %jamo;
+LOG("Parsing `Jamo.txt'...");
+while (my $l = <$fh>) {
+    if ($l =~ /^([^;]+); (\S*)\s/) {
+	$jamo{hex($1)} = $2;
     }
 }
 
@@ -249,6 +263,8 @@ my $DATA = do { local $/; <DATA> };
 $DATA =~ s/BLOCK_SIZE/$BLOCK_SIZE/g;
 print $out $DATA, "\n";
 
+my %names;
+
 # Build and return a hash table of code points.
 sub gen_chars {
     my ($fh) = @_;
@@ -280,6 +296,9 @@ sub gen_chars {
 	    $chars{hex($1)}->{special_lc} = $special_lc{hex($1)};
 	    $chars{hex($1)}->{special_tc} = $special_tc{hex($1)};
 	    $chars{hex($1)}->{special_uc} = $special_uc{hex($1)};
+	    if ($l =~ /^([^;]+);([^;<>]+);/) {
+		$names{hex($1)} = $2;
+	    }
 	    next;
 	}
 
@@ -302,7 +321,7 @@ sub gen_chars {
 	my $end = hex($1);
 	my $name = $2;
 
-	for (my $i = $start; $i < $end; $i++) {
+	for (my $i = $start; $i <= $end; $i++) {
 	    my $clone = Char->new(line => $char->{line});
 	    $clone->{code} = $i;
 	    $clone->{name} = $name;
@@ -420,7 +439,7 @@ sub gen_comb {
 sub print_array {
     my ($type, $name, @array) = @_;
 
-    print $out "$type $name\[] = {\n";
+    print $out "const $type $name\[] = {\n";
     for (my $i = 0; $i < scalar @array; $i++) {
 	print $out "\t" if $i % 20 == 0;
 	print $out "$array[$i],";
@@ -434,11 +453,31 @@ my ($chars, $properties) = gen_properties(gen_chars($fh));
 my ($stage1, $stage2) = gen_tables(%$chars);
 my @comb = gen_comb(%$chars);
 
+open($fh, '<:encoding(UTF-8)', "NameAliases.txt")
+    or die "$0: Could not open `NameAliases.txt': $!\n";
+my %name_aliases;
+LOG("Parsing `NameAliases.txt'...");
+while (my $l = <$fh>) {
+    next if $l !~ /([^;]+);([^;]+);(.+)/;
+    if ($3 eq 'correction') {
+	$names{hex($1)} = $2;
+    }
+    if ($3 eq 'abbreviation'
+	or $3 eq 'alternate'
+	or $3 eq 'control') {
+	if (not defined $name_aliases{hex($1)}) {
+	    $name_aliases{hex($1)} = [$2];
+	} else {
+	    push @{$name_aliases{hex($1)}}, $2;
+	}
+    }
+}
+
 # Generation is now done.
 
 LOG("Generated ", scalar(@sequences), " sequence elements.");
 
-print $out "struct codepoint codepoints[] = {\n";
+print $out "const struct codepoint codepoints[] = {\n";
 print $out "\t{0,0,0,0,0,0,-1,-1,-1,-1,-1,-1,-1},\n";
 foreach my $cp (@$properties) { print $out "$cp\n"; }
 print $out "};\n\n";
@@ -449,6 +488,77 @@ print $out "int num_comp = ", (scalar @comb / 3), ";\n";
 print_array("uint16_t", "stage1", @$stage1);
 print_array("uint16_t", "stage2", flat @$stage2);
 print_array("uint16_t", "sequences", @sequences);
+
+# Formal names
+
+my $SBase = 0xAC00;
+my $LBase = 0x1100;
+my $VBase = 0x1161;
+my $TBase = 0x11A7;
+my $TCount = 28;
+my $NCount = 588;
+
+my $num_names = 0;
+print $out "const struct name names[] = {\n";
+for (my $i = 0; $i < 0x10FFFF; $i++) {
+    if ($i >= 0xAC00 && $i <= 0xD7A3) { # Hangul syllable
+	print $out "\t{$i,\"";
+	my $SIndex = $i - $SBase;
+
+	my $LIndex = int($SIndex / $NCount);
+	my $VIndex = int(($SIndex % $NCount) / $TCount);
+	my $TIndex = int($SIndex % $TCount);
+
+	my $LPart = $LBase + $LIndex;
+	my $VPart = $VBase + $VIndex;
+	my $TPart = $TBase + $TIndex;
+
+	die if not defined $jamo{$LPart} or
+	    not defined $jamo{$VPart} or
+	    ($TIndex > 0 && not defined $jamo{$TPart});
+
+	print $out "HANGUL SYLLABLE ",
+	    $jamo{$LPart},
+	    $jamo{$VPart};
+	print $out $jamo{$TPart} if $TIndex > 0;
+	print $out "\"},\n";
+	$num_names++;
+	next;
+    }
+
+    my $name;
+    next if not defined $$chars{$i};
+
+    # There are few enough of these we can just generate them.
+    if ($$chars{$i}->{category} eq 'Cc') {
+	$name = "control-" . sprintf("%04X", $i);
+    } else {
+	$name = $names{$i};
+    }
+
+    next if not defined $name;
+
+    $num_names++;
+    print $out "\t{$i,\"$name\"},\n";
+}
+print $out "};\n\n";
+print $out "int num_names = ", $num_names, ";\n";
+
+# Name aliases
+
+print $out "\nint num_aliases = ", (scalar values %name_aliases), ";\n";
+print $out "const struct name_alias name_aliases[] = {\n";
+for (my $i = 0; $i < 0x10FFFF; $i++) {
+    next if not defined $name_aliases{$i};
+    print $out "\t{$i,",
+	(scalar values @{$name_aliases{$i}}),
+	",(char *[]){";
+    for (my $j = 0; $j < scalar values @{$name_aliases{$i}}; $j++) {
+	print $out "\"", $name_aliases{$i}[$j], "\",";
+    }
+    print $out "}},\n";
+}
+print $out "};\n";
 
 LOG("Done; exiting.");
 
@@ -463,8 +573,9 @@ __DATA__
 #include "unicode_data.h"
 
 int num_comp;
+int num_names;
 
-struct codepoint *
+const struct codepoint *
 codepoint(uint32_t c)
 {
 	if (c > 0x10FFFF) return codepoints;

@@ -118,6 +118,9 @@ struct instr {
 		INSTR_NSPACE,
 		INSTR_NWORD,
 		INSTR_RET,
+
+		/* Unicode stuff. */
+
 		INSTR_CATEGORY,
 		INSTR_CATEGORIES
 	} op;
@@ -1330,6 +1333,14 @@ parse_p(ktre *re)
 		return NULL;
 	}
 
+	/*
+	 * TODO:
+	 *
+	 * \p{Uppercase=True}
+	 * \p{Bidi_Class: Left}
+	 * \p{name=control-0007}
+	 */
+
 	left->type = NODE_CATEGORY;
 	kdgu_next(re->s, &re->i);
 	unsigned idx = re->i;
@@ -1338,7 +1349,24 @@ parse_p(ktre *re)
 	kdgu *substr = kdgu_substr(re->s, re->i, idx);
 
 	if (kdgu_ncmp(&KDGU("name="), re->s, 0, re->i, 5, false)) {
+		int loc = re->i;
+		re->i = idx, left->type = NODE_STR, idx = 0;
+		for (int i = 0; i < 5; i++) kdgu_next(substr, &idx);
+		kdgu *name = kdgu_substr(substr, idx, substr->len);
+		uint32_t c = kdgu_getcode(name);
 
+		if (c == UINT32_MAX) {
+			kdgu_free(substr), kdgu_free(name);
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      loc + idx, "unknown character name");
+			return NULL;
+		}
+
+		kdgu *str = kdgu_new(re->s->fmt, NULL, 0);
+		kdgu_chrappend(str, c);
+		kdgu_free(name), kdgu_free(substr);
+		left->class = str;
+		return left;
 	}
 
 	for (unsigned i = 0;
@@ -1378,6 +1406,51 @@ parse_p(ktre *re)
 		      re->i, "expected '}'");
 		return NULL;
 	}
+
+	return left;
+}
+
+static struct node *
+parse_N(ktre *re)
+{
+	struct node *left = new_node(re);
+	if (!left) return NULL;
+	left->type = NODE_STR;
+
+	/* TODO: Make things that use decode use chrcmp instead. */
+	if (!kdgu_chrcmp(re->s, re->i, '{')) {
+		free_node(re, left);
+		error(re, KTRE_ERROR_SYNTAX_ERROR,
+		      re->i, "expected '{'");
+		return NULL;
+	}
+
+	kdgu_next(re->s, &re->i);
+	unsigned idx = re->i;
+	while (idx < re->s->len && !kdgu_chrcmp(re->s, idx, '}'))
+		kdgu_next(re->s, &idx);
+
+	if (!kdgu_chrcmp(re->s, idx, '}')) {
+		free_node(re, left);
+		error(re, KTRE_ERROR_SYNTAX_ERROR,
+		      idx, "expected '}'");
+		return NULL;
+	}
+
+	kdgu *substr = kdgu_substr(re->s, re->i, idx);
+	uint32_t c = kdgu_getcode(substr);
+	kdgu_free(substr);
+
+	if (c == UINT32_MAX) {
+		free_node(re, left);
+		error(re, KTRE_ERROR_SYNTAX_ERROR,
+		      re->i, "unknown character name");
+		return NULL;
+	}
+
+	re->i = idx;
+	left->class = kdgu_new(re->s->fmt, NULL, 0);
+	kdgu_chrappend(left->class, c);
 
 	return left;
 }
@@ -1591,9 +1664,15 @@ parse_primary(ktre *re)
 		left = parse_k(re);
 		break;
 
+	case 'P':
 	case 'p':
 		free_node(re, left), kdgu_next(re->s, &re->i);
 		left = parse_p(re);
+		break;
+
+	case 'N':
+		free_node(re, left), kdgu_next(re->s, &re->i);
+		left = parse_N(re);
 		break;
 
 	default:
