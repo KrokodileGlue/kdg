@@ -1,9 +1,6 @@
-#include <stdbool.h>
-#include <stdlib.h>
 #include <stdarg.h>
-#include <string.h>
 #include <ctype.h>
-#include <stdio.h>
+#include <assert.h>
 
 #include "ktre.h"
 
@@ -11,12 +8,11 @@
 #define DIGIT  "0123456789"
 #define WORD   "_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-#include <stdio.h>
-#include <assert.h>
+/* TODO: https://www.regular-expressions.info/refcharclass.html */
 
 #define DBG(...) ((re->opt & KTRE_DEBUG) ? fprintf(stderr, __VA_ARGS__) : 0)
 
-static void print_node(ktre *re, struct node *n);
+static void print_node(const ktre *re, struct node *n);
 static void error(ktre *re, enum ktre_error err, int loc, const char *fmt, ...);
 
 static inline bool
@@ -87,6 +83,7 @@ struct instr {
 		INSTR_ANY,
 		INSTR_MANY,
 		INSTR_CLASS,
+		INSTR_NCLASS,
 		INSTR_TSTR,
 		INSTR_STR,
 		INSTR_NOT,
@@ -265,6 +262,7 @@ struct node {
 		NODE_NWORD,
 
 		NODE_CLASS,
+		NODE_NCLASS,
 		NODE_CATEGORY,
 		NODE_SCRIPT
 	} type;
@@ -284,23 +282,22 @@ struct node {
 };
 
 static void
-free_node(ktre *re, struct node *n)
+free_node(struct node *n)
 {
 	/* Sometimes parse errors can produce NULL nodes. */
 	if (!n) return;
 
 	switch (n->type) {
 	case NODE_SEQUENCE: case NODE_OR:
-		free_node(re, n->a);
-		free_node(re, n->b);
+		free_node(n->a), free_node(n->b);
 		break;
 	case NODE_QUESTION: case NODE_REP:   case NODE_ASTERISK:
 	case NODE_PLUS:     case NODE_GROUP: case NODE_ATOM:
 	case NODE_PLA:      case NODE_NLA:   case NODE_PLB:
 	case NODE_NLB:
-		free_node(re, n->a);
+		free_node(n->a);
 		break;
-	case NODE_STR: case NODE_CLASS:
+	case NODE_STR: case NODE_CLASS: case NODE_NCLASS:
 		kdgu_free(n->str);
 		break;
 	default: break;
@@ -407,7 +404,7 @@ copy_node(const ktre *re, struct node *n)
 	case NODE_NLB:
 		r->a = copy_node(re, n->a);
 		break;
-	case NODE_STR: case NODE_CLASS:
+	case NODE_STR: case NODE_CLASS: case NODE_NCLASS:
 		r->str = kdgu_copy(n->str);
 		break;
 	default: break;
@@ -542,7 +539,7 @@ parse_mode_modifiers(ktre *re)
 			      re->i,
 			      "invalid mode modifier");
 
-			free_node(re, left);
+			free_node(left);
 			return NULL;
 		}
 
@@ -611,7 +608,7 @@ parse_branch_reset(ktre *re)
 			tmp->a = left;
 			tmp->b = term(re);
 		} else {
-			free_node(re, tmp);
+			free_node(tmp);
 			tmp = term(re);
 		}
 
@@ -627,7 +624,7 @@ parse_branch_reset(ktre *re)
 		      re->i,
 		      "expected ')'");
 
-		free_node(re, left);
+		free_node(left);
 		return NULL;
 	}
 
@@ -653,7 +650,7 @@ parse_named_group(ktre *re)
 			      re->i,
 			      "expected '>'");
 
-			free_node(re, left);
+			free_node(left);
 			return NULL;
 		}
 
@@ -662,7 +659,7 @@ parse_named_group(ktre *re)
 		left->gi = add_group(re);
 
 		if (left->gi < 0) {
-			free_node(re, left);
+			free_node(left);
 			return NULL;
 		}
 
@@ -678,7 +675,7 @@ parse_named_group(ktre *re)
 	else {
 		error(re, KTRE_ERROR_SYNTAX_ERROR,
 		      left->loc, "invalid group syntax");
-		free_node(re, left);
+		free_node(left);
 		return NULL;
 	}
 
@@ -707,7 +704,7 @@ parse_named_backreference(ktre *re)
 		if (!kdgu_chrcmp(re->s, re->i, ')')) {
 			error(re, KTRE_ERROR_SYNTAX_ERROR,
 			      re->i, "expected ')'");
-			free_node(re, left);
+			free_node(left);
 			return NULL;
 		}
 
@@ -728,7 +725,7 @@ parse_named_backreference(ktre *re)
 			      re->i,
 			      "name references a group that does not exist");
 
-			free_node(re, left);
+			free_node(left);
 			return NULL;
 		}
 
@@ -738,7 +735,7 @@ parse_named_backreference(ktre *re)
 	if (!kdgu_chrcmp(re->s, re->i, '<')) {
 		error(re, KTRE_ERROR_SYNTAX_ERROR,
 		      re->i, "expected '<'");
-		free_node(re, left);
+		free_node(left);
 		return NULL;
 	}
 
@@ -752,7 +749,7 @@ parse_named_backreference(ktre *re)
 	if (!kdgu_chrcmp(re->s, re->i, '>')) {
 		error(re, KTRE_ERROR_SYNTAX_ERROR,
 		      re->i, "expected '>'");
-		free_node(re, left);
+		free_node(left);
 		return NULL;
 	}
 
@@ -761,7 +758,7 @@ parse_named_backreference(ktre *re)
 	left->gi = add_group(re);
 
 	if (left->gi < 0) {
-		free_node(re, left);
+		free_node(left);
 		return NULL;
 	}
 
@@ -806,7 +803,7 @@ parse_special_group(ktre *re)
 		if (!kdgu_chrcmp(re->s, re->i, '\'')) {
 			error(re, KTRE_ERROR_SYNTAX_ERROR,
 			      re->i, "expected '\''");
-			free_node(re, left);
+			free_node(left);
 			return NULL;
 		}
 
@@ -815,7 +812,7 @@ parse_special_group(ktre *re)
 		left->gi = add_group(re);
 
 		if (left->gi < 0) {
-			free_node(re, left);
+			free_node(left);
 			return NULL;
 		}
 
@@ -855,7 +852,7 @@ parse_special_group(ktre *re)
 		break;
 
 	default:
-		free_node(re, left);
+		free_node(left);
 		kdgu_prev(re->s, &re->i);
 		left = parse_mode_modifiers(re);
 		break;
@@ -878,14 +875,14 @@ parse_group(ktre *re)
 	} else if (kdgu_chrcmp(re->s, re->i, '?')) {
 		kdgu_next(re->s, &re->i);
 
-		free_node(re, left);
+		free_node(left);
 		left = parse_special_group(re);
 	} else {
 		left->type = NODE_GROUP;
 		left->gi = add_group(re);
 
 		if (left->gi < 0)
-			return free_node(re, left), NULL;
+			return free_node(left), NULL;
 
 		re->group[left->gi].is_called = false;
 		left->a = parse(re);
@@ -894,7 +891,7 @@ parse_group(ktre *re)
 	if (!kdgu_chrcmp(re->s, re->i, ')') && !re->err) {
 		error(re, KTRE_ERROR_SYNTAX_ERROR, left->loc,
 		      "unmatched '('");
-		return free_node(re, left), NULL;
+		return free_node(left), NULL;
 	}
 
 	kdgu_next(re->s, &re->i);
@@ -947,7 +944,7 @@ static struct node *parse_property_class(struct ktre *re, const kdgu *k);
 static struct node *
 quickparse(const struct ktre *re, const kdgu *k)
 {
-	struct ktre *r = ktre_compile(k, re->opt);
+	struct ktre *r = ktre_compile(k, re->opt ^ KTRE_DEBUG);
 	struct node *n = copy_node(re, r->n->a);
 	ktre_free(r);
 	return n;
@@ -971,7 +968,7 @@ parse_character_class_character(struct ktre *re, struct node *left)
 			kdgu_next(re->s, &end);
 
 		if (!kdgu_ncmp(&KDGU(":]"), re->s, 0, end, 2, false)) {
-			free_node(re, left);
+			free_node(left);
 			error(re, KTRE_ERROR_SYNTAX_ERROR,
 			      re->i, "expected ':]'");
 			return NULL;
@@ -1003,7 +1000,7 @@ parse_character_class_character(struct ktre *re, struct node *left)
 			struct node *tmp = new_node(re);
 
 			if (!tmp) {
-				free_node(re, left);
+				free_node(left);
 				return NULL;
 			}
 
@@ -1024,7 +1021,7 @@ parse_character_class_character(struct ktre *re, struct node *left)
 	}
 
 	if (!right) {
-		free_node(re, left);
+		free_node(left);
 		return NULL;
 	}
 
@@ -1041,7 +1038,7 @@ parse_character_class_character(struct ktre *re, struct node *left)
 			struct node *tmp = new_node(re);
 
 			if (!tmp) {
-				free_node(re, left), free_node(re, right);
+				free_node(left), free_node(right);
 				return NULL;
 			}
 
@@ -1059,7 +1056,7 @@ parse_character_class_character(struct ktre *re, struct node *left)
 		struct node *tmp = new_node(re);
 
 		if (!tmp) {
-			free_node(re, left), free_node(re, right);
+			free_node(left), free_node(right);
 			return NULL;
 		}
 
@@ -1084,7 +1081,7 @@ parse_character_class(ktre *re)
 		left = parse_character_class_character(re, left);
 
 	if (!kdgu_chrcmp(re->s, re->i, ']')) {
-		free_node(re, left);
+		free_node(left);
 		error(re, KTRE_ERROR_SYNTAX_ERROR,
 		      re->i, "expected ']'");
 		return NULL;
@@ -1094,7 +1091,7 @@ parse_character_class(ktre *re)
 		struct node *tmp = new_node(re);
 
 		if (!tmp) {
-			free_node(re, left);
+			free_node(left);
 			return NULL;
 		}
 
@@ -1129,7 +1126,7 @@ parse_g(ktre *re)
 		n = parse_dec_num(re, 0);
 
 		if (!kdgu_chrcmp(re->s, re->i, '}') && !re->err) {
-			free_node(re, left);
+			free_node(left);
 			error(re, KTRE_ERROR_SYNTAX_ERROR,
 			      left->loc, "incomplete token");
 			return NULL;
@@ -1178,7 +1175,7 @@ parse_k(ktre *re)
 	    || a == b) {
 		error(re, KTRE_ERROR_SYNTAX_ERROR,
 		      re->i, "expected '>' or '");
-		free_node(re, left);
+		free_node(left);
 		return NULL;
 	}
 
@@ -1197,7 +1194,7 @@ parse_k(ktre *re)
 	if (left->c < 0) {
 		error(re, KTRE_ERROR_SYNTAX_ERROR,
 		      re->i, "name references a group that does not exist");
-		free_node(re, left);
+		free_node(left);
 		return NULL;
 	}
 
@@ -1228,7 +1225,7 @@ parse_property_class(struct ktre *re, const kdgu *k)
 			kdgu_free(substr);
 
 			if (left->c == (int32_t)UINT32_MAX) {
-				free_node(re, left);
+				free_node(left);
 				error(re, KTRE_ERROR_SYNTAX_ERROR,
 				      re->i - a, "no such category");
 				return NULL;
@@ -1257,7 +1254,7 @@ parse_property_class(struct ktre *re, const kdgu *k)
 
 		if (c == UINT32_MAX) {
 			kdgu_free(property), kdgu_free(value);
-			free_node(re, left);
+			free_node(left);
 			error(re, KTRE_ERROR_SYNTAX_ERROR,
 			      loc, "unknown character name");
 			return NULL;
@@ -1272,7 +1269,7 @@ parse_property_class(struct ktre *re, const kdgu *k)
 
 		if (left->c == -1) {
 			kdgu_free(property), kdgu_free(value);
-			free_node(re, left);
+			free_node(left);
 			error(re, KTRE_ERROR_SYNTAX_ERROR,
 			      loc, "unknown character name");
 			return NULL;
@@ -1281,7 +1278,7 @@ parse_property_class(struct ktre *re, const kdgu *k)
 		left->type = NODE_SCRIPT;
 	} else {
 		kdgu_free(property), kdgu_free(value);
-		free_node(re, left);
+		free_node(left);
 		error(re, KTRE_ERROR_SYNTAX_ERROR,
 		      loc, "unknown property name");
 		return NULL;
@@ -1337,7 +1334,7 @@ parse_N(ktre *re)
 
 	/* TODO: Make things that use decode use chrcmp instead. */
 	if (!kdgu_chrcmp(re->s, re->i, '{')) {
-		free_node(re, left);
+		free_node(left);
 		error(re, KTRE_ERROR_SYNTAX_ERROR,
 		      re->i, "expected '{'");
 		return NULL;
@@ -1349,7 +1346,7 @@ parse_N(ktre *re)
 		kdgu_next(re->s, &idx);
 
 	if (!kdgu_chrcmp(re->s, idx, '}')) {
-		free_node(re, left);
+		free_node(left);
 		error(re, KTRE_ERROR_SYNTAX_ERROR,
 		      idx, "expected '}'");
 		return NULL;
@@ -1360,7 +1357,7 @@ parse_N(ktre *re)
 	kdgu_free(substr);
 
 	if (c == UINT32_MAX) {
-		free_node(re, left);
+		free_node(left);
 		error(re, KTRE_ERROR_SYNTAX_ERROR,
 		      re->i, "unknown character name");
 		return NULL;
@@ -1383,7 +1380,7 @@ primary(ktre *re)
 
 	if (kdgu_chrcmp(re->s, re->i, ')')
 	    || kdgu_chrcmp(re->s, re->i, ']'))
-		return free_node(re, left), NULL;
+		return free_node(left), NULL;
 
  again:
 	if (re->literal) {
@@ -1403,13 +1400,13 @@ primary(ktre *re)
 	if (!kdgu_chrcmp(re->s, re->i, '\\')) {
 		switch (kdgu_decode(re->s, re->i)) {
 		case '[':
-			free_node(re, left);
+			free_node(left);
 			kdgu_next(re->s, &re->i);
 			left = parse_character_class(re);
 			break;
 
 		case '(':
-			free_node(re, left);
+			free_node(left);
 			left = parse_group(re);
 			break;
 
@@ -1490,7 +1487,7 @@ primary(ktre *re)
 	case 'U':
 	case 'x':
 		unicodepoint(re, a);
-		if (re->err) return kdgu_free(a), free_node(re, left), NULL;
+		if (re->err) return kdgu_free(a), free_node(left), NULL;
 		break;
 
 	case '-': /* backreferences */
@@ -1515,7 +1512,7 @@ primary(ktre *re)
 		loc = re->i;
 
 		if (!kdgu_chrcmp(re->s, re->i, '{') && !re->err) {
-			kdgu_free(a), free_node(re, left);
+			kdgu_free(a), free_node(left);
 			error(re, KTRE_ERROR_SYNTAX_ERROR,
 			      loc, "expected '{'");
 
@@ -1526,7 +1523,7 @@ primary(ktre *re)
 		kdgu_chrappend(a, parse_oct_num(re, 0));
 
 		if (!kdgu_chrcmp(re->s, re->i, '}') && !re->err) {
-			kdgu_free(a), free_node(re, left);
+			kdgu_free(a), free_node(left);
 			error(re, KTRE_ERROR_SYNTAX_ERROR,
 			      loc, "unmatched '{'");
 
@@ -1569,23 +1566,23 @@ primary(ktre *re)
 #endif
 
 	case 'g':
-		free_node(re, left), kdgu_next(re->s, &re->i);
+		free_node(left), kdgu_next(re->s, &re->i);
 		left = parse_g(re);
 		break;
 
 	case 'k':
-		free_node(re, left), kdgu_next(re->s, &re->i);
+		free_node(left), kdgu_next(re->s, &re->i);
 		left = parse_k(re);
 		break;
 
 	case 'P':
 	case 'p':
-		free_node(re, left), kdgu_next(re->s, &re->i);
+		free_node(left), kdgu_next(re->s, &re->i);
 		left = parse_p(re);
 		break;
 
 	case 'N':
-		free_node(re, left), kdgu_next(re->s, &re->i);
+		free_node(left), kdgu_next(re->s, &re->i);
 		left = parse_N(re);
 		break;
 
@@ -1635,8 +1632,8 @@ factor(ktre *re)
 				error(re, KTRE_ERROR_SYNTAX_ERROR,
 				      re->i - 1,
 				      "unmatched '{'");
-				free_node(re, n);
-				free_node(re, left);
+				free_node(n);
+				free_node(left);
 				return NULL;
 			}
 
@@ -1666,29 +1663,29 @@ term(ktre *re)
 		if (!right) return NULL;
 
 		if (re->err) {
-			free_node(re, left);
-			free_node(re, right);
+			free_node(left);
+			free_node(right);
 			return NULL;
 		}
 
 		if (left->type == NODE_NONE) {
-			free_node(re, left);
+			free_node(left);
 			left = right;
 			continue;
 		}
 
 		if (left->type == NODE_STR && right->type == NODE_STR) {
 			kdgu_append(left->str, right->str);
-			free_node(re, right);
+			free_node(right);
 		} else if (left->type == NODE_SEQUENCE && left->b->type == NODE_STR && right->type == NODE_STR) {
 			kdgu_append(left->b->str, right->str);
-			free_node(re, right);
+			free_node(right);
 		} else {
 			struct node *tmp = new_node(re);
 
 			if (!tmp) {
-				free_node(re, left);
-				free_node(re, right);
+				free_node(left);
+				free_node(right);
 				return NULL;
 			}
 
@@ -1717,7 +1714,7 @@ parse(ktre *re)
 		m->b = parse(re);
 
 		if (re->err) {
-			free_node(re, m->b);
+			free_node(m->b);
 			m->b = NULL;
 			return m;
 		}
@@ -1729,7 +1726,7 @@ parse(ktre *re)
 }
 
 static void
-print_node(ktre *re, struct node *n)
+print_node(const ktre *re, struct node *n)
 {
 	if ((re->opt & KTRE_DEBUG) == 0) return;
 	static int depth = 0;
@@ -1779,6 +1776,7 @@ print_node(ktre *re, struct node *n)
 	case NODE_NWB:       N0("(negated word boundary)");                   break;
 	case NODE_BACKREF:   N0("(backreference to %d)", n->c);               break;
 	case NODE_CLASS:     DBG("(class '");  dbgf(re, n->str, 0); N0("')"); break;
+	case NODE_NCLASS:    DBG("(nclass '"); dbgf(re, n->str, 0); N0("')"); break;
 	case NODE_STR:       DBG("(string '"); dbgf(re, n->str, 0); N0("')"); break;
 	case NODE_NOT:       N1("(not)");                                     break;
 	case NODE_BOL:       N0("(bol)");                                     break;
@@ -1848,10 +1846,11 @@ static void
 print_instruction(ktre *re, struct instr instr)
 {
 	switch (instr.op) {
-	case INSTR_CLASS: DBG("CLASS   '"); dbgf(re, instr.str, 0); DBG("'"); break;
-	case INSTR_STR:   DBG("STR     '"); dbgf(re, instr.str, 0); DBG("'"); break;
-	case INSTR_NOT:   DBG("NOT     '"); dbgf(re, instr.str, 0); DBG("'"); break;
-	case INSTR_TSTR:  DBG("TSTR    '"); dbgf(re, instr.str, 0); DBG("'"); break;
+	case INSTR_CLASS:  DBG("CLASS   '"); dbgf(re, instr.str, 0); DBG("'"); break;
+	case INSTR_NCLASS: DBG("NCLASS  '"); dbgf(re, instr.str, 0); DBG("'"); break;
+	case INSTR_STR:    DBG("STR     '"); dbgf(re, instr.str, 0); DBG("'"); break;
+	case INSTR_NOT:    DBG("NOT     '"); dbgf(re, instr.str, 0); DBG("'"); break;
+	case INSTR_TSTR:   DBG("TSTR    '"); dbgf(re, instr.str, 0); DBG("'"); break;
 	case INSTR_BRANCH:     DBG("BRANCH   %d, %d", instr.a, instr.b); break;
 	case INSTR_SAVE:       DBG("SAVE     %d",  instr.a);             break;
 	case INSTR_JMP:        DBG("JMP      %d",  instr.a);             break;
@@ -2134,6 +2133,7 @@ compile(ktre *re, struct node *n, bool rev)
 
 	case NODE_STR:        emit_str(re, INSTR_STR,    n->str, n->loc); break;
 	case NODE_CLASS:      emit_str(re, INSTR_CLASS,  n->str, n->loc); break;
+	case NODE_NCLASS:     emit_str(re, INSTR_NCLASS, n->str, n->loc); break;
 	case NODE_CATEGORY:   emit_c    (re, INSTR_CATEGORY, n->c,   n->loc); break;
 	case NODE_SCRIPT:     emit_c    (re, INSTR_SCRIPT,   n->c,   n->loc); break;
 	case NODE_SETOPT:     emit_c    (re, INSTR_SETOPT,   n->c,   n->loc); break;
@@ -2216,6 +2216,70 @@ print_finish(ktre *re,
 	DBG("\n");
 }
 
+static struct node *
+optimize_or(const struct ktre *re, struct node *n)
+{
+	if (!n) return n;
+
+	if (n->type == NODE_RANGE && n->y - n->x <= 256) {
+		struct node *tmp = new_node(re);
+		if (!tmp) return n;
+		tmp->type = NODE_CLASS;
+		tmp->str = kdgu_new(re->s->fmt, NULL, 0);
+		for (int32_t i = n->x; i <= n->y; i++)
+			kdgu_chrappend(tmp->str, i);
+		free_node(n);
+		return tmp;
+	}
+
+	switch (n->type) {
+	case NODE_SEQUENCE: case NODE_OR:
+		n->a = optimize_or(re, n->a);
+		n->b = optimize_or(re, n->b);
+		break;
+	case NODE_QUESTION: case NODE_REP:   case NODE_ASTERISK:
+	case NODE_PLUS:     case NODE_GROUP: case NODE_ATOM:
+	case NODE_PLA:      case NODE_NLA:   case NODE_PLB:
+	case NODE_NLB:
+		n->a = optimize_or(re, n->a);
+		break;
+	default:;
+	}
+
+	if (n->type == NODE_STR && kdgu_len(n->str) == 1)
+		n->type = NODE_CLASS;
+
+	if (n->type == NODE_OR
+	    && n->a->type == NODE_CLASS
+	    && n->b->type == NODE_CLASS) {
+		struct node *tmp = new_node(re);
+		if (!tmp) return n;
+		tmp->type = NODE_CLASS;
+		tmp->str = kdgu_copy(n->a->str);
+		kdgu_setappend(tmp->str, n->b->str);
+		free_node(n);
+		return tmp;
+	}
+
+	if (n->type == NODE_OR
+	    && n->b->type == NODE_CLASS
+	    && n->a->type == NODE_OR
+	    && n->a->b->type == NODE_CLASS) {
+		struct node *tmp = n->a;
+		kdgu_setappend(tmp->b->str, n->b->str);
+		return tmp;
+	}
+
+	if (n->type == NODE_NOT
+	    && n->a->type == NODE_CLASS) {
+		free(n);
+		n->a->type = NODE_NCLASS;
+		return n->a;
+	}
+
+	return n;
+}
+
 ktre *
 ktre_compile(const kdgu *pat, int opt)
 {
@@ -2283,7 +2347,7 @@ ktre_compile(const kdgu *pat, int opt)
 	re->n->a                 = n;
 
 	if (re->err) {
-		free_node(re, re->n);
+		free_node(re->n);
 		re->n = NULL;
 		print_compile_error(re);
 		return re;
@@ -2298,6 +2362,7 @@ ktre_compile(const kdgu *pat, int opt)
 		return re;
 	}
 
+	re->n = optimize_or(re, re->n);
 	print_node(re, re->n);
 
 	if (re->opt & KTRE_UNANCHORED) {
@@ -2474,6 +2539,15 @@ execute_instr(ktre *re,
 			kdgu_next(subject, &THREAD[TP].sp);
 		else if (opt & KTRE_INSENSITIVE
 			 && kdgu_contains(re->c[ip].str, lc(c)))
+			kdgu_next(subject, &THREAD[TP].sp);
+		else FAIL;
+		break;
+	case INSTR_NCLASS:
+		THREAD[TP].ip++;
+		if (!kdgu_contains(re->c[ip].str, c))
+			kdgu_next(subject, &THREAD[TP].sp);
+		else if (opt & KTRE_INSENSITIVE
+			 && !kdgu_contains(re->c[ip].str, lc(c)))
 			kdgu_next(subject, &THREAD[TP].sp);
 		else FAIL;
 		break;
@@ -2771,7 +2845,7 @@ void
 ktre_free(ktre *re)
 {
 	if (re->copied) return;
-	free_node(re, re->n);
+	free_node(re->n);
 	if (re->err) free(re->err_str);
 
 	if (re->c) {

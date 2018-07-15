@@ -29,9 +29,8 @@ enum {
 /* Compile-time settings. */
 #define KTRE_MAX_ERROR_LEN 100
 #define KTRE_MAX_GROUPS 100
-#define KTRE_MAX_THREAD 200
+#define KTRE_MAX_THREAD 2000
 #define KTRE_MAX_CALL_DEPTH 100
-#define KTRE_MEM_CAP 100000000
 
 struct ktre {
 	/* ===================== public fields ==================== */
@@ -95,7 +94,7 @@ struct ktre {
 
 typedef struct ktre ktre;
 
-/* API prototypes */
+/* API prototypes. */
 ktre *ktre_compile(const kdgu *pat, int opt);
 ktre *ktre_copy(ktre *re);
 _Bool ktre_exec(ktre *re, const kdgu *subject, int ***vec);

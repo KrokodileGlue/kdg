@@ -1363,6 +1363,19 @@ kdgu_append(kdgu *k1, const kdgu *k2)
 }
 
 bool
+kdgu_setappend(kdgu *k1, const kdgu *k2)
+{
+	if (!k1 || !k2) return false;
+	for (unsigned i = 0; i < k2->len; kdgu_inc(k2, &i)) {
+		uint32_t c = kdgu_decode(k2, i);
+		if (kdgu_contains(k1, c)) continue;
+		if (!insert_point(k1, k1->len, c))
+			return false;
+	}
+	return true;
+}
+
+bool
 kdgu_contains(const kdgu *k, uint32_t c)
 {
 	for (unsigned i = 0; i < k->len; kdgu_next(k, &i))

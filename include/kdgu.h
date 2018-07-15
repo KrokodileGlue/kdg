@@ -90,7 +90,7 @@ void kdgu_print_error(struct error err);
 
 uint32_t kdgu_decode(const kdgu *k, unsigned idx);
 struct error kdgu_encode(uint32_t c, uint8_t *buf, unsigned *len,
-                         enum fmt fmt, unsigned idx, int endian);
+			 enum fmt fmt, unsigned idx, int endian);
 
 unsigned kdgu_len(const kdgu *k);
 unsigned kdgu_chrsize(const kdgu *k, unsigned idx);
@@ -100,6 +100,7 @@ void kdgu_size(kdgu *k, size_t n);
 
 bool kdgu_chrappend(kdgu *k, uint32_t c);
 bool kdgu_append(kdgu *k1, const kdgu *k2);
+bool kdgu_setappend(kdgu *k1, const kdgu *k2);
 
 #include "unicode_data.h"
 
