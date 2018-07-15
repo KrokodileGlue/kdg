@@ -119,10 +119,10 @@ struct instr {
 		INSTR_NWORD,
 		INSTR_RET,
 
-		/* Unicode stuff. */
+		/* Unicode properties. */
 
 		INSTR_CATEGORY,
-		INSTR_CATEGORIES
+		INSTR_SCRIPT
 	} op;
 
 	union {
@@ -263,7 +263,7 @@ struct node {
 		NODE_NWORD,
 
 		NODE_CATEGORY,
-		NODE_CATEGORIES
+		NODE_SCRIPT
 	} type;
 
 	/* TODO: Why is this still so terrible? */
@@ -329,20 +329,20 @@ static bool
 is_word(ktre *re, uint32_t c) {
 	if (re->opt & KTRE_ECMA) return !!strchr(DIGIT, c);
 	enum category cat = codepoint(c)->category;
-	return cat == CATEGORY_LL
-	    || cat == CATEGORY_LU
-	    || cat == CATEGORY_LT
-	    || cat == CATEGORY_LO
-	    || cat == CATEGORY_LM
-	    || cat == CATEGORY_ND
-	    || cat == CATEGORY_PC;
+	return cat & CATEGORY_LL
+	    || cat & CATEGORY_LU
+	    || cat & CATEGORY_LT
+	    || cat & CATEGORY_LO
+	    || cat & CATEGORY_LM
+	    || cat & CATEGORY_ND
+	    || cat & CATEGORY_PC;
 }
 
 static bool
 is_digit(ktre *re, uint32_t c)
 {
 	if (re->opt & KTRE_ECMA) return !!strchr(DIGIT, c);
-	return codepoint(c)->category == CATEGORY_ND;
+	return codepoint(c)->category & CATEGORY_ND;
 }
 
 static bool
@@ -352,9 +352,9 @@ is_space(ktre *re, uint32_t c)
 	enum category cat = codepoint(c)->category;
 	return strchr(WHITESPACE, c)
 		|| c == 0x85
-		|| cat == CATEGORY_ZL
-		|| cat == CATEGORY_ZP
-		|| cat == CATEGORY_ZS;
+		|| cat & CATEGORY_ZL
+		|| cat & CATEGORY_ZP
+		|| cat & CATEGORY_ZS;
 }
 
 static inline uint32_t
@@ -943,10 +943,10 @@ parse_character_class_character(ktre *re)
 			}
 		}
 
-		a = kdgu_chrget(re->s, re->i), kdgu_next(re->s, &re->i);
+		a = kdgu_getchr(re->s, re->i), kdgu_next(re->s, &re->i);
 		return a;
 	} else if (!kdgu_chrcmp(re->s, re->i, '\\')) {
-		a = kdgu_chrget(re->s, re->i), kdgu_next(re->s, &re->i);
+		a = kdgu_getchr(re->s, re->i), kdgu_next(re->s, &re->i);
 		return a;
 	}
 
@@ -1229,184 +1229,99 @@ parse_k(ktre *re)
 	return left;
 }
 
-static struct {
-	char *small, *big, *name;
-	enum category cat;
-} categories[] = {
-	{"Ll", "Lowercase_Letter", "Lowercase Letter", CATEGORY_LL},
-	{"Lu", "Uppercase_Letter", "Uppercase Letter", CATEGORY_LU},
-	{"Lt", "Titlecase_Letter", "Titlecase Letter", CATEGORY_LT},
-	{"Lm", "Modifier_Letter", "Modifier Letter", CATEGORY_LM},
-	{"Lo", "Other_Letter", "Other Letter", CATEGORY_LO},
-	{"Mn", "Non_Spacing_Mark", "Non Spacing Mark", CATEGORY_MN},
-	{"Mc", "Spacing_Combining_Mark", "Spacing Combining Mark", CATEGORY_MC},
-	{"Me", "Enclosing_Mark", "Enclosing Mark", CATEGORY_ME},
-	{"Zs", "Space_Separator", "Space Separator", CATEGORY_ZS},
-	{"Zl", "Line_Separator", "Line Separator", CATEGORY_ZL},
-	{"Zp", "Paragraph_Separator", "Paragraph Separator", CATEGORY_ZP},
-	{"Sm", "Math_Symbol", "Math Symbol", CATEGORY_SM},
-	{"Sc", "Currency_Symbol", "Currency Symbol", CATEGORY_SC},
-	{"Sk", "Modifier_Symbol", "Modifier Symbol", CATEGORY_SK},
-	{"So", "Other_Symbol", "Other Symbol", CATEGORY_SO},
-	{"Nd", "Decimal_Digit_Number", "Decimal Digit Number", CATEGORY_ND},
-	{"Nl", "Letter_Number", "Letter Number", CATEGORY_NL},
-	{"No", "Other_Number", "Other Number", CATEGORY_NO},
-	{"Pd", "Dash_Punctuation", "Dash Punctuation", CATEGORY_PD},
-	{"Ps", "Open_Punctuation", "Open Punctuation", CATEGORY_PS},
-	{"Pe", "Close_Punctuation", "Close Punctuation", CATEGORY_PE},
-	{"Pi", "Initial_Punctuation", "Initial Punctuation", CATEGORY_PI},
-	{"Pf", "Final_Punctuation", "Final Punctuation", CATEGORY_PF},
-	{"Pc", "Connector_Punctuation", "Connector Punctuation", CATEGORY_PC},
-	{"Po", "Other_Punctuation", "Other Punctuation", CATEGORY_PO},
-	{"Cc", "Control", "Control", CATEGORY_CC},
-	{"Cf", "Format", "Format", CATEGORY_CF},
-	{"Co", "Private_Use", "Private Use", CATEGORY_CO},
-	{"Cs", "Surrogate", "Surrogate", CATEGORY_CS},
-	{"Cn", "Unassigned", "Unassigned", CATEGORY_CN},
-};
-
-static struct {
-	char *c;
-	int num;
-	enum category *categories;
-} shorthand_categories[] = {
-	{"L", 5, (enum category []){CATEGORY_LL,
-				    CATEGORY_LU,
-				    CATEGORY_LT,
-				    CATEGORY_LM,
-				    CATEGORY_LO}},
-	{"M", 3, (enum category []){CATEGORY_MN,
-				    CATEGORY_MC,
-				    CATEGORY_ME}},
-	{"Z", 3, (enum category []){CATEGORY_ZS,
-				    CATEGORY_ZL,
-				    CATEGORY_ZP}},
-	{"S", 4, (enum category []){CATEGORY_SM,
-				    CATEGORY_SC,
-				    CATEGORY_SK,
-				    CATEGORY_SO}},
-	{"N", 3, (enum category []){CATEGORY_ND,
-				    CATEGORY_NL,
-				    CATEGORY_NO}},
-	{"P", 7, (enum category []){CATEGORY_PD,
-				    CATEGORY_PS,
-				    CATEGORY_PE,
-				    CATEGORY_PI,
-				    CATEGORY_PF,
-				    CATEGORY_PC,
-				    CATEGORY_PO}},
-	{"C", 5, (enum category []){CATEGORY_CC,
-				    CATEGORY_CF,
-				    CATEGORY_CO,
-				    CATEGORY_CS,
-				    CATEGORY_CN}}
-};
-
 static struct node *
 parse_p(ktre *re)
 {
 	struct node *left = new_node(re);
 	if (!left) return NULL;
-	left->c = -1;
-	bool bracketed = kdgu_chrcmp(re->s, re->i, '{');
 
-	if (!bracketed) {
-		uint32_t c = kdgu_decode(re->s, re->i);
-		left->type = NODE_CATEGORIES;
-
-		if (!kdgu_chrbound(re->s, re->i)) {
-			free_node(re, left);
-			error(re, KTRE_ERROR_SYNTAX_ERROR,
-			      re->i, "expected a category");
-			return NULL;
-		}
-
-		for (unsigned i = 0;
-		     i < sizeof shorthand_categories / sizeof *shorthand_categories;
-		     i++)
-			if (c == (unsigned char)*shorthand_categories[i].c)
-				return left->c = i, left;
-
-		free_node(re, left);
-		error(re, KTRE_ERROR_SYNTAX_ERROR,
-		      re->i, "expected a category");
-		return NULL;
-	}
-
-	/*
-	 * TODO:
-	 *
-	 * \p{Uppercase=True}
-	 * \p{Bidi_Class: Left}
-	 * \p{name=control-0007}
-	 */
-
-	left->type = NODE_CATEGORY;
-	kdgu_next(re->s, &re->i);
-	unsigned idx = re->i;
-	while (idx < re->s->len && !kdgu_chrcmp(re->s, idx, '}'))
-		kdgu_next(re->s, &idx);
-	kdgu *substr = kdgu_substr(re->s, re->i, idx);
-
-	if (kdgu_ncmp(&KDGU("name="), re->s, 0, re->i, 5, false)) {
-		int loc = re->i;
-		re->i = idx, left->type = NODE_STR, idx = 0;
-		for (int i = 0; i < 5; i++) kdgu_next(substr, &idx);
-		kdgu *name = kdgu_substr(substr, idx, substr->len);
-		uint32_t c = kdgu_getcode(name);
-
-		if (c == UINT32_MAX) {
-			kdgu_free(substr), kdgu_free(name);
-			error(re, KTRE_ERROR_SYNTAX_ERROR,
-			      loc + idx, "unknown character name");
-			return NULL;
-		}
-
-		kdgu *str = kdgu_new(re->s->fmt, NULL, 0);
-		kdgu_chrappend(str, c);
-		kdgu_free(name), kdgu_free(substr);
-		left->class = str;
+	if (!kdgu_chrcmp(re->s, re->i, '{')) {
+		left->type = NODE_CATEGORY;
+		kdgu *chr = kdgu_getchr(re->s, re->i);
+		left->c = kdgu_getcat(chr), kdgu_free(chr);
 		return left;
 	}
 
-	for (unsigned i = 0;
-	     i < sizeof categories / sizeof *categories;
-	     i++) {
-		if (kdgu_fuzzy(substr, &KDGU(categories[i].small))
-		    || kdgu_fuzzy(substr, &KDGU(categories[i].big))) {
-			left->c = categories[i].cat;
-			re->i = idx;
-			break;
+	/* TODO: Character class intersections. */
+
+	kdgu_next(re->s, &re->i);
+	unsigned idx = re->i;
+
+	while (idx < re->s->len
+	       && !kdgu_chrcmp(re->s, idx, '}')
+	       && !kdgu_chrcmp(re->s, idx, '=')
+	       && !kdgu_chrcmp(re->s, idx, ':'))
+		kdgu_next(re->s, &idx);
+
+	if (kdgu_chrcmp(re->s, idx, '}')) {
+		left->type = NODE_CATEGORY;
+		kdgu *substr = kdgu_substr(re->s, re->i, idx);
+		left->c = kdgu_getcat(substr);
+		kdgu_free(substr);
+
+		if (left->c == (int32_t)UINT32_MAX) {
+			free_node(re, left);
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      re->i, "no such category");
+			return NULL;
 		}
+
+		return left;
 	}
 
-	if (left->c < 0)
-		for (unsigned i = 0;
-		     i < sizeof shorthand_categories / sizeof *shorthand_categories;
-		     i++) {
-			if (kdgu_fuzzy(substr, &KDGU(shorthand_categories[i].c))) {
-				left->type = NODE_CATEGORIES;
-				left->c = i;
-				re->i = idx;
-			}
-		}
+	kdgu *property = kdgu_substr(re->s, re->i, idx);
+	/* uint32_t op = kdgu_decode(re->s, idx); */
+	kdgu_next(re->s, &idx), re->i = idx;
 
-	kdgu_free(substr);
+	while (idx < re->s->len && !kdgu_chrcmp(re->s, idx, '}'))
+		kdgu_next(re->s, &idx);
 
-	if (left->c < 0) {
-		free_node(re, left);
+	if (!kdgu_chrcmp(re->s, idx, '}')) {
+		free_node(re, left), kdgu_free(property);
 		error(re, KTRE_ERROR_SYNTAX_ERROR,
-		      re->i, "no such category");
+		      idx, "expected '}'");
 		return NULL;
 	}
 
-	if (kdgu_decode(re->s, re->i) != '}') {
+	kdgu *value = kdgu_substr(re->s, re->i, idx);
+	int loc = re->i;
+	re->i = idx;
+
+	if (kdgu_cmp(&KDGU("name"), property)) {
+		uint32_t c = kdgu_getcode(value);
+
+		if (c == UINT32_MAX) {
+			kdgu_free(property), kdgu_free(value);
+			free_node(re, left);
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      loc, "unknown character name");
+			return NULL;
+		}
+
+		left->type = NODE_STR;
+		left->class = kdgu_new(re->s->fmt, NULL, 0);
+		kdgu_chrappend(left->class, c);
+	} else if (kdgu_cmp(&KDGU("sc"), property)) {
+		left->c = kdgu_getscript(value);
+
+		if (left->c == -1) {
+			kdgu_free(property), kdgu_free(value);
+			free_node(re, left);
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      loc, "unknown character name");
+			return NULL;
+		}
+
+		left->type = NODE_SCRIPT;
+	} else {
+		kdgu_free(property), kdgu_free(value);
 		free_node(re, left);
 		error(re, KTRE_ERROR_SYNTAX_ERROR,
-		      re->i, "expected '}'");
+		      loc, "unknown property name");
 		return NULL;
 	}
 
+	kdgu_free(property), kdgu_free(value);
 	return left;
 }
 
@@ -1853,37 +1768,37 @@ print_node(ktre *re, struct node *n)
 	} while(0)
 
 	switch (n->type) {
-	case NODE_ANY:       N0("(any)");                                     break;
-	case NODE_MANY:      N0("(m_any)");                                   break;
-	case NODE_DIGIT:     N0("(digit)");                                   break;
-	case NODE_WORD:      N0("(word)");                                    break;
-	case NODE_SPACE:     N0("(space)");                                   break;
-	case NODE_NONE:      N0("(none)");                                    break;
-	case NODE_WB:        N0("(word boundary)");                           break;
-	case NODE_NWB:       N0("(negated word boundary)");                   break;
-	case NODE_BACKREF:   N0("(backreference to %d)", n->c);               break;
-	case NODE_CLASS:     DBG("(class '"); dbgf(re, n->class, 0); N0("')");       break;
-	case NODE_STR:       DBG("(string '"); dbgf(re, n->class, 0); N0("')");      break;
-	case NODE_NOT:       DBG("(not '"); dbgf(re, n->class, 0); N0("')");         break;
-	case NODE_BOL:       N0("(bol)");                                     break;
-	case NODE_EOL:       N0("(eol)");                                     break;
-	case NODE_BOS:       N0("(bos)");                                     break;
-	case NODE_EOS:       N0("(eos)");                                     break;
-	case NODE_RECURSE:   N0("(recurse)");                                 break;
-	case NODE_SET_START: N0("(set_start)");                               break;
-	case NODE_SETOPT:    N0("(setopt %d)", n->c);                         break;
-	case NODE_CALL:      N0("(call %d)", n->c);                           break;
-	case NODE_SEQUENCE:  N2 ("(sequence)");                               break;
-	case NODE_OR:        N2 ("(or)");                                     break;
-	case NODE_REP:       N1 ("(counted repetition %d - %d)", n->c, n->d); break;
-	case NODE_ASTERISK:  N1 ("(asterisk)");                               break;
-	case NODE_PLUS:      N1 ("(plus)");                                   break;
-	case NODE_QUESTION:  N1 ("(question)");                               break;
-	case NODE_ATOM:      N1 ("(atom)");                                   break;
-	case NODE_PLA:       N1 ("(lookahead)");                              break;
-	case NODE_NLA:       N1 ("(negative lookahead)");                     break;
-	case NODE_PLB:       N1 ("(lookbehind)");                             break;
-	case NODE_NLB:       N1 ("(negative lookbehind)");                    break;
+	case NODE_ANY:       N0("(any)");                                       break;
+	case NODE_MANY:      N0("(m_any)");                                     break;
+	case NODE_DIGIT:     N0("(digit)");                                     break;
+	case NODE_WORD:      N0("(word)");                                      break;
+	case NODE_SPACE:     N0("(space)");                                     break;
+	case NODE_NONE:      N0("(none)");                                      break;
+	case NODE_WB:        N0("(word boundary)");                             break;
+	case NODE_NWB:       N0("(negated word boundary)");                     break;
+	case NODE_BACKREF:   N0("(backreference to %d)", n->c);                 break;
+	case NODE_CLASS:     DBG("(class '"); dbgf(re, n->class, 0); N0("')");  break;
+	case NODE_STR:       DBG("(string '"); dbgf(re, n->class, 0); N0("')"); break;
+	case NODE_NOT:       DBG("(not '"); dbgf(re, n->class, 0); N0("')");    break;
+	case NODE_BOL:       N0("(bol)");                                       break;
+	case NODE_EOL:       N0("(eol)");                                       break;
+	case NODE_BOS:       N0("(bos)");                                       break;
+	case NODE_EOS:       N0("(eos)");                                       break;
+	case NODE_RECURSE:   N0("(recurse)");                                   break;
+	case NODE_SET_START: N0("(set_start)");                                 break;
+	case NODE_SETOPT:    N0("(setopt %d)", n->c);                           break;
+	case NODE_CALL:      N0("(call %d)", n->c);                             break;
+	case NODE_SEQUENCE:  N2("(sequence)");                                  break;
+	case NODE_OR:        N2("(or)");                                        break;
+	case NODE_REP:       N1("(counted repetition %d - %d)", n->c, n->d);    break;
+	case NODE_ASTERISK:  N1("(asterisk)");                                  break;
+	case NODE_PLUS:      N1("(plus)");                                      break;
+	case NODE_QUESTION:  N1("(question)");                                  break;
+	case NODE_ATOM:      N1("(atom)");                                      break;
+	case NODE_PLA:       N1("(lookahead)");                                 break;
+	case NODE_NLA:       N1("(negative lookahead)");                        break;
+	case NODE_PLB:       N1("(lookbehind)");                                break;
+	case NODE_NLB:       N1("(negative lookbehind)");                       break;
 	case NODE_GROUP:
 		if (re->group[n->gi].name) {
 			dbgf(re, re->group[n->gi].name, 0);
@@ -1893,36 +1808,27 @@ print_node(ktre *re, struct node *n)
 		break;
 
 	case NODE_CATEGORY: {
-		char *name = NULL;
-		for (unsigned i = 0;
-		     !name && i < sizeof categories / sizeof *categories;
-		     i++)
-			if (n->c == (int)categories[i].cat)
-				name = categories[i].name;
-		N0("(category %d '%s')", n->c, name);
-	} break;
+		bool first = true;
+		for (int i = 0; i < 30; i++) {
+			if (!(n->c & (1 << i))) continue;
+			char *name = kdgu_getcatname(n->c & (1 << i));
 
-	case NODE_CATEGORIES:
-		for (int i = 0; i < shorthand_categories[n->c].num; i++) {
-			char *name = NULL;
-
-			for (unsigned j = 0;
-			     !name && j < sizeof categories / sizeof *categories;
-			     j++)
-				if (shorthand_categories[n->c].categories[i] == categories[j].cat)
-					name = categories[j].name;
-
-			if (i == 0) {
-				DBG("(categories '%s'", name);
+			if (first) {
+				DBG("(category '%s'", name);
+				first = false;
 				continue;
 			}
 
 			DBG("\n");
-			for (int j = 0; j < l - 1; j++)
+			for (int j = 0; j < l; j++)
 				arm[j] ? DBG("|   ") : DBG("    ");
-			DBG("                '%s'", name);
+			DBG("          '%s'", name);
 		}
 		DBG(")");
+	} break;
+
+	case NODE_SCRIPT:
+		N0("(script %s)", kdgu_getscriptname(n->c));
 		break;
 
 	default:
@@ -1972,8 +1878,10 @@ print_instruction(ktre *re, struct instr instr)
 	case INSTR_PLB_WIN:    DBG("PLB_WIN");                           break;
 	case INSTR_NLB:        DBG("NLB      %d",  instr.a);             break;
 	case INSTR_NLB_FAIL:   DBG("NLB_FAIL");                          break;
-	case INSTR_CATEGORY:   DBG("CATEGORY %d", instr.c);              break;
-	case INSTR_CATEGORIES: DBG("CATEGORIES %d", instr.c);            break;
+	case INSTR_CATEGORY:   DBG("CATEGORY %u",  instr.c);             break;
+	case INSTR_SCRIPT:
+		DBG("SCRIPT   %u (%s)", instr.c, kdgu_getscriptname(instr.c));
+		break;
 	default:
 		DBG("\nunimplemented instruction printer %d\n", instr.op);
 		assert(false);
@@ -2208,8 +2116,8 @@ compile(ktre *re, struct node *n, bool rev)
 	case NODE_STR:        emit_class(re, INSTR_STR,    n->class, n->loc); break;
 	case NODE_NOT:        emit_class(re, INSTR_NOT,    n->class, n->loc); break;
 	case NODE_CATEGORY:   emit_c    (re, INSTR_CATEGORY, n->c,   n->loc); break;
-	case NODE_CATEGORIES: emit_c    (re, INSTR_CATEGORIES, n->c, n->loc); break;
-	case NODE_SETOPT:     emit_c    (re, INSTR_SETOPT, n->c,     n->loc); break;
+	case NODE_SCRIPT:     emit_c    (re, INSTR_SCRIPT,   n->c,   n->loc); break;
+	case NODE_SETOPT:     emit_c    (re, INSTR_SETOPT,   n->c,   n->loc); break;
 	case NODE_BOL:        emit      (re, INSTR_BOL,              n->loc); break;
 	case NODE_EOL:        emit      (re, INSTR_EOL,              n->loc); break;
 	case NODE_BOS:        emit      (re, INSTR_BOS,              n->loc); break;
@@ -2224,7 +2132,7 @@ compile(ktre *re, struct node *n, bool rev)
 	case NODE_NDIGIT:     emit      (re, INSTR_NDIGIT,           n->loc); break;
 	case NODE_NWORD:      emit      (re, INSTR_NWORD,            n->loc); break;
 	case NODE_NSPACE:     emit      (re, INSTR_NSPACE,           n->loc); break;
-	case NODE_NONE:                                                      break;
+	case NODE_NONE:                                                       break;
 
 	default:
 		DBG("\nunimplemented compiler for node of type %d\n", n->type);
@@ -2757,18 +2665,16 @@ execute_instr(ktre *re,
 		break;
 	case INSTR_CATEGORY:
 		THREAD[TP].ip++;
-		if (codepoint(c)->category != re->c[ip].c) FAIL;
 		rev ? kdgu_dec(subject, &THREAD[TP].sp) || --THREAD[TP].sp
 		    : kdgu_inc(subject, &THREAD[TP].sp) || ++THREAD[TP].sp;
+		if (codepoint(c)->category & re->c[ip].c) return true;
+		FAIL;
 		break;
-	case INSTR_CATEGORIES:
+	case INSTR_SCRIPT:
 		THREAD[TP].ip++;
 		rev ? kdgu_dec(subject, &THREAD[TP].sp) || --THREAD[TP].sp
 		    : kdgu_inc(subject, &THREAD[TP].sp) || ++THREAD[TP].sp;
-		enum category cat = codepoint(c)->category;
-		for (int i = 0; i < shorthand_categories[re->c[ip].c].num; i++)
-			if (shorthand_categories[re->c[ip].c].categories[i] == cat)
-				return true;
+		if (codepoint(c)->script == re->c[ip].c) return true;
 		FAIL;
 		break;
 	default:
@@ -2939,7 +2845,7 @@ smartcopy(kdgu *dest,
           bool u, bool uch, bool l, bool lch)
 {
 	for (unsigned i = j; i < j + n; kdgu_next(src, &i)) {
-		kdgu *chr = kdgu_chrget(src, i);
+		kdgu *chr = kdgu_getchr(src, i);
 
 		if (i == j && uch) {
 			kdgu_uc(chr), kdgu_append(dest, chr), kdgu_free(chr);

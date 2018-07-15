@@ -11,6 +11,8 @@ if [ ! -f UnicodeData.txt ]; then
     wget https://www.unicode.org/Public/$VERSION/ucd/CaseFolding.txt
     wget https://www.unicode.org/Public/$VERSION/ucd/NameAliases.txt
     wget https://www.unicode.org/Public/$VERSION/ucd/Jamo.txt
+    wget https://www.unicode.org/Public/$VERSION/ucd/Scripts.txt
+    wget https://www.unicode.org/Public/$VERSION/ucd/PropertyValueAliases.txt
     wget https://www.unicode.org/Public/$VERSION/ucd/auxiliary/GraphemeBreakProperty.txt
 fi
 

@@ -56,8 +56,8 @@ void kdgu_free(kdgu *k);
 kdgu *kdgu_copy(const kdgu *k);
 kdgu *kdgu_substr(const kdgu *k, unsigned a, unsigned b);
 bool kdgu_nth(const kdgu *k, unsigned *idx, unsigned n);
-bool kdgu_chrset(kdgu *k, unsigned idx, uint32_t c);
-kdgu *kdgu_chrget(const kdgu *k, unsigned idx);
+bool kdgu_setchr(kdgu *k, unsigned idx, uint32_t c);
+kdgu *kdgu_getchr(const kdgu *k, unsigned idx);
 
 bool kdgu_uc(kdgu *k);
 bool kdgu_lc(kdgu *k);
@@ -106,6 +106,10 @@ bool kdgu_append(kdgu *k1, const kdgu *k2);
 const struct codepoint *kdgu_codepoint(uint32_t c);
 const char *kdgu_getname(uint32_t c);
 uint32_t kdgu_getcode(const kdgu *k);
+uint32_t kdgu_getcat(const kdgu *k);
+char *kdgu_getcatname(uint32_t c);
+int kdgu_getscript(const kdgu *k);
+const char *kdgu_getscriptname(enum script script);
 
 #include "error.h"
 #include "ktre.h"

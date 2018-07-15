@@ -1,18 +1,21 @@
 #!/usr/bin/env perl
 # SPDX-License-Identifier: MIT
 
-# This script generates `unicode_data.c' from the following files:
+# This script generates `unicode_data.c' from the following Unicode
+# Character Database files:
 #
 #     - UnicodeData.txt
 #     - NameAliases.txt
+#     - Scripts.txt
 #     - SpecialCasing.txt
-#     - GraphemeBreakProperty.txt
 #     - CompositionExclusions.txt
+#     - PropertyValueAliases.txt
+#     - auxiliary/GraphemeBreakProperty.txt
 #
 # Don't run this script directly if you're generating the file for the
 # first time. Instead, run `./gen.sh' in this directory and all of the
 # relevant Unicode Data Files will be downloaded automatically and
-# unicode_data.c will be copied to src/. The Unicode Data Files are
+# unicode_data.c will be copied to `src/`. Unicode Data Files are
 # licensed under the Unicode Data License; see LICENSE.md for details.
 
 package Char;
@@ -27,6 +30,7 @@ has line          => (is => 'rw');
 has entry_index   => (is => 'rw');
 
 has bound_class   => (is => 'rw');
+has script        => (is => 'rw');
 
 has special_lc    => (is => 'rw');
 has special_tc    => (is => 'rw');
@@ -113,6 +117,7 @@ sub echo {
 	cvar("BOUNDCLASS",  $self->{bound_class}) .
 	cvar("BIDI",        $self->{bidi_class})  .
 	cvar("DECOMP_TYPE", $self->{decomp_type}) .
+	cvar("SCRIPT",      $self->{script}) .
 
 	$self->{ccc}           . "," .
 	$self->{bidi_mirrored} . "," .
@@ -154,25 +159,29 @@ GetOptions("output=s" => \$filename,
 
 sub LOG { print "$0: ", @_, "\n" if $verbose }
 
+sub load {
+    my ($name) = @_;
+    my $fh;
+    open($fh, '<:encoding(UTF-8)', $name)
+	or die "$0: Could not open `$name': $!\n";
+    LOG("Parsing `$name'...");
+    return $fh;
+}
+
 LOG("Running with verbose output.");
 LOG("Running in debugging mode.") if $debug;
 LOG("Will dump output into `$filename'.");
 
-my $fh;
-open($fh, '<:encoding(UTF-8)', "CompositionExclusions.txt")
-    or die "$0: Could not open `CompositionExclusions.txt': $!\n";
+my $fh = load("CompositionExclusions.txt");
 my %exclusions;
-LOG("Parsing `CompositionExclusions.txt'...");
 while (my $l = <$fh>) {
     if ($l =~ /^([0-9A-F]+)/i) {
 	$exclusions{hex($1)} = 1;
     }
 }
 
-open($fh, '<:encoding(UTF-8)', "GraphemeBreakProperty.txt")
-    or die "$0: Could not open `GraphemeBreakProperty.txt': $!\n";
+$fh = load("GraphemeBreakProperty.txt");
 my %boundclasses;
-LOG("Parsing `GraphemeBreakProperty.txt'...");
 while (my $l = <$fh>) {
     if ($l =~ /^([0-9A-F]+)\.\.([0-9A-F]+)\s*;\s*([A-Za-z_]+)/) {
 	for (my $i = hex($1); $i < hex($2); $i++) {
@@ -183,10 +192,8 @@ while (my $l = <$fh>) {
     }
 }
 
-open($fh, '<:encoding(UTF-8)', "SpecialCasing.txt")
-    or die "$0: Could not open `SpecialCasing.txt': $!\n";
+$fh = load("SpecialCasing.txt");
 my (%special_lc, %special_tc, %special_uc);
-LOG("Parsing `SpecialCasing.txt'...");
 while (my $l = <$fh>) {
     last if $l =~ /Conditional Mappings/;
     if ($l =~ /^(\S+); (.*?); (.*?); (.*?); # .*/) {
@@ -196,10 +203,8 @@ while (my $l = <$fh>) {
     }
 }
 
-open($fh, '<:encoding(UTF-8)', "Jamo.txt")
-    or die "$0: Could not open `Jamo.txt': $!\n";
+$fh = load("Jamo.txt");
 my %jamo;
-LOG("Parsing `Jamo.txt'...");
 while (my $l = <$fh>) {
     if ($l =~ /^([^;]+); (\S*)\s/) {
 	$jamo{hex($1)} = $2;
@@ -252,9 +257,8 @@ sub emit_sequence {
     return $idx | $len << 14;
 }
 
+
 open(my $out, ">", $filename);
-open($fh, '<:encoding(UTF-8)', "UnicodeData.txt")
-    or die "$0: Could not open `UnicodeData.txt': $!\n";
 
 # <DATA> contains the hand-maintained includes/comments for the
 # file. Additionally, it contains the implementations of the data
@@ -269,8 +273,6 @@ my %names;
 sub gen_chars {
     my ($fh) = @_;
     my %chars;
-
-    LOG("Parsing `UnicodeData.txt'...");
 
     my $linecount = int `wc -l UnicodeData.txt | awk '{ print \$1 }'`;
     my $linenum = 0;
@@ -331,6 +333,19 @@ sub gen_chars {
 
     $progress->update($linecount);
     LOG("Loaded ", scalar(keys %chars), " code points.");
+
+    $fh = load("Scripts.txt");
+    while (my $l = <$fh>) {
+	if ($l =~ /(\S+)\.\.(\S+)\s+; (\S+)/) {
+	    for (my $i = hex($1); $i <= hex($2); $i++) {
+		next if not defined $chars{$i};
+		$chars{$i}->{script} = $3;
+	    }
+	} elsif ($l =~ /(\S+)\s+; (\S+)/) {
+	    next if not defined $chars{hex($1)};
+	    $chars{hex($1)}->{script} = $2;
+	}
+    }
 
     return %chars;
 }
@@ -449,14 +464,13 @@ sub print_array {
     print $out "};\n\n";
 };
 
+$fh = load("UnicodeData.txt");
 my ($chars, $properties) = gen_properties(gen_chars($fh));
 my ($stage1, $stage2) = gen_tables(%$chars);
 my @comb = gen_comb(%$chars);
 
-open($fh, '<:encoding(UTF-8)', "NameAliases.txt")
-    or die "$0: Could not open `NameAliases.txt': $!\n";
+$fh = load("NameAliases.txt");
 my %name_aliases;
-LOG("Parsing `NameAliases.txt'...");
 while (my $l = <$fh>) {
     next if $l !~ /([^;]+);([^;]+);(.+)/;
     if ($3 eq 'correction') {
@@ -472,22 +486,6 @@ while (my $l = <$fh>) {
 	}
     }
 }
-
-# Generation is now done.
-
-LOG("Generated ", scalar(@sequences), " sequence elements.");
-
-print $out "const struct codepoint codepoints[] = {\n";
-print $out "\t{0,0,0,0,0,0,-1,-1,-1,-1,-1,-1,-1},\n";
-foreach my $cp (@$properties) { print $out "$cp\n"; }
-print $out "};\n\n";
-
-print_array("uint32_t", "compositions", @comb);
-print $out "int num_comp = ", (scalar @comb / 3), ";\n";
-
-print_array("uint16_t", "stage1", @$stage1);
-print_array("uint16_t", "stage2", flat @$stage2);
-print_array("uint16_t", "sequences", @sequences);
 
 # Formal names
 
@@ -546,7 +544,7 @@ print $out "int num_names = ", $num_names, ";\n";
 
 # Name aliases
 
-print $out "\nint num_aliases = ", (scalar values %name_aliases), ";\n";
+print $out "\nint num_name_aliases = ", (scalar values %name_aliases), ";\n";
 print $out "const struct name_alias name_aliases[] = {\n";
 for (my $i = 0; $i < 0x10FFFF; $i++) {
     next if not defined $name_aliases{$i};
@@ -558,7 +556,49 @@ for (my $i = 0; $i < 0x10FFFF; $i++) {
     }
     print $out "}},\n";
 }
-print $out "};\n";
+print $out "};\n\n";
+
+# Property value aliases
+
+print $out "const struct category_alias category_aliases[] = {\n";
+$fh = load("PropertyValueAliases.txt");
+my $num_category_aliases = 0;
+while (my $l = <$fh>) {
+    if ($l =~ /^gc ; (\S+)\s+; (\S+)\s+; (\S+)\s+# (.+)/) {
+	print $out "\t{\"$1\",\"$2\",\"$3\",";
+	print $out join ' | ', map { "CATEGORY_" . uc } split ' \| ', $4;
+	print $out "},\n";
+	$num_category_aliases++;
+    } elsif ($l =~ /^gc ; (\S+)\s+; (\S+)\s+# (.+)/) {
+	print $out "\t{\"$1\",\"$2\",0,";
+	print $out join ' | ', map { "CATEGORY_" . uc } split ' \| ', $3;
+	print $out "},\n";
+	$num_category_aliases++;
+    } elsif ($l =~ /^gc ; (\S+)\s+; (\S+)/) {
+	print $out "\t{\"$1\",\"$2\",0,";
+	print $out "CATEGORY_" . uc $1;
+	print $out "},\n";
+	$num_category_aliases++;
+    }
+}
+print $out "};\n\n";
+print $out "int num_category_aliases = $num_category_aliases;\n\n";
+
+# Generation is done.
+
+LOG("Generated ", scalar(@sequences), " sequence elements.");
+
+print $out "const struct codepoint codepoints[] = {\n";
+print $out "\t{0,0,0,0,0,0,0,-1,-1,-1,-1,-1,-1,-1},\n";
+foreach my $cp (@$properties) { print $out "$cp\n"; }
+print $out "};\n\n";
+
+print_array("uint32_t", "compositions", @comb);
+print $out "int num_comp = ", (scalar @comb / 3), ";\n";
+
+print_array("uint16_t", "stage1", @$stage1);
+print_array("uint16_t", "stage2", flat @$stage2);
+print_array("uint16_t", "sequences", @sequences);
 
 LOG("Done; exiting.");
 

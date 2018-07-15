@@ -333,7 +333,7 @@ decompose_char(uint32_t c,
 }
 
 bool
-kdgu_chrset(kdgu *k, unsigned idx, uint32_t c)
+kdgu_setchr(kdgu *k, unsigned idx, uint32_t c)
 {
 	return delete_point(k, idx), insert_point(k, idx, c);
 }
@@ -1371,7 +1371,7 @@ kdgu_contains(const kdgu *k, uint32_t c)
 }
 
 kdgu *
-kdgu_chrget(const kdgu *k, unsigned idx)
+kdgu_getchr(const kdgu *k, unsigned idx)
 {
 	return kdgu_new(k->fmt, k->s + idx, kdgu_chrsize(k, idx));
 }
@@ -1416,7 +1416,7 @@ kdgu_getcode(const kdgu *k)
 		if (kdgu_fuzzy(k, &KDGU(names[i].name)))
 			return names[i].c;
 
-	for (int i = 0; i < num_aliases; i++) {
+	for (int i = 0; i < num_name_aliases; i++) {
 		for (int j = 0; j < name_aliases[i].num; j++)
 		if (kdgu_fuzzy(k, &KDGU(name_aliases[i].name[j])))
 			return name_aliases[i].c;
@@ -1460,4 +1460,189 @@ kdgu_getcode(const kdgu *k)
 	}
 
 	return UINT32_MAX;
+}
+
+uint32_t
+kdgu_getcat(const kdgu *k)
+{
+	for (int i = 0; i < num_category_aliases; i++)
+		if (kdgu_fuzzy(k, &KDGU(category_aliases[i].a))
+		    || kdgu_fuzzy(k, &KDGU(category_aliases[i].b))
+		    || (category_aliases[i].c && kdgu_fuzzy(k, &KDGU(category_aliases[i].c))))
+			return category_aliases[i].cat;
+
+	return UINT32_MAX;
+}
+
+char *
+kdgu_getcatname(uint32_t c)
+{
+	for (int i = 0; i < num_category_aliases; i++)
+		if (c == category_aliases[i].cat)
+			return category_aliases[i].b;
+	return NULL;
+}
+
+char *scripts[] = {
+	"Adlam",
+	"Caucasian_Albanian",
+	"Ahom",
+	"Arabic",
+	"Imperial_Aramaic",
+	"Armenian",
+	"Avestan",
+	"Balinese",
+	"Bamum",
+	"Bassa_Vah",
+	"Batak",
+	"Bengali",
+	"Bhaiksuki",
+	"Bopomofo",
+	"Brahmi",
+	"Braille",
+	"Buginese",
+	"Buhid",
+	"Chakma",
+	"Canadian_Aboriginal",
+	"Carian",
+	"Cham",
+	"Cherokee",
+	"Coptic",
+	"Cypriot",
+	"Cyrillic",
+	"Devanagari",
+	"Deseret",
+	"Duployan",
+	"Egyptian_Hieroglyphs",
+	"Elbasan",
+	"Ethiopic",
+	"Georgian",
+	"Glagolitic",
+	"Masaram_Gondi",
+	"Gothic",
+	"Grantha",
+	"Greek",
+	"Gujarati",
+	"Gurmukhi",
+	"Hangul",
+	"Han",
+	"Hanunoo",
+	"Hatran",
+	"Hebrew",
+	"Hiragana",
+	"Anatolian_Hieroglyphs",
+	"Pahawh_Hmong",
+	"Katakana_Or_Hiragana",
+	"Old_Hungarian",
+	"Old_Italic",
+	"Javanese",
+	"Kayah_Li",
+	"Katakana",
+	"Kharoshthi",
+	"Khmer",
+	"Khojki",
+	"Kannada",
+	"Kaithi",
+	"Tai_Tham",
+	"Lao",
+	"Latin",
+	"Lepcha",
+	"Limbu",
+	"Linear_A",
+	"Linear_B",
+	"Lisu",
+	"Lycian",
+	"Lydian",
+	"Mahajani",
+	"Mandaic",
+	"Manichaean",
+	"Marchen",
+	"Mende_Kikakui",
+	"Meroitic_Cursive",
+	"Meroitic_Hieroglyphs",
+	"Malayalam",
+	"Modi",
+	"Mongolian",
+	"Mro",
+	"Meetei_Mayek",
+	"Multani",
+	"Myanmar",
+	"Old_North_Arabian",
+	"Nabataean",
+	"Newa",
+	"Nko",
+	"Nushu",
+	"Ogham",
+	"Ol_Chiki",
+	"Old_Turkic",
+	"Oriya",
+	"Osage",
+	"Osmanya",
+	"Palmyrene",
+	"Pau_Cin_Hau",
+	"Old_Permic",
+	"Phags_Pa",
+	"Inscriptional_Pahlavi",
+	"Psalter_Pahlavi",
+	"Phoenician",
+	"Miao",
+	"Inscriptional_Parthian",
+	"Rejang",
+	"Runic",
+	"Samaritan",
+	"Old_South_Arabian",
+	"Saurashtra",
+	"SignWriting",
+	"Shavian",
+	"Sharada",
+	"Siddham",
+	"Khudawadi",
+	"Sinhala",
+	"Sora_Sompeng",
+	"Soyombo",
+	"Sundanese",
+	"Syloti_Nagri",
+	"Syriac",
+	"Tagbanwa",
+	"Takri",
+	"Tai_Le",
+	"New_Tai_Lue",
+	"Tamil",
+	"Tangut",
+	"Tai_Viet",
+	"Telugu",
+	"Tifinagh",
+	"Tagalog",
+	"Thaana",
+	"Thai",
+	"Tibetan",
+	"Tirhuta",
+	"Ugaritic",
+	"Vai",
+	"Warang_Citi",
+	"Old_Persian",
+	"Cuneiform",
+	"Yi",
+	"Zanabazar_Square",
+	"Inherited",
+	"Common",
+	"Unknown"
+};
+
+int
+kdgu_getscript(const kdgu *k)
+{
+	for (unsigned i = 0;
+	     i < sizeof scripts / sizeof *scripts;
+	     i++)
+		if (kdgu_fuzzy(&KDGU(scripts[i]), k))
+			return (int)i;
+	return -1;
+}
+
+const char *
+kdgu_getscriptname(enum script script)
+{
+	if (script > SCRIPT_UNKNOWN) return NULL;
+	return scripts[script];
 }

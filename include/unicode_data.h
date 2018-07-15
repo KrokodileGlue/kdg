@@ -4,36 +4,36 @@
 #include <inttypes.h>
 
 enum category {
-	CATEGORY_CN, /* Other - not assigned        */
-	CATEGORY_LU, /* Letter - uppercase          */
-	CATEGORY_LL, /* Letter - lowercase          */
-	CATEGORY_LT, /* Letter - titlecase          */
-	CATEGORY_LM, /* Letter - modifier           */
-	CATEGORY_LO, /* Letter - other              */
-	CATEGORY_MN, /* Mark - nonspacing           */
-	CATEGORY_MC, /* Mark - spacing combining    */
-	CATEGORY_ME, /* Mark - enclosing            */
-	CATEGORY_ND, /* Number - decimal digit      */
-	CATEGORY_NL, /* Number - letter             */
-	CATEGORY_NO, /* Number - other              */
-	CATEGORY_PC, /* Punctuation - connector     */
-	CATEGORY_PD, /* Punctuation - dash          */
-	CATEGORY_PS, /* Punctuation - open          */
-	CATEGORY_PE, /* Punctuation - close         */
-	CATEGORY_PI, /* Punctuation - initial quote */
-	CATEGORY_PF, /* Punctuation - final quote   */
-	CATEGORY_PO, /* Punctuation - other         */
-	CATEGORY_SM, /* Symbol - math               */
-	CATEGORY_SC, /* Symbol - currency           */
-	CATEGORY_SK, /* Symbol - modifier           */
-	CATEGORY_SO, /* Symbol - other              */
-	CATEGORY_ZS, /* Separator - space           */
-	CATEGORY_ZL, /* Separator - line            */
-	CATEGORY_ZP, /* Separator - paragraph       */
-	CATEGORY_CC, /* Other - control             */
-	CATEGORY_CF, /* Other - format              */
-	CATEGORY_CS, /* Other - surrogate           */
-	CATEGORY_CO  /* Other - private use         */
+	CATEGORY_CN = 1 << 0,  /* Other - not assigned        */
+	CATEGORY_LU = 1 << 1,  /* Letter - uppercase          */
+	CATEGORY_LL = 1 << 2,  /* Letter - lowercase          */
+	CATEGORY_LT = 1 << 3,  /* Letter - titlecase          */
+	CATEGORY_LM = 1 << 4,  /* Letter - modifier           */
+	CATEGORY_LO = 1 << 5,  /* Letter - other              */
+	CATEGORY_MN = 1 << 6,  /* Mark - nonspacing           */
+	CATEGORY_MC = 1 << 7,  /* Mark - spacing combining    */
+	CATEGORY_ME = 1 << 8,  /* Mark - enclosing            */
+	CATEGORY_ND = 1 << 9,  /* Number - decimal digit      */
+	CATEGORY_NL = 1 << 10, /* Number - letter             */
+	CATEGORY_NO = 1 << 11, /* Number - other              */
+	CATEGORY_PC = 1 << 12, /* Punctuation - connector     */
+	CATEGORY_PD = 1 << 13, /* Punctuation - dash          */
+	CATEGORY_PS = 1 << 14, /* Punctuation - open          */
+	CATEGORY_PE = 1 << 15, /* Punctuation - close         */
+	CATEGORY_PI = 1 << 16, /* Punctuation - initial quote */
+	CATEGORY_PF = 1 << 17, /* Punctuation - final quote   */
+	CATEGORY_PO = 1 << 18, /* Punctuation - other         */
+	CATEGORY_SM = 1 << 19, /* Symbol - math               */
+	CATEGORY_SC = 1 << 20, /* Symbol - currency           */
+	CATEGORY_SK = 1 << 21, /* Symbol - modifier           */
+	CATEGORY_SO = 1 << 22, /* Symbol - other              */
+	CATEGORY_ZS = 1 << 23, /* Separator - space           */
+	CATEGORY_ZL = 1 << 24, /* Separator - line            */
+	CATEGORY_ZP = 1 << 25, /* Separator - paragraph       */
+	CATEGORY_CC = 1 << 26, /* Other - control             */
+	CATEGORY_CF = 1 << 27, /* Other - format              */
+	CATEGORY_CS = 1 << 28, /* Other - surrogate           */
+	CATEGORY_CO = 1 << 29  /* Other - private use         */
 };
 
 enum boundclass {
@@ -103,11 +103,158 @@ enum decomptype {
 	DECOMP_TYPE_COMPAT    /* Compat   */
 };
 
+enum script {
+	SCRIPT_ADLAM,
+	SCRIPT_CAUCASIAN_ALBANIAN,
+	SCRIPT_AHOM,
+	SCRIPT_ARABIC,
+	SCRIPT_IMPERIAL_ARAMAIC,
+	SCRIPT_ARMENIAN,
+	SCRIPT_AVESTAN,
+	SCRIPT_BALINESE,
+	SCRIPT_BAMUM,
+	SCRIPT_BASSA_VAH,
+	SCRIPT_BATAK,
+	SCRIPT_BENGALI,
+	SCRIPT_BHAIKSUKI,
+	SCRIPT_BOPOMOFO,
+	SCRIPT_BRAHMI,
+	SCRIPT_BRAILLE,
+	SCRIPT_BUGINESE,
+	SCRIPT_BUHID,
+	SCRIPT_CHAKMA,
+	SCRIPT_CANADIAN_ABORIGINAL,
+	SCRIPT_CARIAN,
+	SCRIPT_CHAM,
+	SCRIPT_CHEROKEE,
+	SCRIPT_COPTIC,
+	SCRIPT_CYPRIOT,
+	SCRIPT_CYRILLIC,
+	SCRIPT_DEVANAGARI,
+	SCRIPT_DESERET,
+	SCRIPT_DUPLOYAN,
+	SCRIPT_EGYPTIAN_HIEROGLYPHS,
+	SCRIPT_ELBASAN,
+	SCRIPT_ETHIOPIC,
+	SCRIPT_GEORGIAN,
+	SCRIPT_GLAGOLITIC,
+	SCRIPT_MASARAM_GONDI,
+	SCRIPT_GOTHIC,
+	SCRIPT_GRANTHA,
+	SCRIPT_GREEK,
+	SCRIPT_GUJARATI,
+	SCRIPT_GURMUKHI,
+	SCRIPT_HANGUL,
+	SCRIPT_HAN,
+	SCRIPT_HANUNOO,
+	SCRIPT_HATRAN,
+	SCRIPT_HEBREW,
+	SCRIPT_HIRAGANA,
+	SCRIPT_ANATOLIAN_HIEROGLYPHS,
+	SCRIPT_PAHAWH_HMONG,
+	SCRIPT_KATAKANA_OR_HIRAGANA,
+	SCRIPT_OLD_HUNGARIAN,
+	SCRIPT_OLD_ITALIC,
+	SCRIPT_JAVANESE,
+	SCRIPT_KAYAH_LI,
+	SCRIPT_KATAKANA,
+	SCRIPT_KHAROSHTHI,
+	SCRIPT_KHMER,
+	SCRIPT_KHOJKI,
+	SCRIPT_KANNADA,
+	SCRIPT_KAITHI,
+	SCRIPT_TAI_THAM,
+	SCRIPT_LAO,
+	SCRIPT_LATIN,
+	SCRIPT_LEPCHA,
+	SCRIPT_LIMBU,
+	SCRIPT_LINEAR_A,
+	SCRIPT_LINEAR_B,
+	SCRIPT_LISU,
+	SCRIPT_LYCIAN,
+	SCRIPT_LYDIAN,
+	SCRIPT_MAHAJANI,
+	SCRIPT_MANDAIC,
+	SCRIPT_MANICHAEAN,
+	SCRIPT_MARCHEN,
+	SCRIPT_MENDE_KIKAKUI,
+	SCRIPT_MEROITIC_CURSIVE,
+	SCRIPT_MEROITIC_HIEROGLYPHS,
+	SCRIPT_MALAYALAM,
+	SCRIPT_MODI,
+	SCRIPT_MONGOLIAN,
+	SCRIPT_MRO,
+	SCRIPT_MEETEI_MAYEK,
+	SCRIPT_MULTANI,
+	SCRIPT_MYANMAR,
+	SCRIPT_OLD_NORTH_ARABIAN,
+	SCRIPT_NABATAEAN,
+	SCRIPT_NEWA,
+	SCRIPT_NKO,
+	SCRIPT_NUSHU,
+	SCRIPT_OGHAM,
+	SCRIPT_OL_CHIKI,
+	SCRIPT_OLD_TURKIC,
+	SCRIPT_ORIYA,
+	SCRIPT_OSAGE,
+	SCRIPT_OSMANYA,
+	SCRIPT_PALMYRENE,
+	SCRIPT_PAU_CIN_HAU,
+	SCRIPT_OLD_PERMIC,
+	SCRIPT_PHAGS_PA,
+	SCRIPT_INSCRIPTIONAL_PAHLAVI,
+	SCRIPT_PSALTER_PAHLAVI,
+	SCRIPT_PHOENICIAN,
+	SCRIPT_MIAO,
+	SCRIPT_INSCRIPTIONAL_PARTHIAN,
+	SCRIPT_REJANG,
+	SCRIPT_RUNIC,
+	SCRIPT_SAMARITAN,
+	SCRIPT_OLD_SOUTH_ARABIAN,
+	SCRIPT_SAURASHTRA,
+	SCRIPT_SIGNWRITING,
+	SCRIPT_SHAVIAN,
+	SCRIPT_SHARADA,
+	SCRIPT_SIDDHAM,
+	SCRIPT_KHUDAWADI,
+	SCRIPT_SINHALA,
+	SCRIPT_SORA_SOMPENG,
+	SCRIPT_SOYOMBO,
+	SCRIPT_SUNDANESE,
+	SCRIPT_SYLOTI_NAGRI,
+	SCRIPT_SYRIAC,
+	SCRIPT_TAGBANWA,
+	SCRIPT_TAKRI,
+	SCRIPT_TAI_LE,
+	SCRIPT_NEW_TAI_LUE,
+	SCRIPT_TAMIL,
+	SCRIPT_TANGUT,
+	SCRIPT_TAI_VIET,
+	SCRIPT_TELUGU,
+	SCRIPT_TIFINAGH,
+	SCRIPT_TAGALOG,
+	SCRIPT_THAANA,
+	SCRIPT_THAI,
+	SCRIPT_TIBETAN,
+	SCRIPT_TIRHUTA,
+	SCRIPT_UGARITIC,
+	SCRIPT_VAI,
+	SCRIPT_WARANG_CITI,
+	SCRIPT_OLD_PERSIAN,
+	SCRIPT_CUNEIFORM,
+	SCRIPT_YI,
+	SCRIPT_ZANABAZAR_SQUARE,
+	SCRIPT_INHERITED,
+	SCRIPT_COMMON,
+	SCRIPT_UNKNOWN
+};
+
 struct codepoint {
 	enum category category;
 	enum boundclass bound;
 	enum bidiclass bidi;
 	enum decomptype decomp_type;
+	enum script script;
 
 	int bidi_mirrored;
 	int ccc;		/* Canonical Combining Class */
@@ -134,9 +281,16 @@ struct name_alias {
 	char **name;
 };
 
+/* General category data from `PropertyValueAliases.txt`. */
+struct category_alias {
+	char *a, *b, *c;
+	enum category cat;
+};
+
 extern const struct codepoint codepoints[];
 extern const struct name names[];
 extern const struct name_alias name_aliases[];
+extern const struct category_alias category_aliases[];
 extern const uint16_t stage1[];
 extern const uint16_t stage2[];
 extern const uint16_t sequences[];
@@ -147,7 +301,8 @@ unsigned write_sequence(uint32_t *buf, uint16_t idx);
 uint32_t lookup_comp(uint32_t a, uint32_t b);
 
 extern int num_names;
-extern int num_aliases;
+extern int num_name_aliases;
+extern int num_category_aliases;
 
 #define HANGUL_SBASE  0xAC00
 #define HANGUL_LBASE  0x1100
