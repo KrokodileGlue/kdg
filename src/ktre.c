@@ -130,7 +130,7 @@ struct instr {
 			int a, b;
 		};
 		uint32_t c;
-		kdgu *class;
+		kdgu *str;
 	};
 
 	int loc;
@@ -184,13 +184,13 @@ emit_c(ktre *re, int instr, int c, int loc)
 }
 
 static void
-emit_class(ktre *re, int instr, kdgu *class, int loc)
+emit_str(ktre *re, int instr, kdgu *str, int loc)
 {
 	grow_code(re, 1);
 	if (!re->c) return;
 
 	re->c[re->ip].op = instr;
-	re->c[re->ip].class = class;
+	re->c[re->ip].str = str;
 	re->c[re->ip].loc = loc;
 
 	re->ip++;
@@ -271,7 +271,7 @@ struct node {
 	union {
 		int32_t c;
 		int32_t x, y;
-		kdgu *class;
+		kdgu *str;
 	};
 
 	int gi; /* Group index. */
@@ -296,7 +296,7 @@ free_node(ktre *re, struct node *n)
 		free_node(re, n->a);
 		break;
 	case NODE_CLASS: case NODE_NOT: case NODE_STR:
-		kdgu_free(n->class);
+		kdgu_free(n->str);
 		break;
 	default: break;
 	}
@@ -1128,7 +1128,7 @@ parse_character_class(ktre *re)
 		return NULL;
 	}
 
-	left->class = class;
+	left->str = class;
 
 	/* Skip over the `]`. */
 	kdgu_next(re->s, &re->i);
@@ -1302,8 +1302,8 @@ parse_p(ktre *re)
 		}
 
 		left->type = NODE_STR;
-		left->class = kdgu_new(re->s->fmt, NULL, 0);
-		kdgu_chrappend(left->class, c);
+		left->str = kdgu_new(re->s->fmt, NULL, 0);
+		kdgu_chrappend(left->str, c);
 	} else if (kdgu_fuzzy(&KDGU("sc"), property)
 		   || kdgu_fuzzy(&KDGU("script"), property)) {
 		left->c = kdgu_getscript(value);
@@ -1368,8 +1368,8 @@ parse_N(ktre *re)
 	}
 
 	re->i = idx;
-	left->class = kdgu_new(re->s->fmt, NULL, 0);
-	kdgu_chrappend(left->class, c);
+	left->str = kdgu_new(re->s->fmt, NULL, 0);
+	kdgu_chrappend(left->str, c);
 
 	return left;
 }
@@ -1394,8 +1394,8 @@ parse_primary(ktre *re)
 		}
 
 		left->type = NODE_STR;
-		left->class = kdgu_new(re->s->fmt, NULL, 0);
-		kdgu_chrappend(left->class, kdgu_decode(re->s, re->i));
+		left->str = kdgu_new(re->s->fmt, NULL, 0);
+		kdgu_chrappend(left->str, kdgu_decode(re->s, re->i));
 		kdgu_next(re->s, &re->i);
 		return left;
 	}
@@ -1434,8 +1434,8 @@ parse_primary(ktre *re)
 					kdgu_next(re->s, &re->i);
 			} else {
 				left->type = NODE_STR;
-				left->class = kdgu_new(re->s->fmt, NULL, 0);
-				kdgu_chrappend(left->class, kdgu_decode(re->s, re->i));
+				left->str = kdgu_new(re->s->fmt, NULL, 0);
+				kdgu_chrappend(left->str, kdgu_decode(re->s, re->i));
 				kdgu_next(re->s, &re->i);
 			}
 			break;
@@ -1450,8 +1450,8 @@ parse_primary(ktre *re)
 				if (kdgu_decode(re->s, re->i)) goto again;
 			} else {
 				left->type = NODE_STR;
-				left->class = kdgu_new(re->s->fmt, NULL, 0);
-				kdgu_chrappend(left->class, kdgu_decode(re->s, re->i));
+				left->str = kdgu_new(re->s->fmt, NULL, 0);
+				kdgu_chrappend(left->str, kdgu_decode(re->s, re->i));
 				kdgu_next(re->s, &re->i);
 			}
 		}
@@ -1601,7 +1601,7 @@ parse_primary(ktre *re)
 
 	kdgu_next(re->s, &re->i);
 	if (!a->len) kdgu_free(a), a = NULL;
-	if (left && !left->class) left->class = a;
+	if (left && !left->str) left->str = a;
 	if (left) left->loc = loc;
 
 	return left;
@@ -1681,10 +1681,10 @@ term(ktre *re)
 		}
 
 		if (left->type == NODE_STR && right->type == NODE_STR) {
-			kdgu_append(left->class, right->class);
+			kdgu_append(left->str, right->str);
 			free_node(re, right);
 		} else if (left->type == NODE_SEQUENCE && left->b->type == NODE_STR && right->type == NODE_STR) {
-			kdgu_append(left->b->class, right->class);
+			kdgu_append(left->b->str, right->str);
 			free_node(re, right);
 		} else {
 			struct node *tmp = new_node(re);
@@ -1781,9 +1781,9 @@ print_node(ktre *re, struct node *n)
 	case NODE_WB:        N0("(word boundary)");                             break;
 	case NODE_NWB:       N0("(negated word boundary)");                     break;
 	case NODE_BACKREF:   N0("(backreference to %d)", n->c);                 break;
-	case NODE_CLASS:     DBG("(class '"); dbgf(re, n->class, 0); N0("')");  break;
-	case NODE_STR:       DBG("(string '"); dbgf(re, n->class, 0); N0("')"); break;
-	case NODE_NOT:       DBG("(not '"); dbgf(re, n->class, 0); N0("')");    break;
+	case NODE_CLASS:     DBG("(class '"); dbgf(re, n->str, 0); N0("')");  break;
+	case NODE_STR:       DBG("(string '"); dbgf(re, n->str, 0); N0("')"); break;
+	case NODE_NOT:       DBG("(not '"); dbgf(re, n->str, 0); N0("')");    break;
 	case NODE_BOL:       N0("(bol)");                                       break;
 	case NODE_EOL:       N0("(eol)");                                       break;
 	case NODE_BOS:       N0("(bos)");                                       break;
@@ -1847,10 +1847,10 @@ static void
 print_instruction(ktre *re, struct instr instr)
 {
 	switch (instr.op) {
-	case INSTR_CLASS: DBG("CLASS   '"); dbgf(re, instr.class, 0); DBG("'"); break;
-	case INSTR_STR:   DBG("STR     '"); dbgf(re, instr.class, 0); DBG("'"); break;
-	case INSTR_NOT:   DBG("NOT     '"); dbgf(re, instr.class, 0); DBG("'"); break;
-	case INSTR_TSTR:  DBG("TSTR    '"); dbgf(re, instr.class, 0); DBG("'"); break;
+	case INSTR_CLASS: DBG("CLASS   '"); dbgf(re, instr.str, 0); DBG("'"); break;
+	case INSTR_STR:   DBG("STR     '"); dbgf(re, instr.str, 0); DBG("'"); break;
+	case INSTR_NOT:   DBG("NOT     '"); dbgf(re, instr.str, 0); DBG("'"); break;
+	case INSTR_TSTR:  DBG("TSTR    '"); dbgf(re, instr.str, 0); DBG("'"); break;
 	case INSTR_BRANCH:     DBG("BRANCH   %d, %d", instr.a, instr.b); break;
 	case INSTR_SAVE:       DBG("SAVE     %d",  instr.a);             break;
 	case INSTR_JMP:        DBG("JMP      %d",  instr.a);             break;
@@ -2116,9 +2116,9 @@ compile(ktre *re, struct node *n, bool rev)
 		PATCH_C(a, re->ip);
 		break;
 
-	case NODE_CLASS:      emit_class(re, INSTR_CLASS,  n->class, n->loc); break;
-	case NODE_STR:        emit_class(re, INSTR_STR,    n->class, n->loc); break;
-	case NODE_NOT:        emit_class(re, INSTR_NOT,    n->class, n->loc); break;
+	case NODE_CLASS:      emit_str(re, INSTR_CLASS,  n->str, n->loc); break;
+	case NODE_STR:        emit_str(re, INSTR_STR,    n->str, n->loc); break;
+	case NODE_NOT:        emit_str(re, INSTR_NOT,    n->str, n->loc); break;
 	case NODE_CATEGORY:   emit_c    (re, INSTR_CATEGORY, n->c,   n->loc); break;
 	case NODE_SCRIPT:     emit_c    (re, INSTR_SCRIPT,   n->c,   n->loc); break;
 	case NODE_SETOPT:     emit_c    (re, INSTR_SETOPT,   n->c,   n->loc); break;
@@ -2451,29 +2451,29 @@ execute_instr(ktre *re,
 		break;
 	case INSTR_CLASS:
 		THREAD[TP].ip++;
-		if (kdgu_contains(re->c[ip].class, c))
+		if (kdgu_contains(re->c[ip].str, c))
 			kdgu_next(subject, &THREAD[TP].sp);
 		else if (opt & KTRE_INSENSITIVE
-			 && kdgu_contains(re->c[ip].class, lc(c)))
+			 && kdgu_contains(re->c[ip].str, lc(c)))
 			kdgu_next(subject, &THREAD[TP].sp);
 		else FAIL;
 		break;
 	case INSTR_STR: case INSTR_TSTR:
 		THREAD[TP].ip++;
 		if (kdgu_ncmp(subject,
-			      re->c[ip].class,
+			      re->c[ip].str,
 			      sp,
-			      rev ? re->c[ip].class->len - 1 : 0,
-			      rev ? -re->c[ip].class->len : re->c[ip].class->len,
+			      rev ? re->c[ip].str->len - 1 : 0,
+			      rev ? -re->c[ip].str->len : re->c[ip].str->len,
 			      re->opt & KTRE_INSENSITIVE))
 			THREAD[TP].sp += rev
-				? -(int)re->c[ip].class->len
-				: (int)re->c[ip].class->len;
+				? -(int)re->c[ip].str->len
+				: (int)re->c[ip].str->len;
 		else FAIL;
 		break;
 	case INSTR_NOT:
 		THREAD[TP].ip++;
-		if (kdgu_contains(re->c[ip].class, c)) FAIL;
+		if (kdgu_contains(re->c[ip].str, c)) FAIL;
 		kdgu_next(subject, &THREAD[TP].sp);
 		break;
 	case INSTR_BOL:
@@ -2749,7 +2749,7 @@ ktre_free(ktre *re)
 	if (re->c) {
 		for (int i = 0; i < re->ip; i++)
 			if (re->c[i].op == INSTR_TSTR)
-				kdgu_free(re->c[i].class);
+				kdgu_free(re->c[i].str);
 
 		free(re->c);
 	}
