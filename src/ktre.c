@@ -911,6 +911,7 @@ unicodepoint(ktre *re, kdgu *a)
 		kdgu_prev(re->s, &re->i);
 	}
 }
+static struct node *parse_property_class(struct ktre *re, const kdgu *k);
 
 static struct node *
 parse_character_class(ktre *re)
@@ -923,7 +924,45 @@ parse_character_class(ktre *re)
 	       && !kdgu_chrcmp(re->s, re->i, ']')) {
 		struct node *right = NULL;
 
-		if (kdgu_chrcmp(re->s, re->i, '\\')) {
+		if (kdgu_ncmp(&KDGU("[:"), re->s, 0, re->i, 2, false)) {
+			kdgu_next(re->s, &re->i), kdgu_next(re->s, &re->i);
+
+			bool pneg = kdgu_chrcmp(re->s, re->i, '^');
+			if (pneg) kdgu_next(re->s, &re->i);
+
+			unsigned end = re->i;
+
+			while (end < re->s->len
+			       && !kdgu_ncmp(&KDGU(":]"), re->s, 0, end, 2, false))
+				kdgu_next(re->s, &end);
+
+			if (!kdgu_ncmp(&KDGU(":]"), re->s, 0, end, 2, false)) {
+				free_node(re, left);
+				error(re, KTRE_ERROR_SYNTAX_ERROR,
+				      re->i, "expected ':]'");
+				return NULL;
+			}
+
+			kdgu *substr = kdgu_substr(re->s, re->i, end);
+			right = parse_property_class(re, substr);
+			kdgu_free(substr);
+
+			if (pneg) {
+				struct node *tmp = new_node(re);
+
+				if (!tmp) {
+					free_node(re, left);
+					return NULL;
+				}
+
+				tmp->type = NODE_NOT;
+				tmp->a = right;
+				right = tmp;
+			}
+
+			re->i = end;
+			kdgu_next(re->s, &re->i), kdgu_next(re->s, &re->i);
+		} else if (kdgu_chrcmp(re->s, re->i, '\\')) {
 			right = primary(re);
 		} else {
 			bool lit = re->literal;
@@ -992,6 +1031,15 @@ parse_character_class(ktre *re)
 		return tmp;
 	}
 
+	if (!kdgu_chrcmp(re->s, re->i, ']')) {
+		free_node(re, left);
+		error(re, KTRE_ERROR_SYNTAX_ERROR,
+		      re->i, "expected ']'");
+		return NULL;
+	}
+
+	kdgu_next(re->s, &re->i);
+
 	return left;
 }
 
@@ -1019,7 +1067,6 @@ parse_g(ktre *re)
 			free_node(re, left);
 			error(re, KTRE_ERROR_SYNTAX_ERROR,
 			      left->loc, "incomplete token");
-
 			return NULL;
 		}
 	} else {
@@ -1118,7 +1165,7 @@ parse_property_class(struct ktre *re, const kdgu *k)
 			if (left->c == (int32_t)UINT32_MAX) {
 				free_node(re, left);
 				error(re, KTRE_ERROR_SYNTAX_ERROR,
-				      a, "no such category");
+				      re->i - a, "no such category");
 				return NULL;
 			}
 
@@ -1294,17 +1341,6 @@ primary(ktre *re)
 			free_node(re, left);
 			kdgu_next(re->s, &re->i);
 			left = parse_character_class(re);
-			if (!left) return NULL;
-
-			if (!kdgu_chrcmp(re->s, re->i, ']')) {
-				error(re, KTRE_ERROR_SYNTAX_ERROR, left->loc,
-				      "unterminated character class");
-				free_node(re, left);
-				return NULL;
-			}
-
-			/* Skip over the `]`. */
-			kdgu_next(re->s, &re->i);
 			break;
 
 		case '(':

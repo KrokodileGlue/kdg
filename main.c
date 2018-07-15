@@ -58,7 +58,7 @@ main(int argc, char **argv)
 	char *text = load_file(argv[argc - 1], &len);
 	if (!text) return EXIT_FAILURE;
 
-	ktre *re = ktre_compile(kdgu_news("[\\p{L|Nd}]+"), KTRE_UNANCHORED | KTRE_GLOBAL | KTRE_DEBUG);
+	ktre *re = ktre_compile(kdgu_news("[[:letter|number:]b]+"), KTRE_UNANCHORED | KTRE_GLOBAL | KTRE_DEBUG);
 	if (!re->err)
 		ktre_exec(re, kdgu_news("i love Βίβλος γενέσεως Ἰησοῦ Χριστοῦ 3 lamp"), NULL);
 
