@@ -266,12 +266,15 @@ struct node {
 		NODE_SCRIPT
 	} type;
 
-	/* TODO: Why is this still so terrible? */
 	struct node *a, *b;
-	int gi; /* group index */
-	int32_t c, d;
-	kdgu *class;
 
+	union {
+		int32_t c;
+		int32_t x, y;
+		kdgu *class;
+	};
+
+	int gi; /* Group index. */
 	int loc;
 };
 
@@ -1623,14 +1626,14 @@ factor(ktre *re)
 		case '?': n->type = NODE_QUESTION; kdgu_next(re->s, &re->i); break;
 		case '+': n->type = NODE_PLUS;     kdgu_next(re->s, &re->i); break;
 		case '{': { /* counted repetition */
-			n->type = NODE_REP; n->c = -1; n->d = 0;
+			n->type = NODE_REP; n->x = -1; n->y = 0;
 
 			kdgu_next(re->s, &re->i);
-			n->c = parse_dec_num(re, 0);
+			n->x = parse_dec_num(re, 0);
 
 			if (kdgu_chrcmp(re->s, re->i, ',')) {
 				kdgu_next(re->s, &re->i);
-				n->d = isdigit(kdgu_decode(re->s, re->i)) ? parse_dec_num(re, 0) : -1;
+				n->y = isdigit(kdgu_decode(re->s, re->i)) ? parse_dec_num(re, 0) : -1;
 			}
 
 			if (!kdgu_chrcmp(re->s, re->i, '}')) {
@@ -1791,7 +1794,7 @@ print_node(ktre *re, struct node *n)
 	case NODE_CALL:      N0("(call %d)", n->c);                             break;
 	case NODE_SEQUENCE:  N2("(sequence)");                                  break;
 	case NODE_OR:        N2("(or)");                                        break;
-	case NODE_REP:       N1("(counted repetition %d - %d)", n->c, n->d);    break;
+	case NODE_REP:       N1("(counted repetition %d - %d)", n->x, n->y);    break;
 	case NODE_ASTERISK:  N1("(asterisk)");                                  break;
 	case NODE_PLUS:      N1("(plus)");                                      break;
 	case NODE_QUESTION:  N1("(question)");                                  break;
@@ -2060,7 +2063,7 @@ compile(ktre *re, struct node *n, bool rev)
 
 	case NODE_REP:
 		a = 0;
-		for (int i = 0; i < n->c; i++) {
+		for (int i = 0; i < n->x; i++) {
 			a = re->ip;
 			if (n->a->type == NODE_GROUP && !re->group[n->a->gi].is_compiled) {
 				compile(re, n->a, rev);
@@ -2069,7 +2072,7 @@ compile(ktre *re, struct node *n, bool rev)
 			} else compile(re, n->a, rev);
 		}
 
-		if (n->d == -1) {
+		if (n->y == -1) {
 			if (n->a->type == NODE_GROUP) {
 				/* Emit the bytecode for a Kleene star. */
 				emit_ab(re, INSTR_BRANCH, re->ip + 1, re->ip + 2, n->loc);
@@ -2082,7 +2085,7 @@ compile(ktre *re, struct node *n, bool rev)
 			break;
 		}
 
-		for (int i = 0; i < n->d - n->c; i++) {
+		for (int i = 0; i < n->y - n->x; i++) {
 			a = re->ip;
 			emit_ab(re, INSTR_BRANCH, re->ip + 1, -1, n->loc);
 
