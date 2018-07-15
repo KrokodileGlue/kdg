@@ -58,9 +58,9 @@ main(int argc, char **argv)
 	char *text = load_file(argv[argc - 1], &len);
 	if (!text) return EXIT_FAILURE;
 
-	ktre *re = ktre_compile(kdgu_news("[\\u{3040}-\\u{309F}\\u{30FC}]"), KTRE_UNANCHORED | KTRE_GLOBAL | KTRE_DEBUG);
+	ktre *re = ktre_compile(kdgu_news("[^\\p{script≠greek}\\s]+"), KTRE_UNANCHORED | KTRE_GLOBAL | KTRE_DEBUG);
 	if (!re->err)
-		ktre_exec(re, kdgu_news("This is Russian: Лорем ипсум долор сит амет."), NULL);
+		ktre_exec(re, kdgu_news("i love Βίβλος γενέσεως Ἰησοῦ Χριστοῦ lamp"), NULL);
 
 	ktre_free(re);
 	free(text);

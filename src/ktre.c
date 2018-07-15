@@ -35,6 +35,7 @@ dbgf(const ktre *re, const kdgu *str, unsigned idx)
 		fputs("null", stderr);
 		return;
 	}
+
 	for (unsigned i = idx; i < str->len; kdgu_inc(str, &i)) {
 		uint32_t c = kdgu_decode(str, i);
 		if ((!kdgu_whitespace(str, i) && c != '\\') || c == ' ') {
@@ -118,6 +119,7 @@ struct instr {
 		INSTR_NSPACE,
 		INSTR_NWORD,
 		INSTR_RET,
+		INSTR_RANGE,
 
 		/* Unicode properties. */
 
@@ -127,7 +129,7 @@ struct instr {
 
 	union {
 		struct {
-			int a, b;
+			int32_t a, b;
 		};
 		uint32_t c;
 		kdgu *str;
@@ -156,7 +158,7 @@ grow_code(ktre *re, int n)
 }
 
 static void
-emit_ab(ktre *re, int instr, int a, int b, int loc)
+emit_ab(ktre *re, int instr, int32_t a, int32_t b, int loc)
 {
 	grow_code(re, 1);
 	if (!re->c) return;
@@ -218,7 +220,6 @@ struct node {
 		NODE_QUESTION,
 		NODE_ANY,     /* matches anything                   */
 		NODE_MANY,    /* multiline any                      */
-		NODE_CLASS,   /* character class                    */
 		NODE_NOT,     /* negated character class            */
 		NODE_STR,
 		NODE_BACKREF, /* backreference to an existing group */
@@ -254,6 +255,7 @@ struct node {
 		 */
 		NODE_RECURSE,
 
+		NODE_RANGE,
 		NODE_DIGIT,
 		NODE_SPACE,
 		NODE_WORD,
@@ -270,7 +272,9 @@ struct node {
 
 	union {
 		int32_t c;
-		int32_t x, y;
+		struct {
+			int32_t x, y;
+		};
 		kdgu *str;
 	};
 
@@ -295,7 +299,7 @@ free_node(ktre *re, struct node *n)
 	case NODE_NLB:
 		free_node(re, n->a);
 		break;
-	case NODE_CLASS: case NODE_NOT: case NODE_STR:
+	case NODE_STR:
 		kdgu_free(n->str);
 		break;
 	default: break;
@@ -325,6 +329,7 @@ error(ktre *re, enum ktre_error err, int loc, const char *fmt, ...)
 	va_end(args);
 }
 
+static struct node *primary(ktre *re);
 static struct node *parse(ktre *re);
 static struct node *term(ktre *re);
 
@@ -907,231 +912,86 @@ unicodepoint(ktre *re, kdgu *a)
 	}
 }
 
-static struct {
-	char *name;
-	char *class;
-} pclasses[] = {
-	{ "[:upper:]", "ABCDEFGHIJKLMNOPQRSTUVWXYZ" },
-	{ "[:lower:]", "abcdefghijklmnopqrstuvwxyz" },
-	{ "[:alpha:]", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" },
-	{ "[:digit:]", "0123456789" },
-	{ "[:xdigit:]", "0123456789ABCDEFabcdef" },
-	{ "[:alnum:]", "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" },
-	{ "[:punct:]", "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~" },
-	{ "[:blank:]", " \t" },
-	{ "[:space:]", WHITESPACE },
-	{ "[:cntrl:]",
-	  "\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b"
-	  "\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19"
-	  "\x1a\x1b\x1c\x1d\x1e\x1f\x7F"
-	}
-};
-
-/* TODO: [:graph:] and [:print:] */
-
-static kdgu *
-parse_character_class_character(ktre *re)
-{
-	kdgu *a = NULL;
-
-	if (kdgu_chrcmp(re->s, re->i, '[')) {
-		for (unsigned i = 0;
-		     i < sizeof pclasses / sizeof *pclasses;
-		     i++) {
-			if (kdgu_ncmp(re->s, &KDGU(pclasses[i].name), re->i, 0, strlen(pclasses[i].name), false)) {
-				for (unsigned j = 0, n = strlen(pclasses[i].name); j < n; j++)
-					kdgu_next(re->s, &re->i);
-				a = kdgu_news(pclasses[i].class), kdgu_convert(a, re->s->fmt);
-				return a;
-			}
-		}
-
-		a = kdgu_getchr(re->s, re->i), kdgu_next(re->s, &re->i);
-		return a;
-	} else if (!kdgu_chrcmp(re->s, re->i, '\\')) {
-		a = kdgu_getchr(re->s, re->i), kdgu_next(re->s, &re->i);
-		return a;
-	}
-
-	/* Skip over the `\`. */
-	kdgu_next(re->s, &re->i);
-	if (!kdgu_chrbound(re->s, re->i)) return NULL;
-	a = kdgu_new(re->s->fmt, NULL, 0);
-
-	switch (kdgu_decode(re->s, re->i)) {
-	case 's': kdgu_append(a, &KDGU(WHITESPACE)); break;
-	case 'w': kdgu_append(a, &KDGU(WORD));  break;
-	case 'a': kdgu_chrappend(a, '\a'); break;
-	case 'b': kdgu_chrappend(a, '\b'); break;
-	case 'f': kdgu_chrappend(a, '\f'); break;
-	case 'n': kdgu_chrappend(a, '\n'); break;
-	case 't': kdgu_chrappend(a, '\t'); break;
-	case 'r': kdgu_chrappend(a, '\r'); break;
-	case 'e': kdgu_chrappend(a, 7);    break;
-	case 'd': kdgu_append(a, &KDGU(DIGIT)); break;
-	case 'h': kdgu_append(a, &KDGU(" \t")); break;
-
-	case 'U':
-	case 'u':
-	case 'x':
-		unicodepoint(re, a);
-		break;
-
-	case '0':
-		kdgu_next(re->s, &re->i);
-		kdgu_chrappend(a, parse_oct_num(re, 0));
-		kdgu_prev(re->s, &re->i);
-		break;
-
-		/* Fuck all this for now. */
-#if 0
-	case 'D': {
-		a = malloc(256);
-
-		for (int j = 1; j < '0'; j++)       a[i++] = j;
-		for (int j = '9' + 1; j < 256; j++) a[i++] = j;
-
-		a[i] = 0;
-	} break;
-
-	case 'H': {
-		a = malloc(256);
-		for (int j = 1; j < 256; j++)
-			if (!strchr("\t ", j))
-				a[i++] = j;
-		a[i] = 0;
-	} break;
-
-	case 'N': {
-		a = malloc(256);
-		for (int j = 1; j < 256; j++)
-			if (j != '\n')
-				a[i++] = j;
-		a[i] = 0;
-	} break;
-
-	case 'S': {
-		a = malloc(256);
-		for (int j = 1; j < 256; j++)
-			if (!strchr(WHITESPACE, j))
-				a[i++] = j;
-		a[i] = 0;
-	} break;
-#endif
-
-	case 'o':
-		kdgu_next(re->s, &re->i);
-		int loc = re->i;
-
-		if (!kdgu_chrcmp(re->s, re->i, '{') && !re->err) {
-			error(re, KTRE_ERROR_SYNTAX_ERROR,
-			      loc, "incomplete token");
-
-			return NULL;
-		}
-
-		kdgu_next(re->s, &re->i);
-		kdgu_chrappend(a, parse_oct_num(re, 0));
-
-		if (!kdgu_chrcmp(re->s, re->i, '}') && !re->err) {
-			error(re, KTRE_ERROR_SYNTAX_ERROR,
-			      loc, "unmatched '{'");
-
-			return NULL;
-		}
-		break;
-
-	default:
-		kdgu_chrappend(a, kdgu_decode(re->s, re->i));
-		break;
-	}
-
-	kdgu_next(re->s, &re->i);
-
-	return a;
-}
-
 static struct node *
 parse_character_class(ktre *re)
 {
-	struct node *left = new_node(re);
-	kdgu *class       = NULL;
+	bool neg = kdgu_chrcmp(re->s, re->i, '^');
+	if (neg) kdgu_next(re->s, &re->i);
+	struct node *left = NULL;
 
-	if (kdgu_chrcmp(re->s, re->i, '^')) {
-		left->type = NODE_NOT;
-		kdgu_next(re->s, &re->i);
-	} else {
-		left->type = NODE_CLASS;
-	}
+	while (re->i < re->s->len
+	       && !kdgu_chrcmp(re->s, re->i, ']')) {
+		struct node *right = NULL;
 
-	while (re->i < re->s->len && !kdgu_chrcmp(re->s, re->i, ']')) {
-		kdgu *a    = NULL;
-		kdgu *b    = NULL;
-		bool range = false;
+		if (kdgu_chrcmp(re->s, re->i, '\\')) {
+			right = primary(re);
+		} else {
+			bool lit = re->literal;
+			re->literal = true;
+			right = primary(re);
+			re->literal = lit;
+		}
 
-		a = parse_character_class_character(re);
-
-		if (!a) {
+		if (!right) {
 			free_node(re, left);
 			return NULL;
 		}
 
-		range = (kdgu_chrcmp(re->s, re->i, '-')
-		         && !kdgu_chrcmp(re->s, re->i + 1, ']')
-		         && kdgu_len(a) == 1);
+		if (kdgu_chrcmp(re->s, re->i + kdgu_chrsize(re->s, re->i), ']')) {
+			;
+		} else if (kdgu_chrcmp(re->s, re->i, '-')) {
+			/* Skip over the `-`. */
+			kdgu_next(re->s, &re->i);
+			struct node *end = primary(re);
 
-		if (!range || kdgu_len(a) != 1) {
-			if (!class) class = kdgu_copy(a);
-			else kdgu_append(class, a);
-			kdgu_free(a);
-			continue;
+			if (right->type == NODE_STR && end->type == NODE_STR
+			    && (kdgu_len(right->str) == kdgu_len(end->str)) == 1
+			    && kdgu_chrbound(right->str, 0) && kdgu_chrbound(end->str, 0)) {
+				struct node *tmp = new_node(re);
+
+				if (!tmp) {
+					free_node(re, left), free_node(re, right);
+					return NULL;
+				}
+
+				tmp->type = NODE_RANGE;
+				tmp->x = kdgu_decode(right->str, 0);
+				tmp->y = kdgu_decode(end->str, 0);
+				right = tmp;
+			} else {
+				assert(false);
+			}
 		}
 
-		kdgu_next(re->s, &re->i);
-		b = parse_character_class_character(re);
+		if (!left) left = right;
+		else {
+			struct node *tmp = new_node(re);
 
-		if (!b) {
-			kdgu_free(a), free_node(re, left);
+			if (!tmp) {
+				free_node(re, left), free_node(re, right);
+				return NULL;
+			}
+
+			tmp->type = NODE_OR;
+			tmp->a = left;
+			tmp->b = right;
+			left = tmp;
+		}
+	}
+
+	if (neg) {
+		struct node *tmp = new_node(re);
+
+		if (!tmp) {
+			free_node(re, left);
 			return NULL;
 		}
 
-		/*
-		 * The entry represented more than one code point so
-		 * it can't be a range.
-		 */
-		if (kdgu_len(b) != 1 || !kdgu_chrbound(b, 0)) {
-			if (!class) class = kdgu_copy(a);
-			else kdgu_append(class, a);
-			kdgu_append(class, b);
-			kdgu_free(a), kdgu_free(b);
-			continue;
-		}
-
-		if (!class) class = kdgu_new(re->s->fmt, NULL, 0);
-		for (uint32_t i = kdgu_decode(a, 0), n = kdgu_decode(b, 0); i <= n; i++)
-			kdgu_chrappend(class, i);
-
-		kdgu_free(a), kdgu_free(b);
+		tmp->type = NODE_NOT;
+		tmp->a = left;
+		return tmp;
 	}
 
-	if (!kdgu_chrcmp(re->s, re->i, ']')) {
-		error(re, KTRE_ERROR_SYNTAX_ERROR, left->loc,
-		      "unterminated character class");
-		kdgu_free(class), free_node(re, left);
-		return NULL;
-	}
-
-	if (!class) {
-		error(re, KTRE_ERROR_SYNTAX_ERROR, left->loc,
-		      "empty character class");
-		free_node(re, left);
-		return NULL;
-	}
-
-	left->str = class;
-
-	/* Skip over the `]`. */
-	kdgu_next(re->s, &re->i);
 	return left;
 }
 
@@ -1253,27 +1113,41 @@ parse_p(ktre *re)
 	while (idx < re->s->len
 	       && !kdgu_chrcmp(re->s, idx, '}')
 	       && !kdgu_chrcmp(re->s, idx, '=')
+	       && !kdgu_chrcmp(re->s, idx, 0x2260)
 	       && !kdgu_chrcmp(re->s, idx, ':'))
 		kdgu_next(re->s, &idx);
 
 	if (kdgu_chrcmp(re->s, idx, '}')) {
 		left->type = NODE_CATEGORY;
-		kdgu *substr = kdgu_substr(re->s, re->i, idx);
-		left->c = kdgu_getcat(substr);
-		kdgu_free(substr);
+		idx = re->i;
 
-		if (left->c == (int32_t)UINT32_MAX) {
-			free_node(re, left);
-			error(re, KTRE_ERROR_SYNTAX_ERROR,
-			      re->i, "no such category");
-			return NULL;
-		}
+		do {
+			if (kdgu_chrcmp(re->s, idx, '|'))
+				kdgu_next(re->s, &idx), re->i = idx;
+
+			while (!kdgu_chrcmp(re->s, idx, '|')
+			       && !kdgu_chrcmp(re->s, idx, '}'))
+				kdgu_next(re->s, &idx);
+
+			kdgu *substr = kdgu_substr(re->s, re->i, idx);
+			left->c |= kdgu_getcat(substr);
+			kdgu_free(substr);
+
+			if (left->c == (int32_t)UINT32_MAX) {
+				free_node(re, left);
+				error(re, KTRE_ERROR_SYNTAX_ERROR,
+				      re->i, "no such category");
+				return NULL;
+			}
+
+			re->i = idx;
+		} while (kdgu_chrcmp(re->s, idx, '|'));
 
 		return left;
 	}
 
 	kdgu *property = kdgu_substr(re->s, re->i, idx);
-	/* uint32_t op = kdgu_decode(re->s, idx); */
+	uint32_t op = kdgu_decode(re->s, idx);
 	kdgu_next(re->s, &idx), re->i = idx;
 
 	while (idx < re->s->len && !kdgu_chrcmp(re->s, idx, '}'))
@@ -1323,6 +1197,14 @@ parse_p(ktre *re)
 		error(re, KTRE_ERROR_SYNTAX_ERROR,
 		      loc, "unknown property name");
 		return NULL;
+	}
+
+	if (op == 0x2260) {
+		struct node *tmp = new_node(re);
+		if (!tmp) return NULL;
+		tmp->type = NODE_NOT;
+		tmp->a = left;
+		left = tmp;
 	}
 
 	kdgu_free(property), kdgu_free(value);
@@ -1375,14 +1257,15 @@ parse_N(ktre *re)
 }
 
 static struct node *
-parse_primary(ktre *re)
+primary(ktre *re)
 {
 	struct node *left = new_node(re);
 	if (!left) return NULL;
 
 	int loc = re->i;
 
-	if (kdgu_chrcmp(re->s, re->i, ')'))
+	if (kdgu_chrcmp(re->s, re->i, ')')
+	    || kdgu_chrcmp(re->s, re->i, ']'))
 		return free_node(re, left), NULL;
 
  again:
@@ -1406,6 +1289,17 @@ parse_primary(ktre *re)
 			free_node(re, left);
 			kdgu_next(re->s, &re->i);
 			left = parse_character_class(re);
+			if (!left) return NULL;
+
+			if (!kdgu_chrcmp(re->s, re->i, ']')) {
+				error(re, KTRE_ERROR_SYNTAX_ERROR, left->loc,
+				      "unterminated character class");
+				free_node(re, left);
+				return NULL;
+			}
+
+			/* Skip over the `]`. */
+			kdgu_next(re->s, &re->i);
 			break;
 
 		case '(':
@@ -1450,8 +1344,7 @@ parse_primary(ktre *re)
 				if (kdgu_decode(re->s, re->i)) goto again;
 			} else {
 				left->type = NODE_STR;
-				left->str = kdgu_new(re->s->fmt, NULL, 0);
-				kdgu_chrappend(left->str, kdgu_decode(re->s, re->i));
+				left->str = kdgu_getchr(re->s, re->i);
 				kdgu_next(re->s, &re->i);
 			}
 		}
@@ -1460,12 +1353,13 @@ parse_primary(ktre *re)
 		return left;
 	}
 
-	left->type = NODE_CLASS;
+	left->type = NODE_STR;
 	kdgu *a = kdgu_new(re->s->fmt, NULL, 0);
 	kdgu_next(re->s, &re->i);
 	uint32_t c = kdgu_decode(re->s, re->i);
 
 	/* TODO: Join strings and single-character classes. */
+	/* TODO: h */
 
 	switch (c) {
 	case 'a': kdgu_chrappend(a, '\a');	break;
@@ -1485,18 +1379,13 @@ parse_primary(ktre *re)
 	case 'S': left->type = NODE_NSPACE;     break;
 	case 'D': left->type = NODE_NDIGIT;     break;
 	case 'W': left->type = NODE_NSPACE;     break;
-	case 'h':
-		kdgu_chrappend(a, '\t');
-		kdgu_chrappend(a, ' ');
-		break;
 
 	case 'u':
 	case 'U':
-	case 'x': {
-		left->type = NODE_STR;
+	case 'x':
 		unicodepoint(re, a);
 		if (re->err) return kdgu_free(a), free_node(re, left), NULL;
-	} break;
+		break;
 
 	case '-': /* backreferences */
 	case '+': case '1': case '2': case '3': case '4':
@@ -1549,7 +1438,7 @@ parse_primary(ktre *re)
 		kdgu_next(re->s, &re->i);
 		goto again;
 
-#if 0
+#if 0 /* TODO */
 	case 'H': {
 		a = malloc(256);
 		int i = 0;
@@ -1612,7 +1501,7 @@ factor(ktre *re)
 {
 	if (re->i >= re->s->len) return NULL;
 
-	struct node *left = parse_primary(re);
+	struct node *left = primary(re);
 
 	while (re->i < re->s->len
 	       && (kdgu_chrcmp(re->s, re->i, '*')
@@ -1661,12 +1550,14 @@ static struct node *
 term(ktre *re)
 {
 	struct node *left = new_node(re);
+	if (!left) return NULL;
 	left->type = NODE_NONE;
 
 	while (re->i < re->s->len
 	       && !kdgu_chrcmp(re->s, re->i, '|')
 	       && !kdgu_chrcmp(re->s, re->i, ')')) {
 		struct node *right = factor(re);
+		if (!right) return NULL;
 
 		if (re->err) {
 			free_node(re, left);
@@ -1772,37 +1663,36 @@ print_node(ktre *re, struct node *n)
 	} while(0)
 
 	switch (n->type) {
-	case NODE_ANY:       N0("(any)");                                       break;
-	case NODE_MANY:      N0("(m_any)");                                     break;
-	case NODE_DIGIT:     N0("(digit)");                                     break;
-	case NODE_WORD:      N0("(word)");                                      break;
-	case NODE_SPACE:     N0("(space)");                                     break;
-	case NODE_NONE:      N0("(none)");                                      break;
-	case NODE_WB:        N0("(word boundary)");                             break;
-	case NODE_NWB:       N0("(negated word boundary)");                     break;
-	case NODE_BACKREF:   N0("(backreference to %d)", n->c);                 break;
-	case NODE_CLASS:     DBG("(class '"); dbgf(re, n->str, 0); N0("')");  break;
+	case NODE_ANY:       N0("(any)");                                     break;
+	case NODE_MANY:      N0("(m_any)");                                   break;
+	case NODE_DIGIT:     N0("(digit)");                                   break;
+	case NODE_WORD:      N0("(word)");                                    break;
+	case NODE_SPACE:     N0("(space)");                                   break;
+	case NODE_NONE:      N0("(none)");                                    break;
+	case NODE_WB:        N0("(word boundary)");                           break;
+	case NODE_NWB:       N0("(negated word boundary)");                   break;
+	case NODE_BACKREF:   N0("(backreference to %d)", n->c);               break;
 	case NODE_STR:       DBG("(string '"); dbgf(re, n->str, 0); N0("')"); break;
-	case NODE_NOT:       DBG("(not '"); dbgf(re, n->str, 0); N0("')");    break;
-	case NODE_BOL:       N0("(bol)");                                       break;
-	case NODE_EOL:       N0("(eol)");                                       break;
-	case NODE_BOS:       N0("(bos)");                                       break;
-	case NODE_EOS:       N0("(eos)");                                       break;
-	case NODE_RECURSE:   N0("(recurse)");                                   break;
-	case NODE_SET_START: N0("(set_start)");                                 break;
-	case NODE_SETOPT:    N0("(setopt %d)", n->c);                           break;
-	case NODE_CALL:      N0("(call %d)", n->c);                             break;
-	case NODE_SEQUENCE:  N2("(sequence)");                                  break;
-	case NODE_OR:        N2("(or)");                                        break;
-	case NODE_REP:       N1("(counted repetition %d - %d)", n->x, n->y);    break;
-	case NODE_ASTERISK:  N1("(asterisk)");                                  break;
-	case NODE_PLUS:      N1("(plus)");                                      break;
-	case NODE_QUESTION:  N1("(question)");                                  break;
-	case NODE_ATOM:      N1("(atom)");                                      break;
-	case NODE_PLA:       N1("(lookahead)");                                 break;
-	case NODE_NLA:       N1("(negative lookahead)");                        break;
-	case NODE_PLB:       N1("(lookbehind)");                                break;
-	case NODE_NLB:       N1("(negative lookbehind)");                       break;
+	case NODE_NOT:       N0("(not)");                                     break;
+	case NODE_BOL:       N0("(bol)");                                     break;
+	case NODE_EOL:       N0("(eol)");                                     break;
+	case NODE_BOS:       N0("(bos)");                                     break;
+	case NODE_EOS:       N0("(eos)");                                     break;
+	case NODE_RECURSE:   N0("(recurse)");                                 break;
+	case NODE_SET_START: N0("(set_start)");                               break;
+	case NODE_SETOPT:    N0("(setopt %d)", n->c);                         break;
+	case NODE_CALL:      N0("(call %d)", n->c);                           break;
+	case NODE_SEQUENCE:  N2("(sequence)");                                break;
+	case NODE_OR:        N2("(or)");                                      break;
+	case NODE_REP:       N1("(counted repetition %d - %d)", n->x, n->y);  break;
+	case NODE_ASTERISK:  N1("(asterisk)");                                break;
+	case NODE_PLUS:      N1("(plus)");                                    break;
+	case NODE_QUESTION:  N1("(question)");                                break;
+	case NODE_ATOM:      N1("(atom)");                                    break;
+	case NODE_PLA:       N1("(lookahead)");                               break;
+	case NODE_NLA:       N1("(negative lookahead)");                      break;
+	case NODE_PLB:       N1("(lookbehind)");                              break;
+	case NODE_NLB:       N1("(negative lookbehind)");                     break;
 	case NODE_GROUP:
 		if (re->group[n->gi].name) {
 			dbgf(re, re->group[n->gi].name, 0);
@@ -1830,6 +1720,10 @@ print_node(ktre *re, struct node *n)
 		}
 		DBG(")");
 	} break;
+
+	case NODE_RANGE:
+		N0("(character range U+%04"PRIX32" - U+%04"PRIX32")", n->x, n->y);
+		break;
 
 	case NODE_SCRIPT:
 		N0("(script %s)", kdgu_getscriptname(n->c));
@@ -1883,9 +1777,15 @@ print_instruction(ktre *re, struct instr instr)
 	case INSTR_NLB:        DBG("NLB      %d",  instr.a);             break;
 	case INSTR_NLB_FAIL:   DBG("NLB_FAIL");                          break;
 	case INSTR_CATEGORY:   DBG("CATEGORY %u",  instr.c);             break;
+
 	case INSTR_SCRIPT:
 		DBG("SCRIPT   %u (%s)", instr.c, kdgu_getscriptname(instr.c));
 		break;
+
+	case INSTR_RANGE:
+		DBG("RANGE    U+%04"PRIX32", U+%04"PRIX32, instr.a, instr.b);
+		break;
+
 	default:
 		DBG("\nunimplemented instruction printer %d\n", instr.op);
 		assert(false);
@@ -2105,20 +2005,27 @@ compile(ktre *re, struct node *n, bool rev)
 	case NODE_ATOM: GROUPY(TRY,rev,CATCH); break;
 	case NODE_PLA: GROUPY(PLA,false,PLA_WIN); break;
 	case NODE_PLB: GROUPY(PLB,true,PLB_WIN); break;
+
 	case NODE_NLA:
 		a = re->ip;
 		GROUPY(NLA,false,NLA_FAIL);
 		PATCH_C(a, re->ip);
 		break;
+
 	case NODE_NLB:
 		a = re->ip;
 		GROUPY(NLB,true,NLB_FAIL);
 		PATCH_C(a, re->ip);
 		break;
 
-	case NODE_CLASS:      emit_str(re, INSTR_CLASS,  n->str, n->loc); break;
+	case NODE_NOT:
+		a = re->ip;
+		GROUPY(NLA,false,NLA_FAIL);
+		PATCH_C(a, re->ip);
+		emit(re, INSTR_MANY, n->loc);
+		break;
+
 	case NODE_STR:        emit_str(re, INSTR_STR,    n->str, n->loc); break;
-	case NODE_NOT:        emit_str(re, INSTR_NOT,    n->str, n->loc); break;
 	case NODE_CATEGORY:   emit_c    (re, INSTR_CATEGORY, n->c,   n->loc); break;
 	case NODE_SCRIPT:     emit_c    (re, INSTR_SCRIPT,   n->c,   n->loc); break;
 	case NODE_SETOPT:     emit_c    (re, INSTR_SETOPT,   n->c,   n->loc); break;
@@ -2137,6 +2044,7 @@ compile(ktre *re, struct node *n, bool rev)
 	case NODE_NWORD:      emit      (re, INSTR_NWORD,            n->loc); break;
 	case NODE_NSPACE:     emit      (re, INSTR_NSPACE,           n->loc); break;
 	case NODE_NONE:                                                       break;
+	case NODE_RANGE: emit_ab(re, INSTR_RANGE, n->x, n->y, n->loc); break;
 
 	default:
 		DBG("\nunimplemented compiler for node of type %d\n", n->type);
@@ -2679,6 +2587,15 @@ execute_instr(ktre *re,
 		rev ? kdgu_dec(subject, &THREAD[TP].sp) || --THREAD[TP].sp
 		    : kdgu_inc(subject, &THREAD[TP].sp) || ++THREAD[TP].sp;
 		if (codepoint(c)->script == re->c[ip].c) return true;
+		FAIL;
+		break;
+	case INSTR_RANGE:
+		THREAD[TP].ip++;
+		rev ? kdgu_dec(subject, &THREAD[TP].sp) || --THREAD[TP].sp
+		    : kdgu_inc(subject, &THREAD[TP].sp) || ++THREAD[TP].sp;
+		if (c >= (uint32_t)re->c[ip].a
+		    && c <= (uint32_t)re->c[ip].b)
+			return true;
 		FAIL;
 		break;
 	default:
