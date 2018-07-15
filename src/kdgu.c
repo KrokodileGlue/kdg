@@ -1366,7 +1366,8 @@ bool
 kdgu_contains(const kdgu *k, uint32_t c)
 {
 	for (unsigned i = 0; i < k->len; kdgu_next(k, &i))
-		if (kdgu_chrcmp(k, i, c)) return true;
+		if (kdgu_chrcmp(k, i, c))
+			return true;
 	return false;
 }
 

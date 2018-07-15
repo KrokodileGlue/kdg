@@ -1093,76 +1093,52 @@ parse_k(ktre *re)
 }
 
 static struct node *
-parse_p(ktre *re)
+parse_property_class(struct ktre *re, const kdgu *k)
 {
 	struct node *left = new_node(re);
-	if (!left) return NULL;
+	left->type = NODE_CATEGORY;
+	unsigned a = 0, b = 0;
 
-	if (!kdgu_chrcmp(re->s, re->i, '{')) {
-		left->type = NODE_CATEGORY;
-		kdgu *chr = kdgu_getchr(re->s, re->i);
-		left->c = kdgu_getcat(chr), kdgu_free(chr);
-		return left;
-	}
-
-	/* TODO: Character class intersections. */
-
-	kdgu_next(re->s, &re->i);
-	unsigned idx = re->i;
-
-	while (idx < re->s->len
-	       && !kdgu_chrcmp(re->s, idx, '}')
-	       && !kdgu_chrcmp(re->s, idx, '=')
-	       && !kdgu_chrcmp(re->s, idx, 0x2260)
-	       && !kdgu_chrcmp(re->s, idx, ':'))
-		kdgu_next(re->s, &idx);
-
-	if (kdgu_chrcmp(re->s, idx, '}')) {
-		left->type = NODE_CATEGORY;
-		idx = re->i;
-
+	if (!kdgu_contains(k, ':')
+	    && !kdgu_contains(k, '=')
+	    && !kdgu_contains(k, 0x2260)) {
 		do {
-			if (kdgu_chrcmp(re->s, idx, '|'))
-				kdgu_next(re->s, &idx), re->i = idx;
+			if (kdgu_chrcmp(k, b, '|'))
+				kdgu_next(k, &b), a = b;
 
-			while (!kdgu_chrcmp(re->s, idx, '|')
-			       && !kdgu_chrcmp(re->s, idx, '}'))
-				kdgu_next(re->s, &idx);
+			while (b < k->len
+			       && !kdgu_chrcmp(k, b, '|')
+			       && !kdgu_chrcmp(k, b, '}'))
+				kdgu_next(k, &b);
 
-			kdgu *substr = kdgu_substr(re->s, re->i, idx);
+			kdgu *substr = kdgu_substr(k, a, b);
 			left->c |= kdgu_getcat(substr);
 			kdgu_free(substr);
 
 			if (left->c == (int32_t)UINT32_MAX) {
 				free_node(re, left);
 				error(re, KTRE_ERROR_SYNTAX_ERROR,
-				      re->i, "no such category");
+				      a, "no such category");
 				return NULL;
 			}
 
-			re->i = idx;
-		} while (kdgu_chrcmp(re->s, idx, '|'));
+			a = b;
+		} while (kdgu_chrcmp(k, b, '|'));
 
 		return left;
 	}
 
-	kdgu *property = kdgu_substr(re->s, re->i, idx);
-	uint32_t op = kdgu_decode(re->s, idx);
-	kdgu_next(re->s, &idx), re->i = idx;
+	while (b < k->len
+	       && !kdgu_chrcmp(k, b, '=')
+	       && !kdgu_chrcmp(k, b, 0x2260)
+	       && !kdgu_chrcmp(k, b, ':'))
+		kdgu_next(k, &b);
 
-	while (idx < re->s->len && !kdgu_chrcmp(re->s, idx, '}'))
-		kdgu_next(re->s, &idx);
-
-	if (!kdgu_chrcmp(re->s, idx, '}')) {
-		free_node(re, left), kdgu_free(property);
-		error(re, KTRE_ERROR_SYNTAX_ERROR,
-		      idx, "expected '}'");
-		return NULL;
-	}
-
-	kdgu *value = kdgu_substr(re->s, re->i, idx);
-	int loc = re->i;
-	re->i = idx;
+	kdgu *property = kdgu_substr(k, a, b);
+	uint32_t op = kdgu_decode(k, b);
+	kdgu_next(k, &b), a = b;
+	int loc = re->i - b;
+	kdgu *value = kdgu_substr(k, b, k->len);
 
 	if (kdgu_fuzzy(&KDGU("name"), property)) {
 		uint32_t c = kdgu_getcode(value);
@@ -1176,7 +1152,7 @@ parse_p(ktre *re)
 		}
 
 		left->type = NODE_STR;
-		left->str = kdgu_new(re->s->fmt, NULL, 0);
+		left->str = kdgu_new(k->fmt, NULL, 0);
 		kdgu_chrappend(left->str, c);
 	} else if (kdgu_fuzzy(&KDGU("sc"), property)
 		   || kdgu_fuzzy(&KDGU("script"), property)) {
@@ -1207,7 +1183,36 @@ parse_p(ktre *re)
 		left = tmp;
 	}
 
-	kdgu_free(property), kdgu_free(value);
+	return left;
+}
+
+static struct node *
+parse_p(ktre *re)
+{
+	kdgu *substr = NULL;
+	unsigned idx = re->i;
+
+	if (kdgu_chrcmp(re->s, re->i, '{')) {
+		kdgu_next(re->s, &re->i);
+
+		while (idx < re->s->len && !kdgu_chrcmp(re->s, idx, '}'))
+			kdgu_next(re->s, &idx);
+
+		if (!kdgu_chrcmp(re->s, idx, '}')) {
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      idx, "expected '}'");
+			return NULL;
+		}
+	} else {
+		kdgu_next(re->s, &idx);
+	}
+
+	substr = kdgu_substr(re->s, re->i, idx);
+	if (kdgu_chrcmp(re->s, re->i, '{')) kdgu_next(re->s, &idx);
+	re->i = idx;
+	struct node *left = parse_property_class(re, substr);
+	kdgu_free(substr);
+
 	return left;
 }
 
