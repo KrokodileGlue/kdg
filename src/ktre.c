@@ -1287,7 +1287,7 @@ parse_p(ktre *re)
 	int loc = re->i;
 	re->i = idx;
 
-	if (kdgu_cmp(&KDGU("name"), property)) {
+	if (kdgu_fuzzy(&KDGU("name"), property)) {
 		uint32_t c = kdgu_getcode(value);
 
 		if (c == UINT32_MAX) {
@@ -1301,7 +1301,8 @@ parse_p(ktre *re)
 		left->type = NODE_STR;
 		left->class = kdgu_new(re->s->fmt, NULL, 0);
 		kdgu_chrappend(left->class, c);
-	} else if (kdgu_cmp(&KDGU("sc"), property)) {
+	} else if (kdgu_fuzzy(&KDGU("sc"), property)
+		   || kdgu_fuzzy(&KDGU("script"), property)) {
 		left->c = kdgu_getscript(value);
 
 		if (left->c == -1) {
