@@ -334,7 +334,7 @@ static struct node *term(ktre *re);
 
 static bool
 is_word(ktre *re, uint32_t c) {
-	if (re->opt & KTRE_ECMA) return !!strchr(DIGIT, c);
+	if (re->opt & KTRE_ECMA) return !!strchr(WORD, c);
 	enum category cat = codepoint(c)->category;
 	return cat & CATEGORY_LL
 	    || cat & CATEGORY_LU
@@ -546,177 +546,32 @@ parse_branch_reset(ktre *re)
 }
 
 static struct node *
-parse_named_group(ktre *re)
+parse_special_group(ktre *re)
 {
 	struct node *left = new_node(re);
+	if (!left) return NULL;
+	uint32_t c = kdgu_decode(re->s, re->i);
+	kdgu_next(re->s, &re->i);
 
-	if (strchr(WORD, kdgu_decode(re->s, re->i))
-	    && kdgu_chrbound(re->s, re->i)) {
+	switch (c) {
+	case '<': {
+		if (kdgu_chrcmp(re->s, re->i, '=')
+		    || kdgu_chrcmp(re->s, re->i, '!')) {
+			kdgu_next(re->s, &re->i);
+			left->type = kdgu_chrcmp(re->s, re->i, '=') ? NODE_PLB : NODE_NLB;
+			left->a = parse(re);
+			break;
+		}
+
 		unsigned a = re->i;
 		while (re->i < re->s->len
-		       && strchr(WORD, kdgu_decode(re->s, re->i))
-		       && kdgu_chrbound(re->s, re->i))
+		       && is_word(re, kdgu_decode(re->s, re->i)))
 			kdgu_next(re->s, &re->i);
 		unsigned b = re->i;
 
 		if (!kdgu_chrcmp(re->s, re->i, '>')) {
 			error(re, KTRE_ERROR_SYNTAX_ERROR,
-			      re->i,
-			      "expected '>'");
-
-			free_node(left);
-			return NULL;
-		}
-
-		kdgu_next(re->s, &re->i);
-		left->type = NODE_GROUP;
-		left->gi = add_group(re);
-
-		if (left->gi < 0) {
-			free_node(left);
-			return NULL;
-		}
-
-		re->group[left->gi].is_called = false;
-		re->group[left->gi].name = kdgu_new(re->s->fmt, re->s->s + re->i, b - a);
-
-		left->a = parse(re);
-		return left;
-	}
-
-	if      (kdgu_chrcmp(re->s, re->i, '=')) left->type = NODE_PLB;
-	else if (kdgu_chrcmp(re->s, re->i, '!')) left->type = NODE_NLB;
-	else {
-		error(re, KTRE_ERROR_SYNTAX_ERROR,
-		      left->loc, "invalid group syntax");
-		free_node(left);
-		return NULL;
-	}
-
-	kdgu_next(re->s, &re->i);
-	left->a = parse(re);
-
-	return left;
-}
-
-/* Parses a backreference to a named group. */
-static struct node *
-parse_named_backreference(ktre *re)
-{
-	struct node *left = new_node(re);
-
-	if (kdgu_chrcmp(re->s, re->i, '=')) {
-		kdgu_next(re->s, &re->i);
-
-		unsigned a = re->i;
-		while (re->i < re->s->len
-		       && strchr(WORD, kdgu_decode(re->s, re->i))
-		       && kdgu_chrbound(re->s, re->i))
-			kdgu_next(re->s, &re->i);
-		unsigned b = re->i;
-
-		if (!kdgu_chrcmp(re->s, re->i, ')')) {
-			error(re, KTRE_ERROR_SYNTAX_ERROR,
-			      re->i, "expected ')'");
-			free_node(left);
-			return NULL;
-		}
-
-		left->type = NODE_BACKREF;
-		left->c = -1;
-
-		for (int i = 0; i < re->gp; i++) {
-			if (!re->group[i].name) continue;
-			if (kdgu_ncmp(re->group[i].name, re->s, re->i, 0, b - a, false)
-			    && b - a == re->group[i].name->len) {
-				left->c = i;
-				break;
-			}
-		}
-
-		if (left->c < 0) {
-			error(re, KTRE_ERROR_SYNTAX_ERROR,
-			      re->i,
-			      "name references a group that does not exist");
-
-			free_node(left);
-			return NULL;
-		}
-
-		return left;
-	}
-
-	if (!kdgu_chrcmp(re->s, re->i, '<')) {
-		error(re, KTRE_ERROR_SYNTAX_ERROR,
-		      re->i, "expected '<'");
-		free_node(left);
-		return NULL;
-	}
-
-	kdgu_next(re->s, &re->i);
-	unsigned a = re->i;
-	while (re->i < re->s->len
-	       && strchr(WORD, kdgu_decode(re->s, re->i)))
-		kdgu_next(re->s, &re->i);
-	unsigned b = re->i;
-
-	if (!kdgu_chrcmp(re->s, re->i, '>')) {
-		error(re, KTRE_ERROR_SYNTAX_ERROR,
-		      re->i, "expected '>'");
-		free_node(left);
-		return NULL;
-	}
-
-	kdgu_next(re->s, &re->i);
-	left->type = NODE_GROUP;
-	left->gi = add_group(re);
-
-	if (left->gi < 0) {
-		free_node(left);
-		return NULL;
-	}
-
-	re->group[left->gi].is_called = false;
-	re->group[left->gi].name = kdgu_substr(re->s, a, b);
-
-	left->a = parse(re);
-
-	return left;
-}
-
-static struct node *
-parse_special_group(ktre *re)
-{
-	struct node *left = NULL;
-	uint32_t c = kdgu_decode(re->s, re->i);
-	kdgu_next(re->s, &re->i);
-
-	switch (c) {
-	case ':': left = parse(re); break;
-	case '|': left = parse_branch_reset(re); break;
-	case 'P': return parse_named_backreference(re);
-	case '<': return parse_named_group(re);
-
-	case '#':
-		left = new_node(re);
-		left->type = NODE_NONE;
-		while (re->i < re->s->len
-		       && !kdgu_chrcmp(re->s, re->i, ')'))
-			kdgu_next(re->s, &re->i);
-		break;
-
-	case '\'': {
-		left = new_node(re);
-		unsigned a = re->i;
-		while (re->i < re->s->len
-		       && strchr(WORD, kdgu_decode(re->s, re->i))
-		       && kdgu_chrbound(re->s, re->i))
-			kdgu_next(re->s, &re->i);
-		unsigned b = re->i;
-
-		if (!kdgu_chrcmp(re->s, re->i, '\'')) {
-			error(re, KTRE_ERROR_SYNTAX_ERROR,
-			      re->i, "expected '\''");
+			      re->i, "expected '>'");
 			free_node(left);
 			return NULL;
 		}
@@ -736,27 +591,134 @@ parse_special_group(ktre *re)
 		left->a = parse(re);
 	} break;
 
+	case 'P': {
+		if (kdgu_chrcmp(re->s, re->i, '=')) {
+			kdgu_next(re->s, &re->i);
+
+			unsigned a = re->i;
+			while (re->i < re->s->len
+			       && is_word(re, kdgu_decode(re->s, re->i))
+			       && kdgu_chrbound(re->s, re->i))
+				kdgu_next(re->s, &re->i);
+			unsigned b = re->i;
+
+			kdgu *substr = kdgu_substr(re->s, a, b);
+			left->type = NODE_BACKREF;
+			left->c = -1;
+
+			for (int i = 0; i < re->gp && left->c == -1; i++)
+				if (kdgu_cmp(re->group[i].name, substr))
+					left->c = i;
+
+			kdgu_free(substr);
+
+			if (left->c < 0) {
+				free_node(left);
+				error(re, KTRE_ERROR_SYNTAX_ERROR,
+				      re->i,
+				      "name references a group that does not exist");
+				return NULL;
+			}
+
+			break;
+		}
+
+		if (!kdgu_chrcmp(re->s, re->i, '<')) {
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      re->i, "expected '<' or '='");
+			free_node(left);
+			return NULL;
+		}
+
+		kdgu_next(re->s, &re->i);
+
+		unsigned a = re->i;
+		while (re->i < re->s->len
+		       && is_word(re, kdgu_decode(re->s, re->i))
+		       && kdgu_chrbound(re->s, re->i))
+			kdgu_next(re->s, &re->i);
+		unsigned b = re->i;
+
+		if (!kdgu_chrcmp(re->s, re->i, '>')) {
+			free_node(left);
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      re->i,
+			      "expected '>'");
+			return NULL;
+		}
+
+		kdgu_next(re->s, &re->i);
+		left->type = NODE_GROUP;
+		left->gi = add_group(re);
+
+		if (left->gi < 0)
+			return free_node(left), NULL;
+
+		re->group[left->gi].is_called = false;
+		re->group[left->gi].name = kdgu_substr(re->s, a, b);
+		left->a = parse(re);
+	} break;
+
+	case ':':
+		free_node(left), left = parse(re);
+		break;
+
+	case '|':
+		free_node(left), left = parse_branch_reset(re);
+		break;
+
+	case '#':
+		left->type = NODE_NONE;
+		while (re->i < re->s->len
+		       && !kdgu_chrcmp(re->s, re->i, ')'))
+			kdgu_next(re->s, &re->i);
+		break;
+
+	case '\'': {
+		unsigned a = re->i;
+		while (re->i < re->s->len
+		       && is_word(re, kdgu_decode(re->s, re->i))
+		       && kdgu_chrbound(re->s, re->i))
+			kdgu_next(re->s, &re->i);
+		unsigned b = re->i;
+
+		if (!kdgu_chrcmp(re->s, re->i, '\'')) {
+			error(re, KTRE_ERROR_SYNTAX_ERROR,
+			      re->i, "expected '\''");
+			free_node(left);
+			return NULL;
+		}
+
+		kdgu_next(re->s, &re->i);
+		left->type = NODE_GROUP;
+		left->gi = add_group(re);
+
+		if (left->gi < 0)
+			return free_node(left), NULL;
+
+		re->group[left->gi].is_called = false;
+		re->group[left->gi].name = kdgu_substr(re->s, a, b);
+
+		left->a = parse(re);
+	} break;
+
 	case '>':
-		left = new_node(re);
 		left->type = NODE_ATOM;
 		left->a = parse(re);
 		break;
 
 	case '=':
-		left = new_node(re);
 		left->type = NODE_PLA;
 		left->a = parse(re);
 		break;
 
 	case '!':
-		left = new_node(re);
 		left->type = NODE_NLA;
 		left->a = parse(re);
 		break;
 
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
-		left = new_node(re);
 		left->type = NODE_CALL;
 		kdgu_prev(re->s, &re->i);
 		left->c = kdgu_decimal(re->s, &re->i);
@@ -1124,14 +1086,9 @@ parse_k(ktre *re)
 	bool bracketed = kdgu_chrcmp(re->s, re->i, '<');
 	kdgu_next(re->s, &re->i);
 
-	/*
-	 * TODO: Don't use a and b, count the number of graphemes
-	 * between them or take the substring and count the length of
-	 * that.
-	 */
 	unsigned a = re->i;
 	while (re->i < re->s->len
-	       && strchr(WORD, kdgu_decode(re->s, re->i))
+	       && is_word(re, kdgu_decode(re->s, re->i))
 	       && kdgu_chrbound(re->s, re->i))
 		kdgu_next(re->s, &re->i);
 	unsigned b = re->i;
@@ -1140,22 +1097,25 @@ parse_k(ktre *re)
 	    || (!bracketed && !kdgu_chrcmp(re->s, re->i, '\''))
 	    || a == b) {
 		error(re, KTRE_ERROR_SYNTAX_ERROR,
-		      re->i, "expected '>' or '");
+		      re->i, "expected a matching right-hand delimiter for named backreference");
 		free_node(left);
 		return NULL;
 	}
 
 	left->type = NODE_BACKREF;
 	left->c = -1;
+	kdgu *substr = kdgu_substr(re->s, a, b);
 
 	for (int i = 0; i < re->gp; i++) {
 		if (!re->group[i].name) continue;
-		if (kdgu_ncmp(re->group[i].name, re->s, re->i, 0, b - a, false)
+		if (kdgu_cmp(re->group[i].name, substr)
 		    && b - a == re->group[i].name->len) {
 			left->c = i;
 			break;
 		}
 	}
+
+	kdgu_free(substr);
 
 	if (left->c < 0) {
 		error(re, KTRE_ERROR_SYNTAX_ERROR,
@@ -2588,16 +2548,16 @@ execute_instr(ktre *re,
 		break;
 	case INSTR_WB:
 		THREAD[TP].ip++;
-		if (sp == 0 && strchr(WORD, c))
+		if (sp == 0 && is_word(re, c))
 			return true;
-		if (!!strchr(WORD, c) != !!strchr(WORD, kdgu_decode(subject, sp - 1)))
+		if (is_word(re, c) != is_word(re, kdgu_decode(subject, sp - 1)))
 			return true;
 		FAIL;
 		break;
 	case INSTR_NWB:
 		THREAD[TP].ip++;
-		if (sp == 0 && !strchr(WORD, c)) return true;
-		if (!!strchr(WORD, c) == !!strchr(WORD, kdgu_decode(subject, sp - 1)))
+		if (sp == 0 && !is_word(re, c)) return true;
+		if (is_word(re, c) == is_word(re, kdgu_decode(subject, sp - 1)))
 			return true;
 		FAIL;
 		break;

@@ -58,8 +58,8 @@ main(int argc, char **argv)
 	char *text = load_file(argv[argc - 1], &len);
 	if (!text) return EXIT_FAILURE;
 
-	char *a = "[[:digit:]&&[:xdigit:]]+";
-	char *b = "a123 b456 c789";
+	char *a = "(?'fuck'\\w+) \\k<fuck>";
+	char *b = "foo foo";
 
 	kdgu *c = kdgu_news(a);
 	kdgu *d = kdgu_news(b);
