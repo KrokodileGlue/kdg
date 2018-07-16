@@ -987,7 +987,7 @@ parse_character_class_character(struct ktre *re, struct node *left)
 		POSIX_CLASS("digit",  "[0-9]");
 		POSIX_CLASS("graph",  "[^[:cntrl:]]");
 		POSIX_CLASS("lower",  "[a-z]");
-		POSIX_CLASS("print",  "[[:graph] ]");
+		POSIX_CLASS("print",  "[[:graph:] ]");
 		POSIX_CLASS("punct",  "[-!\"#$%&'()*+,./:;<=>?@[]");
 		POSIX_CLASS("space",  "[ \\t\\n\\r\\f\\v]");
 		POSIX_CLASS("upper",  "[A-Z]");
