@@ -1047,13 +1047,27 @@ kdgu_ncmp(const kdgu *k1,
 	return c == abs(n);
 }
 
+/* struct error */
+/* kdgu_encode(uint32_t c, uint8_t *buf, unsigned *len, */
+/* 	    enum fmt fmt, unsigned idx, int endian) */
+
+static void
+uputc(uint32_t c, FILE *f)
+{
+	uint8_t buf[100];
+	unsigned len;
+	struct error err = kdgu_encode(c, buf, &len, KDGU_FMT_UTF8, 0, KDGU_ENDIAN_NONE);
+	if (err.kind) return;
+	for (unsigned i = 0; i < len; i++)
+		fputc(buf[i], f);
+}
+
 void
 kdgu_print(const kdgu *k, FILE *f)
 {
 	if (!k) return;
-
-	for (unsigned i = 0; i < k->len; i++)
-		fputc((uint8_t)k->s[i], f);
+	for (unsigned i = 0; i < k->len; kdgu_inc(k, &i))
+		uputc(kdgu_decode(k, i), f);
 }
 
 void
@@ -1102,9 +1116,7 @@ void
 kdgu_pchr(const kdgu *k, unsigned idx, FILE *f)
 {
 	if (!k || idx >= k->len) return;
-	unsigned len = kdgu_chrsize(k, idx);
-	for (unsigned i = 0; i < len; i++)
-		fputc(k->s[idx + i], f);
+	uputc(kdgu_decode(k, idx), f);
 }
 
 unsigned
@@ -1659,4 +1671,61 @@ kdgu_getscriptname(enum script script)
 {
 	if (script > SCRIPT_UNKNOWN) return NULL;
 	return scripts[script];
+}
+
+#define IS_HEX_DIGIT(X)	  \
+	(((X) >= 'A' && (X) <= 'F') \
+	 || ((X) >= 'a' && (X) <= 'f') \
+	 || ((X) >= '0' && (X) <= '9'))
+
+#define IS_DEC_DIGIT(X)\
+	((X) >= '0' && (X) <= '9')
+
+#define IS_OCT_DIGIT(X)\
+	((X) >= '0' && (X) <= '7')
+
+double
+kdgu_hexadecimal(const kdgu *k, unsigned *idx)
+{
+	double n = 0;
+	uint32_t c = kdgu_decode(k, *idx);
+
+	while (IS_HEX_DIGIT(c) && kdgu_chrbound(k, *idx)) {
+		c = tolower(c);
+		n *= 16, n += !isdigit(c) ? c - 'a' + 10 : c - '0';
+		if (!kdgu_inc(k, idx)) break;
+		c = kdgu_decode(k, *idx);
+	}
+
+	return n;
+}
+
+double
+kdgu_decimal(const kdgu *k, unsigned *idx)
+{
+	double n = 0;
+	uint32_t c = kdgu_decode(k, *idx);
+
+	while (IS_DEC_DIGIT(c) && kdgu_chrbound(k, *idx)) {
+		n *= 10, n += c - '0';
+		if (!kdgu_inc(k, idx)) break;
+		c = kdgu_decode(k, *idx);
+	}
+
+	return n;
+}
+
+double
+kdgu_octal(const kdgu *k, unsigned *idx)
+{
+	double n = 0;
+	uint32_t c = kdgu_decode(k, *idx);
+
+	while (IS_OCT_DIGIT(c) && kdgu_chrbound(k, *idx)) {
+		n *= 10, n += c - '0';
+		if (!kdgu_inc(k, idx)) break;
+		c = kdgu_decode(k, *idx);
+	}
+
+	return n;
 }

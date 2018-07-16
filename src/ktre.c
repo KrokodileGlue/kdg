@@ -413,93 +413,6 @@ copy_node(const ktre *re, struct node *n)
 	return r;
 }
 
-static int
-dec_num(ktre *re, int cap)
-{
-	int n = -1;
-
-	uint32_t c = kdgu_decode(re->s, re->i);
-	while ((cap > 0 ? n < cap : true)
-	       && re->i < re->s->len
-	       && isdigit(c)) {
-		if (n < 0) n = 0;
-		n = n * 10 + (c - '0');
-		kdgu_next(re->s, &re->i);
-		c = kdgu_decode(re->s, re->i);
-	}
-
-	return (cap > 0 && n > cap) ? kdgu_prev(re->s, &re->i), n / 10 : n;
-}
-
-static int
-hex_num(ktre *re, int cap)
-{
-	int n = -1;
-
-	uint32_t c = kdgu_decode(re->s, re->i);
-	while ((cap > 0 ? n < cap : true)
-	       && re->i < re->s->len
-	       && is_hex_digit(c)
-	       && kdgu_chrbound(re->s, re->i)) {
-		if (n < 0) n = 0;
-		c = lc(c), n *= 16;
-		n += (c >= 'a' && c <= 'f') ? c - 'a' + 10 : c - '0';
-		kdgu_next(re->s, &re->i);
-		c = kdgu_decode(re->s, re->i);
-	}
-
-	return (cap > 0 && n > cap) ? kdgu_prev(re->s, &re->i), n / 16 : n;
-}
-
-static int
-oct_num(ktre *re, int cap)
-{
-	int n = -1;
-
-	uint32_t c = kdgu_decode(re->s, re->i);
-	while ((cap > 0 ? n < cap : true)
-	       && re->i < re->s->len
-	       && c >= '0' && c <= '7') {
-		if (n < 0) n = 0;
-		n *= 8;
-		n += c - '0';
-		kdgu_next(re->s, &re->i);
-		c = kdgu_decode(re->s, re->i);
-	}
-
-	return (cap > 0 && n > cap) ? kdgu_prev(re->s, &re->i), n / 8 : n;
-}
-
-static int
-parse_dec_num(ktre *re, int cap)
-{
-	int n = dec_num(re, cap);
-	if (n < 0 && !re->err)
-		error(re, KTRE_ERROR_SYNTAX_ERROR,
-		      re->i, "expected a number");
-	return n;
-}
-
-static int
-parse_hex_num(ktre *re, int cap)
-{
-	int n = hex_num(re, cap);
-	if (n < 0 && !re->err)
-		error(re, KTRE_ERROR_SYNTAX_ERROR,
-		      re->i, "expected a number");
-	return n;
-}
-
-static int
-parse_oct_num(ktre *re, int cap)
-{
-	int n = oct_num(re, cap);
-	if (n < 0 && !re->err)
-		error(re, KTRE_ERROR_SYNTAX_ERROR,
-		      re->i, "expected a number");
-	return n;
-}
-
 static struct node *
 parse_mode_modifiers(ktre *re)
 {
@@ -845,7 +758,7 @@ parse_special_group(ktre *re)
 		left = new_node(re);
 		left->type = NODE_CALL;
 		kdgu_prev(re->s, &re->i);
-		left->c = parse_dec_num(re, 0);
+		left->c = kdgu_decimal(re->s, &re->i);
 
 		if (left->c >= 0 && left->c < re->gp)
 			re->group[left->c].is_called = true;
@@ -915,7 +828,7 @@ unicodepoint(ktre *re, kdgu *a)
 				kdgu_next(re->s, &re->i);
 			if (kdgu_chrcmp(re->s, re->i, '}'))
 				break;
-			kdgu_chrappend(a, parse_hex_num(re, 0));
+			kdgu_chrappend(a, kdgu_hexadecimal(re->s, &re->i));
 		} while (is_space(re, kdgu_decode(re->s, re->i)));
 
 		if (!kdgu_chrcmp(re->s, re->i, '}') && !re->err)
@@ -933,7 +846,7 @@ unicodepoint(ktre *re, kdgu *a)
 			}
 		}
 
-		kdgu_chrappend(a, parse_hex_num(re, c == 'x' ? 0xFF : 0xFFFF));
+		kdgu_chrappend(a, kdgu_hexadecimal(re->s, &re->i));
 		kdgu_prev(re->s, &re->i);
 	}
 }
@@ -1123,7 +1036,7 @@ parse_g(ktre *re)
 		if (kdgu_chrcmp(re->s, re->i, '-')) neg = true;
 
 		if (pos || neg) kdgu_next(re->s, &re->i);
-		n = parse_dec_num(re, 0);
+		n = kdgu_decimal(re->s, &re->i);
 
 		if (!kdgu_chrcmp(re->s, re->i, '}') && !re->err) {
 			free_node(left);
@@ -1136,7 +1049,7 @@ parse_g(ktre *re)
 		if (kdgu_chrcmp(re->s, re->i, '-')) neg = true;
 
 		if (pos || neg) kdgu_next(re->s, &re->i);
-		n = parse_dec_num(re, 0);
+		n = kdgu_decimal(re->s, &re->i);
 
 		kdgu_prev(re->s, &re->i);
 	}
@@ -1497,7 +1410,7 @@ primary(ktre *re)
 		bool pos = (kdgu_chrcmp(re->s, re->i, '+'));
 		if (neg || pos) kdgu_next(re->s, &re->i);
 
-		int n = parse_dec_num(re, 0);
+		int n = kdgu_decimal(re->s, &re->i);
 
 		if (neg) n = re->gp - n;
 		if (pos) n = re->gp + n;
@@ -1520,7 +1433,7 @@ primary(ktre *re)
 		}
 
 		kdgu_next(re->s, &re->i);
-		kdgu_chrappend(a, parse_oct_num(re, 0));
+		kdgu_chrappend(a, kdgu_octal(re->s, &re->i));
 
 		if (!kdgu_chrcmp(re->s, re->i, '}') && !re->err) {
 			kdgu_free(a), free_node(left);
@@ -1621,11 +1534,11 @@ factor(ktre *re)
 			n->type = NODE_REP; n->x = -1; n->y = 0;
 
 			kdgu_next(re->s, &re->i);
-			n->x = parse_dec_num(re, 0);
+			n->x = kdgu_decimal(re->s, &re->i);
 
 			if (kdgu_chrcmp(re->s, re->i, ',')) {
 				kdgu_next(re->s, &re->i);
-				n->y = isdigit(kdgu_decode(re->s, re->i)) ? parse_dec_num(re, 0) : -1;
+				n->y = isdigit(kdgu_decode(re->s, re->i)) ? kdgu_decimal(re->s, &re->i) : -1;
 			}
 
 			if (!kdgu_chrcmp(re->s, re->i, '}')) {
@@ -2536,19 +2449,19 @@ execute_instr(ktre *re,
 	case INSTR_CLASS:
 		THREAD[TP].ip++;
 		if (kdgu_contains(re->c[ip].str, c))
-			kdgu_next(subject, &THREAD[TP].sp);
+			rev ? PREV : NEXT;
 		else if (opt & KTRE_INSENSITIVE
 			 && kdgu_contains(re->c[ip].str, lc(c)))
-			kdgu_next(subject, &THREAD[TP].sp);
+			rev ? PREV : NEXT;
 		else FAIL;
 		break;
 	case INSTR_NCLASS:
 		THREAD[TP].ip++;
 		if (!kdgu_contains(re->c[ip].str, c))
-			kdgu_next(subject, &THREAD[TP].sp);
+			rev ? PREV : NEXT;
 		else if (opt & KTRE_INSENSITIVE
 			 && !kdgu_contains(re->c[ip].str, lc(c)))
-			kdgu_next(subject, &THREAD[TP].sp);
+			rev ? PREV : NEXT;
 		else FAIL;
 		break;
 	case INSTR_STR: case INSTR_TSTR:
