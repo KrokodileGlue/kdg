@@ -58,14 +58,14 @@ main(int argc, char **argv)
 	char *text = load_file(argv[argc - 1], &len);
 	if (!text) return EXIT_FAILURE;
 
-	char *a = "(\\w+) (?<=\\1 )foo";
-	char *b = "word foo";
+	char *a = "[[:d:][:lower:][:xdigit:]b]+";
+	char *b = "i love Βίβλος γενέσεως Ἰησοῦ Χριστοῦ 3 lamp i love Βίβλος γενέσεως Ἰησοῦ Χριστοῦ 3 lamp";
 
 	kdgu *c = kdgu_news(a);
 	kdgu *d = kdgu_news(b);
 
-	/* kdgu_convert(c, KDGU_FMT_UTF32); */
-	/* kdgu_convert(d, KDGU_FMT_UTF32); */
+	kdgu_convert(c, KDGU_FMT_UTF32);
+	kdgu_convert(d, KDGU_FMT_UTF32);
 
 	ktre *re = ktre_compile(c, KTRE_UNANCHORED | KTRE_GLOBAL | KTRE_DEBUG);
 	if (!re->err) ktre_exec(re, d, NULL);
