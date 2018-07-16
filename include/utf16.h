@@ -6,8 +6,8 @@
 
 #define READUTF16(X,Y)	  \
 	((X == KDGU_ENDIAN_LITTLE) \
-	 ? (uint8_t)*(Y)   << 8 | (uint8_t)*(Y+1) \
-	 : (uint8_t)*(Y+1) << 8 | (uint8_t)*(Y))
+	 ? ((uint16_t)*(Y+1) << 8) | ((uint16_t)*(Y)) \
+	 : ((uint16_t)*(Y) << 8)   | ((uint16_t)*(Y+1)))
 
 #define UTF16HIGH_SURROGATE(X)	  \
 	((X) >= 0xd800 && (X) <= 0xdbff)

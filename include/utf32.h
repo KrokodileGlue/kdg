@@ -5,11 +5,11 @@
 #include "encoding.h"
 
 #define READUTF32(X,Y)	  \
-	((X == KDGU_ENDIAN_BIG) \
-	 ? (uint8_t)*(Y)   << 24 | (uint8_t)*(Y+1) << 16 \
-	 | (uint8_t)*(Y+2) << 8  | (uint8_t)*(Y+3) \
-	 : (uint8_t)*(Y+3) << 24 | (uint8_t)*(Y+2) << 16 | \
-	 (uint8_t)*(Y+1)   << 8  | (uint8_t)*(Y))
+	((X == KDGU_ENDIAN_LITTLE) \
+	 ? ((uint32_t)*(Y+3) << 24) | ((uint32_t)*(Y+2) << 16) \
+	 | ((uint32_t)*(Y+1) << 8)  | ((uint32_t)*(Y)) \
+	 : ((uint32_t)*(Y)   << 24) | ((uint32_t)*(Y+1) << 16) \
+	 | ((uint32_t)*(Y+2) << 8)  | ((uint32_t)*(Y+3)))
 
 uint8_t *utf32validate(kdgu *k,
                        const uint8_t *s,

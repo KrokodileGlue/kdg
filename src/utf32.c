@@ -67,7 +67,6 @@ utf32validate(kdgu *k, const uint8_t *s, size_t *l, int endian)
 		}
 	}
 
-	k->endian = endian;
 	*l = idx;
 
 	return r;

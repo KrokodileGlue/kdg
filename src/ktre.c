@@ -218,6 +218,7 @@ struct node {
 		NODE_ANY,     /* matches anything                   */
 		NODE_MANY,    /* multiline any                      */
 		NODE_NOT,     /* negated character class            */
+		NODE_AND,
 		NODE_STR,
 		NODE_BACKREF, /* backreference to an existing group */
 		NODE_BOL,
@@ -864,73 +865,82 @@ quickparse(const struct ktre *re, const kdgu *k)
 }
 
 static struct node *
+parse_posix_character_class(struct ktre *re, struct node *left)
+{
+	struct node *right = NULL;
+	kdgu_next(re->s, &re->i), kdgu_next(re->s, &re->i);
+
+	bool neg = kdgu_chrcmp(re->s, re->i, '^');
+	if (neg) kdgu_next(re->s, &re->i);
+
+	unsigned end = re->i;
+
+	while (end < re->s->len
+	       && !kdgu_ncmp(&KDGU(":]"), re->s, 0, end, 2, false))
+		kdgu_next(re->s, &end);
+
+	if (!kdgu_ncmp(&KDGU(":]"), re->s, 0, end, 2, false)) {
+		free_node(left);
+		error(re, KTRE_ERROR_SYNTAX_ERROR,
+		      re->i, "expected ':]'");
+		return NULL;
+	}
+
+	kdgu *substr = kdgu_substr(re->s, re->i, end);
+
+#define POSIX_CLASS(X,Y)	  \
+	if (!right && kdgu_fuzzy(&KDGU(X), substr)) \
+		right = quickparse(re, &KDGU(Y))
+	POSIX_CLASS("alnum",  "[A-Za-z0-9]");
+	POSIX_CLASS("alpha",  "[A-Za-z]");
+	POSIX_CLASS("ascii",  "[\\x00-\\x7F]");
+	POSIX_CLASS("blank",  "[ \t]");
+	POSIX_CLASS("cntrl",  "[\\x00-\\x1F\x7F]");
+	POSIX_CLASS("digit",  "[0-9]");
+	POSIX_CLASS("graph",  "[^[:cntrl:]]");
+	POSIX_CLASS("lower",  "[a-z]");
+	POSIX_CLASS("print",  "[[:graph:] ]");
+	POSIX_CLASS("punct",  "[-!\"#$%&'()*+,./:;<=>?@[]");
+	POSIX_CLASS("space",  "[ \t\n\r\f\v]");
+	POSIX_CLASS("upper",  "[A-Z]");
+	POSIX_CLASS("word",   "[A-Za-z0-9_]");
+	POSIX_CLASS("xdigit", "[0-9A-Fa-f]");
+	POSIX_CLASS("d",      "[0-9]");
+	POSIX_CLASS("s",      "[ \t\n\r\f\v]");
+	POSIX_CLASS("w",      "[A-Za-z0-9_]");
+	POSIX_CLASS("l",      "[a-z]");
+	POSIX_CLASS("u",      "[A-Z]");
+	POSIX_CLASS("h",      "[ \t]");
+	POSIX_CLASS("v",      "[\xa-\xd\x85\\x2028\\x2029]");
+	if (!right) right = parse_property_class(re, substr);
+	kdgu_free(substr);
+
+	if (neg) {
+		struct node *tmp = new_node(re);
+
+		if (!tmp) {
+			free_node(left);
+			return NULL;
+		}
+
+		tmp->type = NODE_NOT;
+		tmp->a = right;
+		right = tmp;
+	}
+
+	re->i = end;
+	kdgu_next(re->s, &re->i), kdgu_next(re->s, &re->i);
+
+	return right;
+}
+
+static struct node *
 parse_character_class_character(struct ktre *re, struct node *left)
 {
 	struct node *right = NULL;
 
 	if (kdgu_ncmp(&KDGU("[:"), re->s, 0, re->i, 2, false)) {
-		kdgu_next(re->s, &re->i), kdgu_next(re->s, &re->i);
-
-		bool neg = kdgu_chrcmp(re->s, re->i, '^');
-		if (neg) kdgu_next(re->s, &re->i);
-
-		unsigned end = re->i;
-
-		while (end < re->s->len
-		       && !kdgu_ncmp(&KDGU(":]"), re->s, 0, end, 2, false))
-			kdgu_next(re->s, &end);
-
-		if (!kdgu_ncmp(&KDGU(":]"), re->s, 0, end, 2, false)) {
-			free_node(left);
-			error(re, KTRE_ERROR_SYNTAX_ERROR,
-			      re->i, "expected ':]'");
-			return NULL;
-		}
-
-		kdgu *substr = kdgu_substr(re->s, re->i, end);
-
-#define POSIX_CLASS(X,Y)\
-		if (!right && kdgu_fuzzy(&KDGU(X), substr))\
-			right = quickparse(re, &KDGU(Y))
-		POSIX_CLASS("alnum",  "[A-Za-z0-9]");
-		POSIX_CLASS("alpha",  "[A-Za-z]");
-		POSIX_CLASS("ascii",  "[\\x00-\\x7F]");
-		POSIX_CLASS("blank",  "[ \t]");
-		POSIX_CLASS("cntrl",  "[\\x00-\\x1F\x7F]");
-		POSIX_CLASS("digit",  "[0-9]");
-		POSIX_CLASS("graph",  "[^[:cntrl:]]");
-		POSIX_CLASS("lower",  "[a-z]");
-		POSIX_CLASS("print",  "[[:graph:] ]");
-		POSIX_CLASS("punct",  "[-!\"#$%&'()*+,./:;<=>?@[]");
-		POSIX_CLASS("space",  "[ \t\n\r\f\v]");
-		POSIX_CLASS("upper",  "[A-Z]");
-		POSIX_CLASS("word",   "[A-Za-z0-9_]");
-		POSIX_CLASS("xdigit", "[0-9A-Fa-f]");
-		POSIX_CLASS("d",      "[0-9]");
-		POSIX_CLASS("s",      "[ \t\n\r\f\v]");
-		POSIX_CLASS("w",      "[A-Za-z0-9_]");
-		POSIX_CLASS("l",      "[a-z]");
-		POSIX_CLASS("u",      "[A-Z]");
-		POSIX_CLASS("h",      "[ \t]");
-		POSIX_CLASS("v",      "[\xa-\xd\x85\\x2028\\x2029]");
-		if (!right) right = parse_property_class(re, substr);
-		kdgu_free(substr);
-
-		if (neg) {
-			struct node *tmp = new_node(re);
-
-			if (!tmp) {
-				free_node(left);
-				return NULL;
-			}
-
-			tmp->type = NODE_NOT;
-			tmp->a = right;
-			right = tmp;
-		}
-
-		re->i = end;
-		kdgu_next(re->s, &re->i), kdgu_next(re->s, &re->i);
+		right = parse_posix_character_class(re, left);
 	} else if (kdgu_chrcmp(re->s, re->i, '\\')) {
 		right = primary(re);
 	} else {
@@ -950,11 +960,17 @@ parse_character_class_character(struct ktre *re, struct node *left)
 	} else if (kdgu_chrcmp(re->s, re->i, '-')) {
 		/* Skip over the `-`. */
 		kdgu_next(re->s, &re->i);
-		struct node *end = primary(re);
 
-		if (right->type == NODE_STR && end->type == NODE_STR
+		bool lit = re->literal;
+		re->literal = true;
+		struct node *end = primary(re);
+		re->literal = lit;
+
+		if (right->type == NODE_STR
+		    && end->type == NODE_STR
 		    && (kdgu_len(right->str) == kdgu_len(end->str)) == 1
-		    && kdgu_chrbound(right->str, 0) && kdgu_chrbound(end->str, 0)) {
+		    && kdgu_chrbound(right->str, 0)
+		    && kdgu_chrbound(end->str, 0)) {
 			struct node *tmp = new_node(re);
 
 			if (!tmp) {
@@ -967,8 +983,38 @@ parse_character_class_character(struct ktre *re, struct node *left)
 			tmp->y = kdgu_decode(end->str, 0);
 			right = tmp;
 		} else {
-			assert(false);
+			/* TODO: Character class subtraction. */
+			exit(0);
 		}
+	} else if (kdgu_ncmp(&KDGU("&&"), re->s, 0, re->i, 2, false)) {
+		kdgu_next(re->s, &re->i), kdgu_next(re->s, &re->i);
+		struct node *end = NULL;
+
+		if (kdgu_ncmp(&KDGU("[:"), re->s, 0, re->i, 2, false)) {
+			end = parse_posix_character_class(re, left);
+		} else {
+			bool lit = re->literal;
+			re->literal = true;
+			end = primary(re);
+			re->literal = lit;
+		}
+
+		if (!end) {
+			free_node(left), free_node(right);
+			return NULL;
+		}
+
+		struct node *tmp = new_node(re);
+
+		if (!tmp) {
+			free_node(left), free_node(end), free_node(right);
+			return NULL;
+		}
+
+		tmp->type = NODE_AND;
+		tmp->a = right;
+		tmp->b = end;
+		right = tmp;
 	}
 
 	if (!left) left = right;
@@ -1708,6 +1754,7 @@ print_node(const ktre *re, struct node *n)
 	case NODE_SETOPT:    N0("(setopt %d)", n->c);                         break;
 	case NODE_CALL:      N0("(call %d)", n->c);                           break;
 	case NODE_SEQUENCE:  N2("(sequence)");                                break;
+	case NODE_AND:       N2("(and)");                                     break;
 	case NODE_OR:        N2("(or)");                                      break;
 	case NODE_REP:       N1("(counted repetition %d - %d)", n->x, n->y);  break;
 	case NODE_ASTERISK:  N1("(asterisk)");                                break;
@@ -2051,6 +2098,18 @@ compile(ktre *re, struct node *n, bool rev)
 		emit(re, INSTR_MANY, n->loc);
 		break;
 
+	case NODE_AND:
+		emit(re, INSTR_PLA, n->loc);
+		emit(re, INSTR_PLA, n->loc);
+		compile(re, n->a, rev);
+		emit(re, INSTR_PLA_WIN, n->loc);
+		emit(re, INSTR_PLA, n->loc);
+		compile(re, n->b, rev);
+		emit(re, INSTR_PLA_WIN, n->loc);
+		emit(re, INSTR_PLA_WIN, n->loc);
+		emit(re, INSTR_MANY, n->loc);
+		break;
+
 	case NODE_STR:        emit_str(re, INSTR_STR,    n->str, n->loc); break;
 	case NODE_CLASS:      emit_str(re, INSTR_CLASS,  n->str, n->loc); break;
 	case NODE_NCLASS:     emit_str(re, INSTR_NCLASS, n->str, n->loc); break;
@@ -2088,7 +2147,7 @@ print_compile_error(ktre *re)
 	DBG("\nfailed to compile with error code %d: %s\n",
 	    re->err, re->err_str ? re->err_str : "no error message");
 	DBG("\t"), kdgu_print(re->s, stderr), DBG("\n\t");
-	for (int i = 0; i < re->loc; i++)
+	for (unsigned i = 0; i < (unsigned)re->loc; kdgu_next(re->s, &i))
 		DBG(kdgu_decode(re->s, i) == '\t' ? "\t" : " ");
 	DBG("^\n");
 }
@@ -2195,6 +2254,26 @@ optimize_or(const struct ktre *re, struct node *n)
 		free(n);
 		n->a->type = NODE_NCLASS;
 		return n->a;
+	}
+
+	if (n->type == NODE_AND
+	    && n->a->type == NODE_CLASS
+	    && n->b->type == NODE_CLASS) {
+		struct node *tmp = new_node(re);
+		if (!tmp) return n;
+		tmp->type = NODE_CLASS;
+		tmp->str = kdgu_new(re->s->fmt, NULL, 0);
+
+		for (unsigned i = 0;
+		     i < n->b->str->len;
+		     kdgu_inc(n->b->str, &i)) {
+			uint32_t c = kdgu_decode(n->b->str, i);
+			if (kdgu_contains(n->a->str, c))
+				kdgu_chrappend(tmp->str, c);
+		}
+
+		free_node(n);
+		return tmp;
 	}
 
 	return n;

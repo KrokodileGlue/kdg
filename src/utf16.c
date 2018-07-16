@@ -12,9 +12,9 @@ utf16encode(uint32_t c, uint8_t *buf, unsigned *len,
 	struct error err = ERR(ERR_NO_ERROR, idx);
 	*len = 2;
 
-	if (endian == KDGU_ENDIAN_BIG) {
-		buf[1] = (c >> 8) & 0xFF;
+	if (endian == KDGU_ENDIAN_LITTLE) {
 		buf[0] = c & 0xFF;
+		buf[1] = (c >> 8) & 0xFF;
 	} else {
 		buf[0] = (c >> 8) & 0xFF;
 		buf[1] = c & 0xFF;
@@ -26,17 +26,19 @@ utf16encode(uint32_t c, uint8_t *buf, unsigned *len,
 	c -= 0x10000;
 	uint16_t high = (c >> 10) + 0xD800;
 	uint16_t low = (c & 0x3FF) + 0xDC00;
-	if (UTF16HIGH_SURROGATE(high)) *len = 4;
-	if (endian == KDGU_ENDIAN_BIG) {
-		buf[0] = (high >> 8) & 0xFF;
-		buf[1] = high & 0xFF;
-		buf[2] = (low >> 8) & 0xFF;
-		buf[3] = low & 0xFF;
-	} else {
-		buf[1] = (high >> 8) & 0xFF;
-		buf[0] = high & 0xFF;
-		buf[3] = (low >> 8) & 0xFF;
-		buf[2] = low & 0xFF;
+	if (UTF16HIGH_SURROGATE(high)) {
+		*len = 4;
+		if (endian == KDGU_ENDIAN_LITTLE) {
+			buf[0] = low & 0xFF;
+			buf[1] = (low >> 8) & 0xFF;
+			buf[2] = high & 0xFF;
+			buf[3] = (high >> 8) & 0xFF;
+		} else {
+			buf[0] = (high >> 8) & 0xFF;
+			buf[1] = high & 0xFF;
+			buf[2] = (low >> 8) & 0xFF;
+			buf[3] = low & 0xFF;
+		}
 	}
 
 	return err;
@@ -57,7 +59,14 @@ utf16validatechar(const uint8_t *s, uint8_t *r, unsigned *i,
 
 	/* It's not in the surrogate pair range. */
 	if (!UTF16HIGH_SURROGATE(c)) {
-		memcpy(r + *idx, &c, sizeof c);
+		if (endian == KDGU_ENDIAN_LITTLE) {
+			r[*idx]     = c & 0xFF;
+			r[*idx + 1] = (c & 0xFF00) >> 8;
+		} else {
+			r[*idx + 1] = c & 0xFF;
+			r[*idx]     = (c & 0xFF00) >> 8;
+		}
+
 		*idx += 2;
 		*i += 2;
 		return err;
@@ -75,8 +84,17 @@ utf16validatechar(const uint8_t *s, uint8_t *r, unsigned *i,
 		return ERR(ERR_UTF16_MISSING_SURROGATE, *i);
 	}
 
-	memcpy(r + *idx, &c, sizeof c);
-	memcpy(r + *idx + 2, &c2, sizeof c2);
+	if (endian == KDGU_ENDIAN_LITTLE) {
+		r[*idx]     = c & 0xFF;
+		r[*idx + 1] = (c & 0xFF00) >> 8;
+		r[*idx + 2] = c2 & 0xFF;
+		r[*idx + 3] = (c2 & 0xFF00) >> 8;
+	} else {
+		r[*idx + 3] = c & 0xFF;
+		r[*idx + 2] = (c & 0xFF00) >> 8;
+		r[*idx + 1] = c2 & 0xFF;
+		r[*idx + 0] = (c2 & 0xFF00) >> 8;
+	}
 
 	*idx += 4;
 

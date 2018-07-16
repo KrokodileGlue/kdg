@@ -9,6 +9,12 @@
 
 /* TODO: Make it so the things accept NULL/0 sometimes. */
 
+enum endian {
+	KDGU_ENDIAN_NONE,
+	KDGU_ENDIAN_BIG,
+	KDGU_ENDIAN_LITTLE
+};
+
 typedef struct kdgu {
 	unsigned alloc, len;
 	uint8_t *s;
@@ -41,13 +47,11 @@ typedef struct kdgu {
 		KDGU_FMT_UTF32LE,
 		KDGU_FMT_UTF32BE
 	} fmt;
-
-	enum endian {
-		KDGU_ENDIAN_NONE,
-		KDGU_ENDIAN_BIG,
-		KDGU_ENDIAN_LITTLE
-	} endian;
 } kdgu;
+
+#define GETENDIAN(X)	  \
+	((X) == KDGU_FMT_UTF32LE || (X) == KDGU_FMT_UTF16LE \
+	 ? KDGU_ENDIAN_LITTLE : KDGU_ENDIAN_BIG)
 
 kdgu *kdgu_new(enum fmt fmt, const uint8_t *s, size_t len);
 kdgu *kdgu_news(const char *s);
@@ -118,6 +122,6 @@ const char *kdgu_getscriptname(enum script script);
 #include "ktre.h"
 
 #define KDGU(X)							\
-	(struct kdgu){0,strlen(X),(uint8_t *)X,NULL,KDGU_NORM_NFC,KDGU_FMT_UTF8,KDGU_ENDIAN_NONE}
+	(struct kdgu){0,strlen(X),(uint8_t *)X,NULL,KDGU_NORM_NFC,KDGU_FMT_UTF8}
 
 #endif /* ifndef KDGU_H */
