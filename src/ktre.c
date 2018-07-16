@@ -979,19 +979,19 @@ parse_character_class_character(struct ktre *re, struct node *left)
 #define POSIX_CLASS(X,Y)\
 		if (!right && kdgu_fuzzy(&KDGU(X), substr))\
 			right = quickparse(re, &KDGU(Y))
-		POSIX_CLASS("alnum", "[A-Za-z0-9]");
-		POSIX_CLASS("alpha", "[A-Za-z]");
-		POSIX_CLASS("ascii", "[\\x00-\\x7F]");
-		POSIX_CLASS("blank", "[ \\t]");
-		POSIX_CLASS("cntrl", "[\\x00-\\x1F\\x7F]");
-		POSIX_CLASS("digit", "[0-9]");
-		POSIX_CLASS("graph", "[^[:cntrl:]]");
-		POSIX_CLASS("lower", "[a-z]");
-		POSIX_CLASS("print", "[[:graph]");
-		POSIX_CLASS("punct", "[-!\"#$%&'()*+,./:;<=>?@[]");
-		POSIX_CLASS("space", "[ \\t\\n\\r\\f\\v]");
-		POSIX_CLASS("upper", "[A-Z]");
-		POSIX_CLASS("word", "[A-Za-z0-9_]");
+		POSIX_CLASS("alnum",  "[A-Za-z0-9]");
+		POSIX_CLASS("alpha",  "[A-Za-z]");
+		POSIX_CLASS("ascii",  "[\\x00-\\x7F]");
+		POSIX_CLASS("blank",  "[ \\t]");
+		POSIX_CLASS("cntrl",  "[\\x00-\\x1F\\x7F]");
+		POSIX_CLASS("digit",  "[0-9]");
+		POSIX_CLASS("graph",  "[^[:cntrl:]]");
+		POSIX_CLASS("lower",  "[a-z]");
+		POSIX_CLASS("print",  "[[:graph] ]");
+		POSIX_CLASS("punct",  "[-!\"#$%&'()*+,./:;<=>?@[]");
+		POSIX_CLASS("space",  "[ \\t\\n\\r\\f\\v]");
+		POSIX_CLASS("upper",  "[A-Z]");
+		POSIX_CLASS("word",   "[A-Za-z0-9_]");
 		POSIX_CLASS("xdigit", "[0-9A-Fa-f]");
 		if (!right) right = parse_property_class(re, substr);
 		kdgu_free(substr);
