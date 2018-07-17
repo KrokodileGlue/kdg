@@ -1,11 +1,12 @@
 #!/usr/bin/env perl
 # SPDX-License-Identifier: MIT
 
-# This script generates `unicode_data.c' from the following Unicode
-# Character Database files:
+# This script generates `unicode_data.c' from the following files in
+# the Unicode Character Database:
 #
 #     - UnicodeData.txt
 #     - NameAliases.txt
+#     - NamedSequences.txt
 #     - Scripts.txt
 #     - SpecialCasing.txt
 #     - CompositionExclusions.txt

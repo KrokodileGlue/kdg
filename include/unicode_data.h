@@ -281,6 +281,12 @@ struct name_alias {
 	char **name;
 };
 
+struct named_sequence {
+	int num;
+	uint32_t *c;
+	char *name;
+};
+
 /* General category data from `PropertyValueAliases.txt`. */
 struct category_alias {
 	char *a, *b, *c;
@@ -288,9 +294,12 @@ struct category_alias {
 };
 
 extern const struct codepoint codepoints[];
+
 extern const struct name names[];
 extern const struct name_alias name_aliases[];
 extern const struct category_alias category_aliases[];
+extern const struct named_sequence named_sequences[];
+
 extern const uint16_t stage1[];
 extern const uint16_t stage2[];
 extern const uint16_t sequences[];

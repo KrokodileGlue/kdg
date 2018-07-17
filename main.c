@@ -58,11 +58,14 @@ main(int argc, char **argv)
 	char *text = load_file(argv[argc - 1], &len);
 	if (!text) return EXIT_FAILURE;
 
-	char *a = "(?'fuck'\\w+) \\k<fuck>";
-	char *b = "foo foo";
+	char *a = "[+-]?(\\d+(\\.\\d+)?|\\.\\d+)([eE][+-]?\\d+)?";
+	char *b = "-123.4e-56";
 
 	kdgu *c = kdgu_news(a);
 	kdgu *d = kdgu_news(b);
+
+	kdgu_convert(c, KDGU_FMT_UTF16LE);
+	kdgu_convert(d, KDGU_FMT_UTF32);
 
 	ktre *re = ktre_compile(c, KTRE_UNANCHORED | KTRE_GLOBAL | KTRE_DEBUG);
 	if (!re->err) ktre_exec(re, d, NULL);
