@@ -23,7 +23,8 @@ enum {
 	KTRE_MULTILINE   = 1 << 4,
 	KTRE_CONTINUE    = 1 << 5,
 	KTRE_DEBUG       = 1 << 6,
-	KTRE_ECMA        = 1 << 7
+	KTRE_ECMA        = 1 << 7,
+	KTRE_DUMB        = 1 << 8
 };
 
 /* Compile-time settings. */

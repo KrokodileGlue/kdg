@@ -15,14 +15,6 @@
 static void print_node(const ktre *re, struct node *n);
 static void error(ktre *re, enum ktre_error err, int loc, const char *fmt, ...);
 
-static inline bool
-is_hex_digit(uint32_t c)
-{
-	return (c >= 'A' && c <= 'F')
-		|| (c >= 'a' && c <= 'f')
-		|| (c >= '0' && c <= '9');
-}
-
 static void
 dbgf(const ktre *re, const kdgu *str, unsigned idx)
 {
@@ -34,6 +26,12 @@ dbgf(const ktre *re, const kdgu *str, unsigned idx)
 
 	for (unsigned i = idx; i < str->len; kdgu_inc(str, &i)) {
 		uint32_t c = kdgu_decode(str, i);
+
+		if (c < 32 || c == 0x7F) {
+			fprintf(stderr, "\\U%04"PRIX32, c);
+			continue;
+		}
+
 		if ((!kdgu_whitespace(str, i) && c != '\\') || c == ' ') {
 			kdgu_pchr(str, i, stderr);
 			continue;
@@ -295,7 +293,7 @@ free_node(struct node *n)
 	case NODE_QUESTION: case NODE_REP:   case NODE_ASTERISK:
 	case NODE_PLUS:     case NODE_GROUP: case NODE_ATOM:
 	case NODE_PLA:      case NODE_NLA:   case NODE_PLB:
-	case NODE_NLB:
+	case NODE_NLB:      case NODE_NOT:
 		free_node(n->a);
 		break;
 	case NODE_STR: case NODE_CLASS: case NODE_NCLASS:
@@ -402,7 +400,7 @@ copy_node(const ktre *re, struct node *n)
 	case NODE_QUESTION: case NODE_REP:   case NODE_ASTERISK:
 	case NODE_PLUS:     case NODE_GROUP: case NODE_ATOM:
 	case NODE_PLA:      case NODE_NLA:   case NODE_PLB:
-	case NODE_NLB:
+	case NODE_NLB:      case NODE_NOT:
 		r->a = copy_node(re, n->a);
 		break;
 	case NODE_STR: case NODE_CLASS: case NODE_NCLASS:
@@ -809,7 +807,7 @@ static struct node *parse_property_class(struct ktre *re, const kdgu *k);
 static struct node *
 quickparse(const struct ktre *re, const kdgu *k)
 {
-	struct ktre *r = ktre_compile(k, re->opt & ~KTRE_DEBUG);
+	struct ktre *r = ktre_compile(k, (re->opt & ~KTRE_DEBUG) | KTRE_DUMB);
 	struct node *n = copy_node(re, r->n->a);
 	ktre_free(r);
 	return n;
@@ -1752,7 +1750,7 @@ print_node(const ktre *re, struct node *n)
 	} break;
 
 	case NODE_RANGE:
-		N0("(character range U+%04"PRIX32" - U+%04"PRIX32")", n->x, n->y);
+		N0("(range U+%04"PRIX32" - U+%04"PRIX32")", n->x, n->y);
 		break;
 
 	case NODE_SCRIPT:
@@ -2149,12 +2147,17 @@ print_finish(ktre *re,
 		}
 	}
 
-	if (replaced) DBG("\nreplace: `"), kdgu_print(replaced, stderr), fputc('`', stderr);
+	if (replaced) {
+		DBG("\nreplace: `");
+		kdgu_print(replaced, stderr);
+		fputc('`', stderr);
+	}
+
 	DBG("\n");
 }
 
 static struct node *
-optimize_or(const struct ktre *re, struct node *n)
+optimize_node(const struct ktre *re, struct node *n)
 {
 	if (!n) return n;
 
@@ -2171,14 +2174,14 @@ optimize_or(const struct ktre *re, struct node *n)
 
 	switch (n->type) {
 	case NODE_SEQUENCE: case NODE_OR:
-		n->a = optimize_or(re, n->a);
-		n->b = optimize_or(re, n->b);
+		n->a = optimize_node(re, n->a);
+		n->b = optimize_node(re, n->b);
 		break;
 	case NODE_QUESTION: case NODE_REP:   case NODE_ASTERISK:
 	case NODE_PLUS:     case NODE_GROUP: case NODE_ATOM:
 	case NODE_PLA:      case NODE_NLA:   case NODE_PLB:
-	case NODE_NLB:
-		n->a = optimize_or(re, n->a);
+	case NODE_NLB:      case NODE_NOT:
+		n->a = optimize_node(re, n->a);
 		break;
 	default:;
 	}
@@ -2319,7 +2322,12 @@ ktre_compile(const kdgu *pat, int opt)
 		return re;
 	}
 
-	re->n = optimize_or(re, re->n);
+	if ((re->opt & KTRE_DUMB) == 0) {
+		print_node(re, re->n);
+		DBG("\noptimal:\n");
+		re->n = optimize_node(re, re->n);
+	}
+
 	print_node(re, re->n);
 
 	if (re->opt & KTRE_UNANCHORED) {
