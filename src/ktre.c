@@ -84,6 +84,7 @@ struct instr {
 		INSTR_NCLASS,
 		INSTR_TSTR,
 		INSTR_STR,
+		INSTR_ALT,
 		INSTR_NOT,
 		INSTR_BACKREF,
 		INSTR_BOL,
@@ -128,6 +129,10 @@ struct instr {
 		};
 		uint32_t c;
 		kdgu *str;
+		struct {        /* Alternation. */
+			unsigned num;
+			kdgu **list;
+		};
 	};
 
 	int loc;
@@ -188,6 +193,20 @@ emit_str(ktre *re, int instr, kdgu *str, int loc)
 
 	re->c[re->ip].op = instr;
 	re->c[re->ip].str = str;
+	re->c[re->ip].loc = loc;
+
+	re->ip++;
+}
+
+static void
+emit_alt(ktre *re, int instr, kdgu **list, unsigned num, int loc)
+{
+	grow_code(re, 1);
+	if (!re->c) return;
+
+	re->c[re->ip].op = instr;
+	re->c[re->ip].list = list;
+	re->c[re->ip].num = num;
 	re->c[re->ip].loc = loc;
 
 	re->ip++;
@@ -263,7 +282,9 @@ struct node {
 		NODE_CLASS,
 		NODE_NCLASS,
 		NODE_CATEGORY,
-		NODE_SCRIPT
+		NODE_SCRIPT,
+
+		NODE_ALT
 	} type;
 
 	struct node *a, *b;
@@ -274,6 +295,10 @@ struct node {
 			int32_t x, y;
 		};
 		kdgu *str;
+		struct {        /* Alternation. */
+			unsigned num;
+			kdgu **list;
+		};
 	};
 
 	int gi; /* Group index. */
@@ -298,6 +323,11 @@ free_node(struct node *n)
 		break;
 	case NODE_STR: case NODE_CLASS: case NODE_NCLASS:
 		kdgu_free(n->str);
+		break;
+	case NODE_ALT:
+		for (unsigned i = 0; i < n->num; i++)
+			kdgu_free(n->list[i]);
+		free(n->list);
 		break;
 	default: break;
 	}
@@ -936,6 +966,8 @@ parse_character_class_character(struct ktre *re, struct node *left)
 			tmp->type = NODE_RANGE;
 			tmp->x = kdgu_decode(right->str, 0);
 			tmp->y = kdgu_decode(end->str, 0);
+
+			free_node(right), free_node(end);
 			right = tmp;
 		} else {
 			/* TODO: Character class subtraction. */
@@ -1747,6 +1779,29 @@ print_node(const ktre *re, struct node *n)
 		DBG(")");
 	} break;
 
+	case NODE_ALT: {
+		bool first = true;
+		for (unsigned i = 0; i < n->num; i++) {
+			kdgu *str = n->list[i];
+
+			if (first) {
+				DBG("(alternation '");
+				kdgu_print(str, stderr);
+				DBG("'");
+				first = false;
+				continue;
+			}
+
+			DBG("\n");
+			for (int j = 0; j < l; j++)
+				arm[j] ? DBG("|   ") : DBG("    ");
+			DBG("             '");
+			kdgu_print(str, stderr);
+			DBG("'");
+		}
+		DBG(")");
+	} break;
+
 	case NODE_RANGE:
 		N0("(range U+%04"PRIX32" - U+%04"PRIX32")", n->x, n->y);
 		break;
@@ -1812,6 +1867,15 @@ print_instruction(ktre *re, struct instr instr)
 	case INSTR_RANGE:
 		DBG("RANGE    U+%04"PRIX32", U+%04"PRIX32, instr.a, instr.b);
 		break;
+
+	case INSTR_ALT: {
+		DBG("ALT      ");
+
+		for (unsigned i = 0; i < instr.num; i++) {
+			kdgu_print(instr.list[i], stderr);
+			if (i < instr.num - 1) DBG("|");
+		}
+	} break;
 
 	default:
 		DBG("\nunimplemented instruction printer %d\n", instr.op);
@@ -2064,6 +2128,7 @@ compile(ktre *re, struct node *n, bool rev)
 		emit(re, INSTR_MANY, n->loc);
 		break;
 
+	case NODE_ALT:  emit_alt(re, INSTR_ALT, n->list, n->num, n->loc); break;
 	case NODE_STR:        emit_str(re, INSTR_STR,    n->str, n->loc); break;
 	case NODE_CLASS:      emit_str(re, INSTR_CLASS,  n->str, n->loc); break;
 	case NODE_NCLASS:     emit_str(re, INSTR_NCLASS, n->str, n->loc); break;
@@ -2230,6 +2295,40 @@ optimize_node(const struct ktre *re, struct node *n)
 			if (kdgu_contains(n->a->str, c))
 				kdgu_chrappend(tmp->str, c);
 		}
+
+		free_node(n);
+		return tmp;
+	}
+
+	if (n->type == NODE_OR
+	    && n->a->type == NODE_STR
+	    && n->b->type == NODE_STR) {
+		struct node *tmp = new_node(re);
+		if (!tmp) return n;
+		tmp->type = NODE_ALT;
+		tmp->list = malloc(2 * sizeof *tmp->list);
+
+		tmp->list[0] = kdgu_copy(n->a->str);
+		tmp->list[1] = kdgu_copy(n->b->str);
+		tmp->num = 2;
+
+		free_node(n);
+		return tmp;
+	}
+
+	if (n->type == NODE_OR
+	    && (n->a->type == NODE_STR || n->a->type == NODE_CLASS)
+	    && n->b->type == NODE_ALT) {
+		struct node *tmp = new_node(re);
+		if (!tmp) return n;
+
+		tmp->type = NODE_ALT;
+		tmp->list = malloc((n->b->num + 1) * sizeof *tmp->list);
+		tmp->num = n->b->num + 1;
+
+		for (unsigned i = 0; i < n->b->num; i++)
+			tmp->list[i] = kdgu_copy(n->b->list[i]);
+		tmp->list[n->b->num] = kdgu_copy(n->a->str);
 
 		free_node(n);
 		return tmp;
@@ -2531,6 +2630,27 @@ execute_instr(ktre *re,
 				? -(int)re->c[ip].str->len
 				: (int)re->c[ip].str->len;
 		else FAIL;
+		break;
+	case INSTR_ALT:
+		THREAD[TP].ip++;
+
+		for (unsigned i = 0; i < re->c[ip].num; i++) {
+			kdgu *str = re->c[ip].list[i];
+
+			if (kdgu_ncmp(subject,
+				      str,
+				      sp,
+				      rev ? str->len - 1 : 0,
+				      rev ? -str->len : str->len,
+				      re->opt & KTRE_INSENSITIVE)) {
+				THREAD[TP].sp += rev
+					? -(int)str->len
+					: (int)str->len;
+				return true;
+			}
+		}
+
+		FAIL;
 		break;
 	case INSTR_NOT:
 		THREAD[TP].ip++;
@@ -2916,7 +3036,7 @@ smartcopy(kdgu *dest,
 	  const kdgu *src,
 	  unsigned j,
 	  unsigned n,
-          bool u, bool uch, bool l, bool lch)
+	  bool u, bool uch, bool l, bool lch)
 {
 	for (unsigned i = j; i < j + n; kdgu_next(src, &i)) {
 		kdgu *chr = kdgu_getchr(src, i);
@@ -2987,7 +3107,7 @@ ktre_filter(ktre *re,
 				smartcopy(match,
 					  subject,
 					  vec[i][n * 2],
-				          vec[i][n * 2 + 1],
+					  vec[i][n * 2 + 1],
 					  u, uch, l, lch);
 
 				uch = lch = false;
