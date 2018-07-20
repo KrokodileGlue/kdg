@@ -920,9 +920,6 @@ parse_character_class_character(struct ktre *re, struct node *left)
 			re->literal = lit;
 		}
 
-		print_node(re, right);
-		print_node(re, end);
-
 		if (right->type == NODE_STR
 		    && end->type == NODE_STR
 		    && kdgu_len(right->str) == 1
@@ -1658,8 +1655,8 @@ print_node(const ktre *re, struct node *n)
 	depth++, (depth != 1 && DBG("\n")), arm[l] = 0;
 
 	for (int i = 0; i < l - 1; i++)
-		arm[i] ?    DBG("|   ") : DBG("    ");
-	if (l) arm[l - 1] ? DBG("|-- ") : DBG("`-- ");
+		arm[i] ?    DBG("│   ") : DBG("    ");
+	if (l) arm[l - 1] ? DBG("├───") : DBG("╰───");
 	if (!n) { DBG("(null)"); return; }
 
 #define N0(...)					\
@@ -1689,7 +1686,7 @@ print_node(const ktre *re, struct node *n)
 
 	switch (n->type) {
 	case NODE_ANY:       N0("(any)");                                     break;
-	case NODE_MANY:      N0("(m_any)");                                   break;
+	case NODE_MANY:      N0("(multiline any)");                           break;
 	case NODE_DIGIT:     N0("(digit)");                                   break;
 	case NODE_WORD:      N0("(word)");                                    break;
 	case NODE_SPACE:     N0("(space)");                                   break;
@@ -1723,8 +1720,9 @@ print_node(const ktre *re, struct node *n)
 	case NODE_NLB:       N1("(negative lookbehind)");                     break;
 	case NODE_GROUP:
 		if (re->group[n->gi].name) {
+			DBG("(group '");
 			dbgf(re, re->group[n->gi].name, 0);
-			DBG(" %d", n->loc);
+			DBG("') %d", n->loc);
 			l++; print_node(re, n->a); l--;
 		} else N1("(group %d)", n->gi);
 		break;
@@ -2352,10 +2350,15 @@ ktre_compile(const kdgu *pat, int opt)
 	if ((opt & KTRE_DEBUG) == 0) return re;
 
 	for (int i = 0; i < re->ip; i++) {
-		for (int j = 0; j < re->num_groups; j++)
-			if (re->group[j].address == i)
-				DBG("\ngroup %d:", j);
-		DBG("\n%3d: [%3d] ", i, re->c[i].loc);
+		DBG("\n%3d. [%4d] ", i, re->c[i].loc);
+
+		if (re->c[i].op == INSTR_SAVE && re->c[i].a % 2 == 0)
+			DBG("<%2d> ", re->c[i].a / 2);
+		else if (re->c[i].op == INSTR_SAVE && re->c[i].a % 2 != 0)
+			DBG("</%d> ", (re->c[i].a - 1) / 2);
+		else
+			DBG("     ");
+
 		print_instruction(re, re->c[i]);
 	}
 
