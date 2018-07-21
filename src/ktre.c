@@ -438,7 +438,6 @@ copy_node(const ktre *re, struct node *n)
 		break;
 	case NODE_ALT:
 		r->list = malloc(n->num * sizeof *n->list);
-		if (!r->list) return free(r), NULL;
 		for (unsigned i = 0; i < n->num; i++)
 			r->list[i] = kdgu_copy(n->list[i]);
 		break;
@@ -1875,18 +1874,111 @@ print_instruction(ktre *re, struct instr instr)
 		break;
 
 	case INSTR_ALT: {
-		DBG("ALT      ");
+		DBG("ALT     '");
 
 		for (unsigned i = 0; i < instr.num; i++) {
 			kdgu_print(instr.list[i], stderr);
 			if (i < instr.num - 1) DBG("|");
 		}
+
+		DBG("'");
 	} break;
 
 	default:
 		DBG("\nunimplemented instruction printer %d\n", instr.op);
 		assert(false);
 	}
+}
+
+static void
+print_instructions(ktre *re)
+{
+	char jmp[re->ip][50];
+	unsigned size = 0;
+
+	for (int i = 0; i < re->ip; i++)
+		for (unsigned j = 0; j < 50; j++)
+			jmp[i][j] = 0;
+
+	/*
+	 * Go through the instructions and fill out a branch marking
+	 * the target of each jump instruction.
+	 */
+	for (int i = 0; i < re->ip; i++) {
+		if (re->c[i].op != INSTR_JMP) continue;
+		int depth = -1;
+
+		for (unsigned j = 0; j < size && depth == -1; j++){
+			bool ok = true;
+			for (unsigned k = i; k <= re->c[i].c; k++)
+				if (jmp[k][j] != 0) {
+					ok = false;
+					break;
+				}
+
+			if (ok) {
+				depth = j;
+				break;
+			}
+		}
+
+		if (depth == -1) size++, depth = size - 1;
+
+		for (unsigned k = i + 1; k < re->c[i].c; k++)
+			jmp[k][depth] = 3;
+
+		if (jmp[i][depth] == 6)
+			jmp[i][depth] = 5;
+		else
+			jmp[i][depth] = jmp[i][depth] == 2 ? 7 : 1;
+		jmp[re->c[i].c][depth] = 2;
+
+		for (int k = 0; k < depth; k++) {
+			if (jmp[i][k] == 2 || jmp[i][k] == 6)
+				jmp[i][k] = 6;
+			else if (jmp[i][k] == 3 || jmp[i][k] == 5)
+				jmp[i][k] = 5;
+			else
+				jmp[i][k] = 4;
+		}
+
+		for (int k = 0; k < depth; k++) {
+			if (jmp[re->c[i].c][k] == 2 || jmp[re->c[i].c][k] == 6)
+				jmp[re->c[i].c][k] = 6;
+			else if (jmp[re->c[i].c][k] == 3 || jmp[re->c[i].c][k] == 5)
+				jmp[re->c[i].c][k] = 5;
+			else
+				jmp[re->c[i].c][k] = 4;
+		}
+	}
+
+	for (int i = 0; i < re->ip; i++) {
+		DBG("\n%3d. [%4d] ", i, re->c[i].loc);
+
+		if (re->c[i].op == INSTR_SAVE && re->c[i].a % 2 == 0)
+			DBG("<%2d> ", re->c[i].a / 2);
+		else if (re->c[i].op == INSTR_SAVE && re->c[i].a % 2 != 0)
+			DBG("</%d> ", (re->c[i].a - 1) / 2);
+		else
+			DBG("     ");
+
+		for (int j = size - 1; j >= 0; j--) {
+			switch (jmp[i][j]) {
+			case 0: DBG(" "); break;
+			case 1: DBG("┌"); break;
+			case 2: DBG("└"); break;
+			case 3: DBG("│"); break;
+			case 4: DBG("─"); break;
+			case 5: DBG("┼"); break;
+			case 6: DBG("┴"); break;
+			case 7: DBG("├"); break;
+			}
+		}
+
+		print_instruction(re, re->c[i]);
+	}
+
+	DBG("\n");
 }
 
 static bool
@@ -2282,7 +2374,7 @@ optimize_node(const struct ktre *re, struct node *n)
 	if (n->type == NODE_NOT
 	    && n->a->type == NODE_CLASS) {
 		n->a->type = NODE_NCLASS;
-		struct node *tmp = n->a;
+		struct node *tmp = copy_node(re, n->a);
 		return free_node(n), tmp;
 	}
 
@@ -2469,22 +2561,16 @@ ktre_compile(const kdgu *pat, int opt)
 	if (re->err) return print_compile_error(re), re;
 	emit(re, INSTR_MATCH, re->i);
 
-	if ((opt & KTRE_DEBUG) == 0) return re;
-
-	for (int i = 0; i < re->ip; i++) {
-		DBG("\n%3d. [%4d] ", i, re->c[i].loc);
-
-		if (re->c[i].op == INSTR_SAVE && re->c[i].a % 2 == 0)
-			DBG("<%2d> ", re->c[i].a / 2);
-		else if (re->c[i].op == INSTR_SAVE && re->c[i].a % 2 != 0)
-			DBG("</%d> ", (re->c[i].a - 1) / 2);
-		else
-			DBG("     ");
-
-		print_instruction(re, re->c[i]);
+	if ((re->opt & KTRE_DUMB) == 0) {
+		for (int i = 0; i < re->ip; i++) {
+			if (re->c[i].op != INSTR_JMP) continue;
+			int k = re->c[i].c;
+			while (re->c[k].op == INSTR_JMP) k = re->c[k].c;
+			re->c[i].c = k;
+		}
 	}
 
-	DBG("\n");
+	if (opt & KTRE_DEBUG) print_instructions(re);
 
 	return re;
 }
