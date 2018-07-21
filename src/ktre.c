@@ -436,6 +436,12 @@ copy_node(const ktre *re, struct node *n)
 	case NODE_STR: case NODE_CLASS: case NODE_NCLASS:
 		r->str = kdgu_copy(n->str);
 		break;
+	case NODE_ALT:
+		r->list = malloc(n->num * sizeof *n->list);
+		if (!r->list) return free(r), NULL;
+		for (unsigned i = 0; i < n->num; i++)
+			r->list[i] = kdgu_copy(n->list[i]);
+		break;
 	default: break;
 	}
 
@@ -2224,17 +2230,6 @@ optimize_node(const struct ktre *re, struct node *n)
 {
 	if (!n) return n;
 
-	if (n->type == NODE_RANGE && n->y - n->x < 0x5C) {
-		struct node *tmp = new_node(re);
-		if (!tmp) return n;
-		tmp->type = NODE_CLASS;
-		tmp->str = kdgu_new(re->s->fmt, NULL, 0);
-		for (int32_t i = n->x; i <= n->y; i++)
-			kdgu_chrappend(tmp->str, i);
-		free_node(n);
-		return tmp;
-	}
-
 	switch (n->type) {
 	case NODE_SEQUENCE: case NODE_OR:
 		n->a = optimize_node(re, n->a);
@@ -2247,6 +2242,17 @@ optimize_node(const struct ktre *re, struct node *n)
 		n->a = optimize_node(re, n->a);
 		break;
 	default:;
+	}
+
+	if (n->type == NODE_RANGE && n->y - n->x < 0x5C) {
+		struct node *tmp = new_node(re);
+		if (!tmp) return n;
+		tmp->type = NODE_CLASS;
+		tmp->str = kdgu_new(re->s->fmt, NULL, 0);
+		for (int32_t i = n->x; i <= n->y; i++)
+			kdgu_chrappend(tmp->str, i);
+		free_node(n);
+		return tmp;
 	}
 
 	if (n->type == NODE_STR && kdgu_len(n->str) == 1)
@@ -2275,9 +2281,9 @@ optimize_node(const struct ktre *re, struct node *n)
 
 	if (n->type == NODE_NOT
 	    && n->a->type == NODE_CLASS) {
-		free(n);
 		n->a->type = NODE_NCLASS;
-		return n->a;
+		struct node *tmp = n->a;
+		return free_node(n), tmp;
 	}
 
 	if (n->type == NODE_AND
@@ -2301,13 +2307,13 @@ optimize_node(const struct ktre *re, struct node *n)
 	}
 
 	if (n->type == NODE_OR
-	    && n->a->type == NODE_STR
-	    && n->b->type == NODE_STR) {
+	    && (n->a->type == NODE_STR || (n->a->type == NODE_CLASS && kdgu_len(n->a->str) == 1))
+	    && (n->b->type == NODE_STR || (n->b->type == NODE_CLASS && kdgu_len(n->b->str) == 1))) {
 		struct node *tmp = new_node(re);
 		if (!tmp) return n;
+
 		tmp->type = NODE_ALT;
 		tmp->list = malloc(2 * sizeof *tmp->list);
-
 		tmp->list[0] = kdgu_copy(n->a->str);
 		tmp->list[1] = kdgu_copy(n->b->str);
 		tmp->num = 2;
@@ -2317,20 +2323,37 @@ optimize_node(const struct ktre *re, struct node *n)
 	}
 
 	if (n->type == NODE_OR
-	    && (n->a->type == NODE_STR || n->a->type == NODE_CLASS)
+	    && (n->a->type == NODE_STR || (n->a->type == NODE_CLASS && kdgu_len(n->a->str) == 1))
 	    && n->b->type == NODE_ALT) {
+		struct node *tmp = copy_node(re, n->b);
+		if (!tmp) return n;
+
+		tmp->list = realloc(tmp->list, ++tmp->num * sizeof *tmp->list);
+		tmp->list[tmp->num - 1] = kdgu_copy(n->a->str);
+
+		free_node(n);
+		return tmp;
+	}
+
+	if (n->type == NODE_OR
+	    && n->a->type == NODE_STR
+	    && n->b->type == NODE_OR
+	    && n->b->a->type == NODE_STR) {
 		struct node *tmp = new_node(re);
 		if (!tmp) return n;
 
-		tmp->type = NODE_ALT;
-		tmp->list = malloc((n->b->num + 1) * sizeof *tmp->list);
-		tmp->num = n->b->num + 1;
+		tmp->type = NODE_OR;
+		tmp->b = copy_node(re, n->b->b);
+		tmp->a = new_node(re);
+		tmp->a->type = NODE_ALT;
 
-		for (unsigned i = 0; i < n->b->num; i++)
-			tmp->list[i] = kdgu_copy(n->b->list[i]);
-		tmp->list[n->b->num] = kdgu_copy(n->a->str);
+		tmp->a->list = malloc(2 * sizeof *tmp->list);
+		tmp->a->list[0] = kdgu_copy(n->a->str);
+		tmp->a->list[1] = kdgu_copy(n->b->a->str);
+		tmp->a->num = 2;
 
 		free_node(n);
+
 		return tmp;
 	}
 
