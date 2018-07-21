@@ -1028,16 +1028,12 @@ kdgu_ncmp(const kdgu *k1,
 		    : c1 != c2)
 			return false;
 	} while ((n < 0
-		  ? ++c < -n && kdgu_dec(k1, &i) && kdgu_dec(k2, &j)
-		  : ++c < n && kdgu_inc(k1, &i) && kdgu_inc(k2, &j))
+	          ? (kdgu_chrbound(k1, i) ? ++c : c) < -n && kdgu_dec(k1, &i) && kdgu_dec(k2, &j)
+		  : (kdgu_chrbound(k1, i) ? ++c : c) < n && kdgu_inc(k1, &i) && kdgu_inc(k2, &j))
 		 && i < k1->len && j < k2->len);
 
 	return c == abs(n);
 }
-
-/* struct error */
-/* kdgu_encode(uint32_t c, uint8_t *buf, unsigned *len, */
-/* 	    enum fmt fmt, unsigned idx, int endian) */
 
 static void
 uputc(uint32_t c, FILE *f)
@@ -1716,4 +1712,11 @@ kdgu_octal(const kdgu *k, unsigned *idx)
 	}
 
 	return n;
+}
+
+void
+kdgu_move(const kdgu *k, unsigned *idx, int n)
+{
+	for (int i = 0; i < (n < 0 ? -n : n); i++)
+		n < 0 ? kdgu_prev(k, idx) : kdgu_next(k, idx);
 }

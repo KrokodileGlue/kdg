@@ -99,6 +99,7 @@ void kdgu_pchr(const kdgu *k, unsigned idx, FILE *f);
 void kdgu_print_error(struct error err);
 void kdgu_free(kdgu *k);
 void kdgu_size(kdgu *k, size_t n);
+void kdgu_move(const kdgu *k, unsigned *idx, int n);
 
 double kdgu_hexadecimal(const kdgu *k, unsigned *idx);
 double kdgu_decimal(const kdgu *k, unsigned *idx);

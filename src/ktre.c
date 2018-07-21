@@ -2727,34 +2727,33 @@ execute_instr(ktre *re,
 			rev ? PREV : NEXT;
 		else FAIL;
 		break;
-	case INSTR_STR: case INSTR_TSTR:
+	case INSTR_STR: case INSTR_TSTR: {
 		THREAD[TP].ip++;
+		kdgu *str = re->c[ip].str;
+		unsigned len = kdgu_len(str);
 		if (kdgu_ncmp(subject,
 			      re->c[ip].str,
 			      sp,
-			      rev ? re->c[ip].str->len - 1 : 0,
-			      rev ? -re->c[ip].str->len : re->c[ip].str->len,
+			      rev ? len - 1 : 0,
+			      rev ? -len : len,
 			      re->opt & KTRE_INSENSITIVE))
-			THREAD[TP].sp += rev
-				? -(int)re->c[ip].str->len
-				: (int)re->c[ip].str->len;
+			kdgu_move(subject, &THREAD[TP].sp, rev ? -(int)len : (int)len);
 		else FAIL;
-		break;
+	} break;
 	case INSTR_ALT:
 		THREAD[TP].ip++;
 
 		for (unsigned i = 0; i < re->c[ip].num; i++) {
 			kdgu *str = re->c[ip].list[i];
+			unsigned len = kdgu_len(str);
 
 			if (kdgu_ncmp(subject,
 				      str,
 				      sp,
-				      rev ? str->len - 1 : 0,
-				      rev ? -str->len : str->len,
+				      rev ? len - 1 : 0,
+				      rev ? -len : len,
 				      re->opt & KTRE_INSENSITIVE)) {
-				THREAD[TP].sp += rev
-					? -(int)str->len
-					: (int)str->len;
+				kdgu_move(subject, &THREAD[TP].sp, rev ? -(int)len : (int)len);
 				return true;
 			}
 		}
@@ -2766,10 +2765,12 @@ execute_instr(ktre *re,
 		if (kdgu_contains(re->c[ip].str, c)) FAIL;
 		kdgu_next(subject, &THREAD[TP].sp);
 		break;
-	case INSTR_BOL:
-		if (!(sp > 0 && kdgu_chrcmp(subject, sp - 1, '\n')) && sp != 0) FAIL;
+	case INSTR_BOL: {
+		unsigned idx = sp;
+		kdgu_dec(subject, &idx);
+		if (!(sp > 0 && kdgu_chrcmp(subject, idx, '\n')) && sp != 0) FAIL;
 		THREAD[TP].ip++;
-		break;
+	} break;
 	case INSTR_EOL:
 		if (sp < 0 || (kdgu_chrcmp(subject, sp, '\n')
 			       && sp != (int)subject->len))
