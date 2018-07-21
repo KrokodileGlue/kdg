@@ -673,6 +673,7 @@ kdgu_dec(const kdgu *k, unsigned *idx)
 	case KDGU_FMT_UTF16LE:
 	case KDGU_FMT_UTF16:
 		now -= 2;
+		if (!now) break;
 		if (UTF16LOW_SURROGATE(READUTF16(GETENDIAN(k->fmt),
 		                                 k->s + now - 2)))
 			now -= 2;
