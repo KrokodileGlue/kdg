@@ -4,6 +4,7 @@ CFLAGS += -Wold-style-definition -Wpointer-arith -Wcast-qual
 CFLAGS += -Wunused -Wno-implicit-fallthrough -fpic
 CFLAGS += -Wdouble-promotion -Wfloat-equal
 CFLAGS += -Wno-format-nonliteral -Wshadow
+CFLAGS += -O2
 LDFLAGS += -Wl,--as-needed,-O2,-z,relro,-z,now -shared
 
 MAJOR := 0
@@ -27,6 +28,9 @@ test1: test.c all
 test2: test/test.c all
 	$(CC) ./test/test.c -I include -L$(shell pwd) -Wl,-rpath $(shell pwd) -l$(NAME) -o ./test/test2 -g
 	./test/test.py ./test/test.txt
+
+test3: grep.c all
+	$(CC) ./grep.c -O2 -Iinclude/ -L$(shell pwd) -Wl,-rpath	$(shell pwd) -l$(NAME) -o ./grep -g
 
 debug: all
 debug: CFLAGS += -g -O0

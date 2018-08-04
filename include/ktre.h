@@ -104,6 +104,7 @@ kdgu *ktre_filter(ktre *re, const kdgu *subject, const kdgu *replacement, const 
 kdgu *ktre_replace(const kdgu *subject, const kdgu *pat, const kdgu *replacement, const kdgu *indicator, int opt);
 kdgu **ktre_split(ktre *re, const kdgu *subject, int *len);
 int **ktre_getvec(const ktre *re);
+kdgu *ktre_getgroup(int **const vec, int match, int group, const kdgu *subject);
 void ktre_free(ktre *re);
 
 #endif

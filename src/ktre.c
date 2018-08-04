@@ -878,24 +878,24 @@ parse_posix_character_class(struct ktre *re, struct node *left)
 	POSIX_CLASS("alnum",  "[A-Za-z0-9]");
 	POSIX_CLASS("alpha",  "[A-Za-z]");
 	POSIX_CLASS("ascii",  "[\\x00-\\x7F]");
-	POSIX_CLASS("blank",  "[ \t]");
+	POSIX_CLASS("blank",  "[ \\t]");
 	POSIX_CLASS("cntrl",  "[\\x00-\\x1F\\x7F]");
 	POSIX_CLASS("digit",  "[0-9]");
 	POSIX_CLASS("graph",  "[^[:cntrl:]]");
 	POSIX_CLASS("lower",  "[a-z]");
 	POSIX_CLASS("print",  "[[:graph:] ]");
 	POSIX_CLASS("punct",  "[-!\"#$%&'()*+,./:;<=>?@[]");
-	POSIX_CLASS("space",  "[ \t\n\r\f\v]");
+	POSIX_CLASS("space",  "[ \\t\\n\\r\\f\\v]");
 	POSIX_CLASS("upper",  "[A-Z]");
 	POSIX_CLASS("word",   "[A-Za-z0-9_]");
 	POSIX_CLASS("xdigit", "[0-9A-Fa-f]");
 	POSIX_CLASS("d",      "[0-9]");
-	POSIX_CLASS("s",      "[ \t\n\r\f\v]");
+	POSIX_CLASS("s",      "[ \\t\\n\\r\\f\\v]");
 	POSIX_CLASS("w",      "[A-Za-z0-9_]");
 	POSIX_CLASS("l",      "[a-z]");
 	POSIX_CLASS("u",      "[A-Z]");
-	POSIX_CLASS("h",      "[ \t]");
-	POSIX_CLASS("v",      "[\xa-\xd\x85\\x2028\\x2029]");
+	POSIX_CLASS("h",      "[ \\t]");
+	POSIX_CLASS("v",      "[\\xa-\\xd\x85\\x2028\\x2029]");
 	if (!right) right = parse_property_class(re, substr);
 	kdgu_free(substr);
 
@@ -1727,6 +1727,7 @@ print_node(const ktre *re, struct node *n)
 	case NODE_DIGIT:     N0("(digit)");                                   break;
 	case NODE_WORD:      N0("(word)");                                    break;
 	case NODE_SPACE:     N0("(space)");                                   break;
+	case NODE_NSPACE:    N0("(non space)");                               break;
 	case NODE_NONE:      N0("(none)");                                    break;
 	case NODE_WB:        N0("(word boundary)");                           break;
 	case NODE_NWB:       N0("(negated word boundary)");                   break;
@@ -1847,6 +1848,7 @@ print_instruction(ktre *re, struct instr instr)
 	case INSTR_DIGIT:      DBG("DIGIT");                             break;
 	case INSTR_WORD:       DBG("WORD");                              break;
 	case INSTR_SPACE:      DBG("SPACE");                             break;
+	case INSTR_NSPACE:     DBG("NSPACE");                            break;
 	case INSTR_BOL:        DBG("BOL");                               break;
 	case INSTR_EOL:        DBG("EOL");                               break;
 	case INSTR_BOS:        DBG("BOS");                               break;
@@ -2772,9 +2774,10 @@ execute_instr(ktre *re,
 		THREAD[TP].ip++;
 	} break;
 	case INSTR_EOL:
-		if (sp < 0 || (kdgu_chrcmp(subject, sp, '\n')
-			       && sp != (int)subject->len))
+		if (!kdgu_chrcmp(subject, sp, '\n') && sp != (int)subject->len)
 			FAIL;
+		if (kdgu_chrcmp(subject, sp, '\n'))
+			rev ? PREV : NEXT;
 		THREAD[TP].ip++;
 		break;
 	case INSTR_BOS:
@@ -3118,6 +3121,7 @@ ktre_match(const kdgu *subject, const kdgu *pat, int opt, int ***vec)
 	int **v = NULL;
 	bool ret = run(re, subject, vec ? vec : &v);
 	print_finish(re, subject, pat, ret, vec ? *vec : v, NULL);
+	if (vec) *vec = ktre_getvec(re);
 	ktre_free(re);
 	return ret;
 }
@@ -3270,18 +3274,20 @@ ktre_filter(ktre *re,
 kdgu **
 ktre_split(ktre *re, const kdgu *subject, int *len)
 {
-	DBG("\nsubject: "), dbgf(re, subject, 0);
-
-	*len = 0;
 	int **vec = NULL;
-
-	if (!run(re, subject, &vec) || re->err) {
-		print_finish(re, subject, re->s, false, vec, NULL);
-		return NULL;
-	}
+	DBG("\nsubject: "), dbgf(re, subject, 0);
+	*len = 0;
 
 	kdgu **r = NULL;
 	unsigned j = 0;
+
+	if (!run(re, subject, &vec) || re->err) {
+		print_finish(re, subject, re->s, false, vec, NULL);
+		*len = 1;
+		r = malloc(sizeof *r);
+		*r = kdgu_copy(subject);
+		return r;
+	}
 
 	for (unsigned i = 0; i < re->num_matches; i++) {
 		if (vec[i][0] == 0 || vec[i][0] == (int)subject->len) continue;
@@ -3311,4 +3317,10 @@ ktre_getvec(const ktre *re)
 	}
 
 	return vec;
+}
+
+kdgu *
+ktre_getgroup(int **const vec, int match, int group, const kdgu *subject)
+{
+	return kdgu_substr(subject, vec[match][group * 2], vec[match][group * 2] + vec[match][group * 2 + 1]);
 }

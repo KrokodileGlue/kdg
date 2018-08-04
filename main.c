@@ -58,19 +58,32 @@ main(int argc, char **argv)
 	char *text = load_file(argv[argc - 1], &len);
 	if (!text) return EXIT_FAILURE;
 
-	char *a = "[+-]?(\\d+(\\.\\d+)?|\\.\\d+)([eE][+-]?\\d+)?";
-	char *b = "-123.4e-56";
+	/* char *a = "\\U"; */
+	/* char *b = ""; */
+	/* /\* char *a = "^diffuse\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s*(?:#.*)?$"; *\/ */
+	/* /\* char *b = "diffuse 0.5 0.5 0.5 # test"; *\/ */
 
-	kdgu *c = kdgu_news(a);
-	kdgu *d = kdgu_news(b);
+	/* kdgu *c = kdgu_news(a); */
+	/* kdgu *d = kdgu_news(b); */
 
-	kdgu_convert(c, KDGU_FMT_UTF16LE);
-	kdgu_convert(d, KDGU_FMT_UTF32);
+	/* kdgu_convert(c, KDGU_FMT_UTF16); */
+	/* kdgu_convert(d, KDGU_FMT_UTF8); */
 
-	ktre *re = ktre_compile(c, KTRE_UNANCHORED | KTRE_GLOBAL | KTRE_DEBUG);
-	if (!re->err) ktre_exec(re, d, NULL);
+	/* ktre *re = ktre_compile(c, KTRE_UNANCHORED | KTRE_GLOBAL | KTRE_DEBUG); */
+	/* if (!re->err) ktre_exec(re, d, NULL); */
 
-	ktre_free(re);
+	/* kdgu_free(c), kdgu_free(d); */
+	/* ktre_free(re); */
+
+	ktre *re = ktre_compile(&KDGU(";"), KTRE_UNANCHORED | KTRE_GLOBAL | KTRE_DEBUG);
+	int l;
+	kdgu **fields = ktre_split(re, &KDGU("foo;bar;baz;quz"), &l);
+	putchar('\n');
+
+	for (int i = 0; i < l; i++) {
+		kdgu_print(fields[i], stdout), putchar('\n');
+	}
+
 	free(text);
 
 	return 0;
