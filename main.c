@@ -58,31 +58,36 @@ main(int argc, char **argv)
 	char *text = load_file(argv[argc - 1], &len);
 	if (!text) return EXIT_FAILURE;
 
+	/* FILE *thing = fopen("log.txt", "ba"); */
+	/* fwrite(text, len, 1, thing); */
+	/* fclose(thing); */
+
 	/* char *a = "\\U"; */
 	/* char *b = ""; */
 	/* /\* char *a = "^diffuse\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s*(?:#.*)?$"; *\/ */
 	/* /\* char *b = "diffuse 0.5 0.5 0.5 # test"; *\/ */
 
-	/* kdgu *c = kdgu_news(a); */
-	/* kdgu *d = kdgu_news(b); */
+	kdgu *c = kdgu_new(KDGU_FMT_UTF8, (const uint8_t *)text, len);
+	text = load_file("test.txt", &len);
+	kdgu *d = kdgu_new(KDGU_FMT_UTF8, (const uint8_t *)text, len);
 
-	/* kdgu_convert(c, KDGU_FMT_UTF16); */
-	/* kdgu_convert(d, KDGU_FMT_UTF8); */
+	kdgu_convert(c, KDGU_FMT_UTF16);
+	kdgu_convert(d, KDGU_FMT_UTF8);
 
-	/* ktre *re = ktre_compile(c, KTRE_UNANCHORED | KTRE_GLOBAL | KTRE_DEBUG); */
-	/* if (!re->err) ktre_exec(re, d, NULL); */
+	ktre *re = ktre_compile(c, KTRE_UNANCHORED | KTRE_GLOBAL);
+	if (!re->err) ktre_exec(re, d, NULL);
 
-	/* kdgu_free(c), kdgu_free(d); */
-	/* ktre_free(re); */
+	kdgu_free(c), kdgu_free(d);
+	ktre_free(re);
 
-	ktre *re = ktre_compile(&KDGU(";"), KTRE_UNANCHORED | KTRE_GLOBAL | KTRE_DEBUG);
-	int l;
-	kdgu **fields = ktre_split(re, &KDGU("foo;bar;baz;quz"), &l);
-	putchar('\n');
+	/* ktre *re = ktre_compile(&KDGU(";"), KTRE_UNANCHORED | KTRE_GLOBAL | KTRE_DEBUG); */
+	/* int l; */
+	/* kdgu **fields = ktre_split(re, &KDGU("foo;bar;baz;quz"), &l); */
+	/* putchar('\n'); */
 
-	for (int i = 0; i < l; i++) {
-		kdgu_print(fields[i], stdout), putchar('\n');
-	}
+	/* for (int i = 0; i < l; i++) { */
+	/* 	kdgu_print(fields[i], stdout), putchar('\n'); */
+	/* } */
 
 	free(text);
 

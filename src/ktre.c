@@ -420,6 +420,7 @@ copy_node(const ktre *re, struct node *n)
 	if (!n) return NULL;
 
 	struct node *r = new_node(re);
+	if (!r) return NULL;
 	memcpy(r, n, sizeof *n);
 
 	switch (n->type) {
@@ -451,6 +452,7 @@ static struct node *
 parse_mode_modifiers(ktre *re)
 {
 	struct node *left = new_node(re);
+	if (!left) return NULL;
 	left->type = NODE_SETOPT;
 	bool neg = false;
 
@@ -518,6 +520,10 @@ parse_mode_modifiers(ktre *re)
 		struct node *tmp2 = new_node(re);
 		struct node *tmp3 = new_node(re);
 
+		if (!tmp1) return NULL;
+		if (!tmp2) return NULL;
+		if (!tmp3) return NULL;
+
 		tmp1->type = NODE_SEQUENCE;
 		tmp2->type = NODE_SEQUENCE;
 		tmp3->type = NODE_SETOPT;
@@ -549,6 +555,7 @@ parse_branch_reset(ktre *re)
 	do {
 		if (kdgu_chrcmp(re->s, re->i, '|')) kdgu_next(re->s, &re->i);
 		struct node *tmp = new_node(re);
+		if (!tmp) return free_node(left), NULL;
 
 		if (left) {
 			tmp->type = NODE_OR;
@@ -774,6 +781,7 @@ static struct node *
 parse_group(ktre *re)
 {
 	struct node *left = new_node(re);
+	if (!left) return NULL;
 	kdgu_next(re->s, &re->i);
 
 	if (kdgu_ncmp(re->s, &KDGU("?R"), re->i, 0, 2, false)) {
@@ -796,6 +804,8 @@ parse_group(ktre *re)
 		re->group[left->gi].is_called = false;
 		left->a = parse(re);
 	}
+
+	if (!left) return NULL;
 
 	if (!kdgu_chrcmp(re->s, re->i, ')') && !re->err) {
 		error(re, KTRE_ERROR_SYNTAX_ERROR, left->loc,
@@ -934,10 +944,7 @@ parse_character_class_character(struct ktre *re, struct node *left)
 		re->literal = lit;
 	}
 
-	if (!right) {
-		free_node(left);
-		return NULL;
-	}
+	if (!right) return NULL;
 
 	if (kdgu_chrcmp(re->s, re->i + kdgu_chrsize(re->s, re->i), ']')) {
 		;
@@ -1334,10 +1341,6 @@ primary(ktre *re)
 
 	int loc = re->i;
 
-	if (kdgu_chrcmp(re->s, re->i, ')')
-	    || kdgu_chrcmp(re->s, re->i, ']'))
-		return free_node(left), NULL;
-
  again:
 	if (re->literal) {
 		if (kdgu_chrcmp(re->s, re->i, '\\') && kdgu_chrcmp(re->s, 1, 'E')) {
@@ -1352,6 +1355,10 @@ primary(ktre *re)
 		kdgu_next(re->s, &re->i);
 		return left;
 	}
+
+	if (kdgu_chrcmp(re->s, re->i, ')')
+	    || kdgu_chrcmp(re->s, re->i, ']'))
+		return free_node(left), NULL;
 
 	if (!kdgu_chrcmp(re->s, re->i, '\\')) {
 		switch (kdgu_decode(re->s, re->i)) {
@@ -1383,7 +1390,7 @@ primary(ktre *re)
 
 		case '#':
 			if (re->popt & KTRE_EXTENDED) {
-				while (kdgu_decode(re->s, re->i) && !kdgu_chrcmp(re->s, re->i, '\n'))
+				while (re->i < re->s->len && !kdgu_chrcmp(re->s, re->i, '\n'))
 					kdgu_next(re->s, &re->i);
 			} else {
 				left->type = NODE_STR;
