@@ -1,4 +1,5 @@
 #include <stdarg.h>
+#include <limits.h>
 #include <ctype.h>
 #include <assert.h>
 
@@ -477,6 +478,7 @@ parse_mode_modifiers(ktre *re)
 		case 't': off = true;
 		case 'x': bit = KTRE_EXTENDED;    break;
 		case 'm': bit = KTRE_MULTILINE;   break;
+		case 'S': bit = KTRE_STRETCHY;    break;
 
 		case '-':
 			neg = true;
@@ -852,7 +854,7 @@ static struct node *parse_property_class(struct ktre *re, const kdgu *k);
 static struct node *
 quickparse(const struct ktre *re, const kdgu *k)
 {
-	struct ktre *r = ktre_compile(k, (re->opt & ~KTRE_DEBUG) | KTRE_DUMB);
+	struct ktre *r = ktre_compile(k, ((re->popt & ~KTRE_DEBUG) & ~KTRE_STRETCHY) | KTRE_DUMB);
 	struct node *n = copy_node(re, r->n->a);
 	ktre_free(r);
 	return n;
@@ -1409,8 +1411,14 @@ primary(ktre *re)
 
 				if (kdgu_decode(re->s, re->i)) goto again;
 			} else {
-				left->type = NODE_STR;
-				left->str = kdgu_getchr(re->s, re->i);
+				if ((re->popt & KTRE_STRETCHY)
+				    && kdgu_chrcmp(re->s, re->i, ' ')) {
+					left = quickparse(re, &KDGU("\\s+"));
+				} else {
+					left->type = NODE_STR;
+					left->str = kdgu_getchr(re->s, re->i);
+				}
+
 				kdgu_next(re->s, &re->i);
 			}
 		}
@@ -2481,16 +2489,16 @@ ktre_compile(const kdgu *pat, int opt)
 	if (opt & KTRE_DEBUG) {
 		DBG("regexpr: "), kdgu_print(pat, stderr);
 		if (opt) DBG("\noptions:");
-		for (size_t i = 0; i < sizeof opt; i++) {
-			switch (opt & 1 << i) {
+		for (size_t i = 0; i < CHAR_BIT * sizeof opt; i++) {
+			switch (opt & (1 << i)) {
 			case KTRE_INSENSITIVE: DBG("\n\tINSENSITIVE"); break;
-			case KTRE_UNANCHORED : DBG("\n\tUNANCHORED "); break;
-			case KTRE_EXTENDED   : DBG("\n\tEXTENDED   "); break;
-			case KTRE_GLOBAL     : DBG("\n\tGLOBAL     "); break;
-			case KTRE_MULTILINE  : DBG("\n\tMULTILINE  "); break;
-			case KTRE_CONTINUE   : DBG("\n\tCONTINUE   "); break;
-			case KTRE_DEBUG      : DBG("\n\tDEBUG      "); break;
-			case KTRE_ECMA       : DBG("\n\tECMA       "); break;
+			case KTRE_UNANCHORED : DBG("\n\tUNANCHORED");  break;
+			case KTRE_EXTENDED   : DBG("\n\tEXTENDED");    break;
+			case KTRE_GLOBAL     : DBG("\n\tGLOBAL");      break;
+			case KTRE_MULTILINE  : DBG("\n\tMULTILINE");   break;
+			case KTRE_CONTINUE   : DBG("\n\tCONTINUE");    break;
+			case KTRE_DEBUG      : DBG("\n\tDEBUG");       break;
+			case KTRE_ECMA       : DBG("\n\tECMA");        break;
 			}
 		}
 		DBG("\n");
@@ -2745,7 +2753,7 @@ execute_instr(ktre *re,
 			      sp,
 			      rev ? len - 1 : 0,
 			      rev ? -len : len,
-			      re->opt & KTRE_INSENSITIVE))
+			      opt & KTRE_INSENSITIVE))
 			kdgu_move(subject, &THREAD[TP].sp, rev ? -(int)len : (int)len);
 		else FAIL;
 	} break;
@@ -2761,7 +2769,7 @@ execute_instr(ktre *re,
 				      sp,
 				      rev ? len - 1 : 0,
 				      rev ? -len : len,
-				      re->opt & KTRE_INSENSITIVE)) {
+				      opt & KTRE_INSENSITIVE)) {
 				kdgu_move(subject, &THREAD[TP].sp, rev ? -(int)len : (int)len);
 				return true;
 			}
