@@ -293,12 +293,19 @@ struct category_alias {
 	enum category cat;
 };
 
+struct casefold {
+	uint32_t c;
+	int num;
+	uint32_t *name;
+};
+
 extern const struct codepoint codepoints[];
 
 extern const struct name names[];
 extern const struct name_alias name_aliases[];
 extern const struct category_alias category_aliases[];
 extern const struct named_sequence named_sequences[];
+extern const struct casefold casefold[];
 
 extern const uint16_t stage1[];
 extern const uint16_t stage2[];
@@ -308,10 +315,12 @@ extern const uint32_t compositions[];
 const struct codepoint *codepoint(uint32_t c);
 unsigned write_sequence(uint32_t *buf, uint16_t idx);
 uint32_t lookup_comp(uint32_t a, uint32_t b);
+unsigned lookup_fold(uint32_t a, uint32_t **seq);
 
 extern int num_names;
 extern int num_name_aliases;
 extern int num_category_aliases;
+extern int num_casefold;
 
 #define HANGUL_SBASE  0xAC00
 #define HANGUL_LBASE  0x1100

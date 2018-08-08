@@ -9,6 +9,7 @@
 #     - NamedSequences.txt
 #     - Scripts.txt
 #     - SpecialCasing.txt
+#     - CaseFolding.txt
 #     - CompositionExclusions.txt
 #     - PropertyValueAliases.txt
 #     - auxiliary/GraphemeBreakProperty.txt
@@ -79,21 +80,18 @@ sub BUILD {
 	(.*?);          # 15. Simple_Lowercase_Mapping
 	(.*?)           # 16. Simple_Titlecase_Mapping
 	$/x) {
-	$self->{code}          = hex($1);
-	$self->{name}          = $2;
-	$self->{category}      = $3;
-	$self->{ccc}           = int($4);
-	$self->{bidi_class}    = $5;
-	$self->{decomp_type}   = $6;
+	$self->{code}        = hex($1);
+	$self->{name}        = $2;
+	$self->{category}    = $3;
+	$self->{ccc}         = int($4);
+	$self->{bidi_class}  = $5;
+	$self->{decomp_type} = $6;
 
 	$self->{bidi_mirrored} = $11 eq 'Y' ? 1 : 0;
 
-	$self->{uppercase}     = $14 eq '' ? '-1'
-	    : main::emit_sequence((hex($14)));
-	$self->{lowercase}     = $15 eq '' ? '-1'
-	    : main::emit_sequence((hex($15)));
-	$self->{titlecase}     = $16 eq '' ? '-1'
-	    : main::emit_sequence((hex($16)));
+	$self->{uppercase} = $14 eq '' ? '-1' : main::emit_sequence((hex($14)));
+	$self->{lowercase} = $15 eq '' ? '-1' : main::emit_sequence((hex($15)));
+	$self->{titlecase} = $16 eq '' ? '-1' : main::emit_sequence((hex($16)));
 
 	$self->{decomp} = $7 eq "" ? undef : [map { hex } split(/\s+/, $7)];
     } else {
@@ -585,6 +583,26 @@ while (my $l = <$fh>) {
 print $out "};\n\n";
 print $out "int num_category_aliases = $num_category_aliases;\n\n";
 
+# Case folding.
+
+print $out "const struct casefold casefold[] = {\n";
+$fh = load("CaseFolding.txt");
+my $num_casefold = 0;
+while (my $l = <$fh>) {
+    if ($l =~ /^(\S+); (.); (.*?); # .*$/) {
+	next if not $2 eq 'F' and not $2 eq 'C';
+	print $out "\t{0x$1, ", scalar split / /, $3;
+	print $out ", (uint32_t []){";
+	foreach my $i (split / /, $3) {
+	    print $out hex($i), ",";
+	}
+	print $out "}},\n";
+	$num_casefold++;
+    }
+}
+print $out "};\n\n";
+print $out "int num_casefold = $num_casefold;\n\n";
+
 # Generation is done.
 
 LOG("Generated ", scalar(@sequences), " sequence elements.");
@@ -658,4 +676,13 @@ lookup_comp(uint32_t a, uint32_t b)
 		if (compositions[i] == a && compositions[i + 1] == b)
 			return compositions[i + 2];
 	return UINT32_MAX;
+}
+
+unsigned
+lookup_fold(uint32_t a, uint32_t **seq)
+{
+	for (int i = 0; i < num_casefold; i++)
+		if (casefold[i].c == a)
+			return *seq = casefold[i].name, casefold[i].num;
+	return *seq = 0, 0;
 }

@@ -542,7 +542,7 @@ kdgu_new(enum fmt fmt, const uint8_t *s, size_t len)
 	memset(k, 0, sizeof *k), k->fmt = fmt;
 	if (!len) return k;
 
-	int endian = GETENDIAN(fmt);
+	int endian = KDGU_ENDIAN_NONE;
 
 	switch (fmt) {
 	case KDGU_FMT_CP1252: k->s = cp1252validate(k, s, &len); break;
@@ -974,17 +974,10 @@ kdgu_normalize(kdgu *k, enum normalization norm)
 }
 
 bool
-kdgu_cmp(const kdgu *k1, const kdgu *k2)
+kdgu_cmp(const kdgu *k1, const kdgu *k2, bool insensitive)
 {
 	if (!k1 || !k2) return false;
-	unsigned i = 0, j = 0;
-
-	do {
-		if (kdgu_decode(k1, i) != kdgu_decode(k2, j))
-			return false;
-	} while (kdgu_inc(k1, &i) && kdgu_inc(k2, &j));
-
-	return i >= k1->len && j >= k2->len;
+	return kdgu_ncmp(k1, k2, 0, 0, kdgu_len(k1), insensitive);
 }
 
 bool
@@ -1021,12 +1014,47 @@ kdgu_ncmp(const kdgu *k1,
 	int c = 0;
 
 	do {
-		uint32_t c1 = kdgu_decode(k1, i), c2 = kdgu_decode(k2, j);
-		if (insensitive
-		    /* TODO: Don't use tolower. */
-		    ? tolower(c1) != tolower(c2)
-		    : c1 != c2)
-			return false;
+		uint32_t c1 = kdgu_decode(k1, i);
+		uint32_t c2 = kdgu_decode(k2, j);
+
+		if (!insensitive) {
+			if (c1 != c2) return false;
+			continue;
+		}
+
+		uint32_t *seq1, *seq2;
+		unsigned l1 = insensitive ? lookup_fold(c1, &seq1) : 0;
+		unsigned l2 = insensitive ? lookup_fold(c2, &seq2) : 0;
+		if (!l1) l1 = 1, seq1 = (uint32_t []){c1};
+		if (!l2) l2 = 1, seq2 = (uint32_t []){c2};
+
+		if (l1 > l2) {
+			kdgu_inc(k2, &j);
+			seq2 = (uint32_t []){c2, kdgu_decode(k2, j)};
+			l2++;
+		} else if (l2 > l1) {
+			kdgu_inc(k1, &i);
+			if (kdgu_chrbound(k1, i)) c++;
+			seq1 = (uint32_t []){c1, kdgu_decode(k1, i)};
+			l1++;
+		}
+
+		if (l1 > l2) {
+			uint32_t t = kdgu_decode(k2, j);
+			kdgu_inc(k2, &j);
+			seq2 = (uint32_t []){c2, t, kdgu_decode(k2, j)};
+			l2++;
+		} else if (l2 > l1) {
+			uint32_t t = kdgu_decode(k1, i);
+			kdgu_inc(k1, &i);
+			if (kdgu_chrbound(k1, i)) c++;
+			seq1 = (uint32_t []){c1, t, kdgu_decode(k1, i)};
+			l1++;
+		}
+
+		for (unsigned z = 0; z < l1; z++) 
+			if (seq1[z] != seq2[z])
+				return false;
 	} while ((n < 0
 	          ? (kdgu_chrbound(k1, i) ? ++c : c) < -n && kdgu_dec(k1, &i) && kdgu_dec(k2, &j)
 		  : (kdgu_chrbound(k1, i) ? ++c : c) < n && kdgu_inc(k1, &i) && kdgu_inc(k2, &j))

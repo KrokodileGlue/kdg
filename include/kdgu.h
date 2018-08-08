@@ -71,7 +71,7 @@ bool kdgu_contains(const kdgu *k, uint32_t c);
 bool kdgu_convert(kdgu *k, enum fmt fmt);
 bool kdgu_normalize(kdgu *k, enum normalization norm);
 
-bool kdgu_cmp(const kdgu *k1, const kdgu *k2);
+bool kdgu_cmp(const kdgu *k1, const kdgu *k2, bool insensitive);
 bool kdgu_ncmp(const kdgu *k1, const kdgu *k2, unsigned i, unsigned j, int n, bool insensitive);
 bool kdgu_fuzzy(const kdgu *k1, const kdgu *k2);
 

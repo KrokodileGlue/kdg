@@ -147,5 +147,8 @@ utf16validate(kdgu *k, const uint8_t *s, size_t *l, int endian)
 	}
 
 	*l = idx;
+	if (k->fmt == KDGU_FMT_UTF16 && endian == KDGU_ENDIAN_LITTLE)
+		k->fmt = KDGU_FMT_UTF16LE;
+
 	return r;
 }

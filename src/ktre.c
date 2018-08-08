@@ -649,7 +649,7 @@ parse_special_group(ktre *re)
 			left->c = -1;
 
 			for (int i = 0; i < re->gp && left->c == -1; i++)
-				if (kdgu_cmp(re->group[i].name, substr))
+				if (kdgu_cmp(re->group[i].name, substr, false))
 					left->c = i;
 
 			kdgu_free(substr);
@@ -1147,7 +1147,7 @@ parse_k(ktre *re)
 
 	for (int i = 0; i < re->gp; i++) {
 		if (!re->group[i].name) continue;
-		if (kdgu_cmp(re->group[i].name, substr)
+		if (kdgu_cmp(re->group[i].name, substr, false)
 		    && b - a == re->group[i].name->len) {
 			left->c = i;
 			break;
