@@ -1403,17 +1403,18 @@ primary(ktre *re)
 			break;
 
 		default:
-			if (re->popt & KTRE_EXTENDED
-			    && is_space(re, kdgu_decode(re->s, re->i))) {
-				while (re->i < re->s->len
-				       && strchr(SPACE, kdgu_decode(re->s, re->i)))
+			if (re->popt & KTRE_EXTENDED && is_space(re, kdgu_decode(re->s, re->i))) {
+				while (re->i < re->s->len && is_space(re, kdgu_decode(re->s, re->i)))
 					kdgu_next(re->s, &re->i);
 
 				if (kdgu_decode(re->s, re->i)) goto again;
 			} else {
 				if ((re->popt & KTRE_STRETCHY)
 				    && kdgu_chrcmp(re->s, re->i, ' ')) {
-					left = quickparse(re, &KDGU("\\s+"));
+					left->type = NODE_PLUS;
+					left->a = new_node(re);
+					if (!left->a) return free(left), NULL;
+					left->a->type = NODE_SPACE;
 				} else {
 					left->type = NODE_STR;
 					left->str = kdgu_getchr(re->s, re->i);
