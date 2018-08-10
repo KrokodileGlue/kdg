@@ -42,16 +42,17 @@ main(int argc, char **argv)
 	kdgu_free(c), kdgu_free(d);
 	ktre_free(re);
 
-	assert(kdgu_cmp(&KDGU("<süß>"), &KDGU("<SÜẞ>"), true));
-	assert(kdgu_cmp(&KDGU("<süß>"), &KDGU("<SÜss>"), true));
-	assert(kdgu_cmp(&KDGU("<süss>"), &KDGU("<SÜß>"), true));
-	assert(kdgu_cmp(&KDGU("<süss>"), &KDGU("<SÜẞ>"), true));
-	assert(kdgu_cmp(&KDGU("ThiS IS FoO bAR"), &KDGU("this is foo bar"), true));
-	assert(!kdgu_cmp(&KDGU("ThiS IS FoO bAR"), &KDGU("this is foo bar"), false));
-	assert(kdgu_cmp(&KDGU("ⓕⓞⓞ ⓑⓐⓡ ⓑⓐⓩ"), &KDGU("ⒻⓄⓄ ⒷⒶⓇ ⒷⒶⓏ"), true));
-	assert(kdgu_cmp(&KDGU("ὒ"), &KDGU("\U000003C5\U00000313\U00000300"), true));
-	assert(kdgu_cmp(&KDGU("\U00000130"), &KDGU("i\U00000307"), true));
-	/* assert(kdgu_cmp(&KDGU("ı"), &KDGU("I"), true)); */
+	assert(kdgu_cmp(&KDGU("<süß>"), &KDGU("<SÜẞ>"), true, NULL));
+	assert(kdgu_cmp(&KDGU("<süß>"), &KDGU("<SÜss>"), true, NULL));
+	assert(kdgu_cmp(&KDGU("<süss>"), &KDGU("<SÜß>"), true, NULL));
+	assert(kdgu_cmp(&KDGU("<süss>"), &KDGU("<SÜẞ>"), true, NULL));
+	assert(kdgu_cmp(&KDGU("FoO bAR"), &KDGU("foo bar"), true, NULL));
+	assert(!kdgu_cmp(&KDGU("FoO bAR"), &KDGU("foo bar"), false, NULL));
+	assert(kdgu_cmp(&KDGU("ⓕⓞⓞ ⓑⓐⓡ ⓑⓐⓩ"), &KDGU("ⒻⓄⓄ ⒷⒶⓇ ⒷⒶⓏ"), true, NULL));
+	assert(kdgu_cmp(&KDGU("ὒ"), &KDGU("\U000003C5\U00000313\U00000300"), true, NULL));
+	assert(kdgu_cmp(&KDGU("\U00000130"), &KDGU("i\U00000307"), true, NULL));
+	assert(kdgu_cmp(&KDGU("i"), &KDGU("İ"), true, "tr"));
+	assert(kdgu_cmp(&KDGU("ı"), &KDGU("I"), true, "tr"));
 
 	free(text);
 

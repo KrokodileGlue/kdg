@@ -649,7 +649,7 @@ parse_special_group(ktre *re)
 			left->c = -1;
 
 			for (int i = 0; i < re->gp && left->c == -1; i++)
-				if (kdgu_cmp(re->group[i].name, substr, false))
+				if (kdgu_cmp(re->group[i].name, substr, false, NULL))
 					left->c = i;
 
 			kdgu_free(substr);
@@ -786,7 +786,7 @@ parse_group(ktre *re)
 	if (!left) return NULL;
 	kdgu_next(re->s, &re->i);
 
-	if (kdgu_ncmp(re->s, &KDGU("?R"), re->i, 0, 2, false)) {
+	if (kdgu_ncmp(re->s, &KDGU("?R"), re->i, 0, 2, false, NULL)) {
 		left->type = NODE_RECURSE;
 		kdgu_next(re->s, &re->i), kdgu_next(re->s, &re->i);
 
@@ -872,10 +872,10 @@ parse_posix_character_class(struct ktre *re, struct node *left)
 	unsigned end = re->i;
 
 	while (end < re->s->len
-	       && !kdgu_ncmp(&KDGU(":]"), re->s, 0, end, 2, false))
+	       && !kdgu_ncmp(&KDGU(":]"), re->s, 0, end, 2, false, NULL))
 		kdgu_next(re->s, &end);
 
-	if (!kdgu_ncmp(&KDGU(":]"), re->s, 0, end, 2, false)) {
+	if (!kdgu_ncmp(&KDGU(":]"), re->s, 0, end, 2, false, NULL)) {
 		free_node(left);
 		error(re, KTRE_ERROR_SYNTAX_ERROR,
 		      re->i, "expected ':]'");
@@ -935,7 +935,7 @@ parse_character_class_character(struct ktre *re, struct node *left)
 {
 	struct node *right = NULL;
 
-	if (kdgu_ncmp(&KDGU("[:"), re->s, 0, re->i, 2, false)) {
+	if (kdgu_ncmp(&KDGU("[:"), re->s, 0, re->i, 2, false, NULL)) {
 		right = parse_posix_character_class(re, left);
 	} else if (kdgu_chrcmp(re->s, re->i, '\\')) {
 		right = primary(re);
@@ -987,11 +987,11 @@ parse_character_class_character(struct ktre *re, struct node *left)
 			/* TODO: Character class subtraction. */
 			exit(0);
 		}
-	} else if (kdgu_ncmp(&KDGU("&&"), re->s, 0, re->i, 2, false)) {
+	} else if (kdgu_ncmp(&KDGU("&&"), re->s, 0, re->i, 2, false, NULL)) {
 		kdgu_next(re->s, &re->i), kdgu_next(re->s, &re->i);
 		struct node *end = NULL;
 
-		if (kdgu_ncmp(&KDGU("[:"), re->s, 0, re->i, 2, false)) {
+		if (kdgu_ncmp(&KDGU("[:"), re->s, 0, re->i, 2, false, NULL)) {
 			end = parse_posix_character_class(re, left);
 		} else {
 			bool lit = re->literal;
@@ -1147,7 +1147,7 @@ parse_k(ktre *re)
 
 	for (int i = 0; i < re->gp; i++) {
 		if (!re->group[i].name) continue;
-		if (kdgu_cmp(re->group[i].name, substr, false)
+		if (kdgu_cmp(re->group[i].name, substr, false, NULL)
 		    && b - a == re->group[i].name->len) {
 			left->c = i;
 			break;
@@ -2721,7 +2721,8 @@ execute_instr(ktre *re,
 			      rev ? sp + 1 : sp,
 			      THREAD[TP].vec[re->c[ip].c * 2] + (rev ? THREAD[TP].vec[re->c[ip].c * 2 + 1] : 0),
 			      rev ? -THREAD[TP].vec[re->c[ip].c * 2 + 1] : THREAD[TP].vec[re->c[ip].c * 2 + 1],
-			      (opt & KTRE_INSENSITIVE) != 0))
+		              (opt & KTRE_INSENSITIVE) != 0,
+		              NULL))
 			THREAD[TP].sp += rev
 				? -THREAD[TP].vec[re->c[ip].c * 2 + 1]
 				: THREAD[TP].vec[re->c[ip].c * 2 + 1];
@@ -2754,7 +2755,8 @@ execute_instr(ktre *re,
 			      sp,
 			      rev ? len - 1 : 0,
 			      rev ? -len : len,
-			      opt & KTRE_INSENSITIVE))
+		              opt & KTRE_INSENSITIVE,
+		              NULL))
 			kdgu_move(subject, &THREAD[TP].sp, rev ? -(int)len : (int)len);
 		else FAIL;
 	} break;
@@ -2770,7 +2772,8 @@ execute_instr(ktre *re,
 				      sp,
 				      rev ? len - 1 : 0,
 				      rev ? -len : len,
-				      opt & KTRE_INSENSITIVE)) {
+			              opt & KTRE_INSENSITIVE,
+			              NULL)) {
 				kdgu_move(subject, &THREAD[TP].sp, rev ? -(int)len : (int)len);
 				return true;
 			}
@@ -3217,7 +3220,7 @@ ktre_filter(ktre *re,
 		kdgu *match = NULL;
 
 		for (unsigned r = 0; r < replacement->len; kdgu_next(replacement, &r)) {
-			if (kdgu_ncmp(replacement, indicator, r, 0, indicator->len, false)) {
+			if (kdgu_ncmp(replacement, indicator, r, 0, indicator->len, false, NULL)) {
 				unsigned t = r;
 				for (unsigned z = 0; z < kdgu_len(indicator); kdgu_next(indicator, &z))
 					kdgu_next(replacement, &t);

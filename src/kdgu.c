@@ -974,10 +974,10 @@ kdgu_normalize(kdgu *k, enum normalization norm)
 }
 
 bool
-kdgu_cmp(const kdgu *k1, const kdgu *k2, bool insensitive)
+kdgu_cmp(const kdgu *k1, const kdgu *k2, bool insensitive, const char *locale)
 {
 	if (!k1 || !k2) return false;
-	return kdgu_ncmp(k1, k2, 0, 0, kdgu_len(k1), insensitive);
+	return kdgu_ncmp(k1, k2, 0, 0, kdgu_len(k1), insensitive, locale);
 }
 
 bool
@@ -1002,20 +1002,32 @@ kdgu_fuzzy(const kdgu *k1, const kdgu *k2)
 	return i >= k1->len && j >= k2->len;
 }
 
+static uint32_t
+fold(uint32_t c, struct locale l)
+{
+	if (c == 0x0049 && (l.lang == LANG_TUR || l.lang == LANG_AZE))
+		c = 0x0131;
+	if (c == 0x0130 && (l.lang == LANG_TUR || l.lang == LANG_AZE))
+		c = 0x0069;
+	return c;
+}
+
 bool
 kdgu_ncmp(const kdgu *k1,
 	  const kdgu *k2,
 	  unsigned i,
 	  unsigned j,
 	  int n,
-	  bool insensitive)
+          bool insensitive,
+          const char *locale)
 {
 	if (!k1 || !k2 || i > k1->len || j > k2->len) return false;
 	int c = 0;
+	struct locale L = parse_locale(locale);
 
 	do {
-		uint32_t c1 = kdgu_decode(k1, i);
-		uint32_t c2 = kdgu_decode(k2, j);
+		uint32_t c1 = fold(kdgu_decode(k1, i), L);
+		uint32_t c2 = fold(kdgu_decode(k2, j), L);
 
 		if (!insensitive) {
 			if (c1 != c2) return false;
@@ -1040,19 +1052,19 @@ kdgu_ncmp(const kdgu *k1,
 		}
 
 		if (l1 > l2) {
-			uint32_t t = kdgu_decode(k2, j);
+			uint32_t t = seq2[1];
 			kdgu_inc(k2, &j);
 			seq2 = (uint32_t []){c2, t, kdgu_decode(k2, j)};
 			l2++;
 		} else if (l2 > l1) {
-			uint32_t t = kdgu_decode(k1, i);
+			uint32_t t = seq1[1];
 			kdgu_inc(k1, &i);
 			if (kdgu_chrbound(k1, i)) c++;
 			seq1 = (uint32_t []){c1, t, kdgu_decode(k1, i)};
 			l1++;
 		}
 
-		for (unsigned z = 0; z < l1; z++) 
+		for (unsigned z = 0; z < l1; z++)
 			if (seq1[z] != seq2[z])
 				return false;
 	} while ((n < 0
@@ -1255,7 +1267,8 @@ kdgu_decode(const kdgu *k, unsigned idx)
 		if (d <= 0xD7FF || d >= 0xE000) return d;
 
 		/* It's a surrogate upper byte. */
-		uint16_t e = READUTF16(GETENDIAN(k->fmt), k->s + idx + 2);
+		uint16_t e = READUTF16(GETENDIAN(k->fmt),
+		                       k->s + idx + 2);
 		c = (d - 0xD800) * 0x400 + e - 0xDC00 + 0x10000;
 	} break;
 
@@ -1472,9 +1485,9 @@ kdgu_getcode(const kdgu *k)
 	 * handled in gen.pl, respectively.
 	 */
 
-	if (kdgu_ncmp(r, (cat = CATEGORY_CO, str = &KDGU("privateuse")), 0, 0, 10, false)
-	    || kdgu_ncmp(r, (cat = CATEGORY_CS, str = &KDGU("surrogate")), 0, 0, 9, false)
-	    || kdgu_ncmp(r, (cat = CATEGORY_CN, str = &KDGU("noncharacter")), 0, 0, 12, false)) {
+	if (kdgu_ncmp(r, (cat = CATEGORY_CO, str = &KDGU("privateuse")), 0, 0, 10, false, NULL)
+	    || kdgu_ncmp(r, (cat = CATEGORY_CS, str = &KDGU("surrogate")), 0, 0, 9, false, NULL)
+	    || kdgu_ncmp(r, (cat = CATEGORY_CN, str = &KDGU("noncharacter")), 0, 0, 12, false, NULL)) {
 		unsigned idx = 0;
 		for (unsigned i = 0, n = kdgu_len(str); i < n; i++)
 			kdgu_next(r, &idx);

@@ -7,6 +7,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "unicode_data.h"
+
 /* TODO: Make it so the things accept NULL/0 sometimes. */
 
 enum endian {
@@ -71,8 +73,14 @@ bool kdgu_contains(const kdgu *k, uint32_t c);
 bool kdgu_convert(kdgu *k, enum fmt fmt);
 bool kdgu_normalize(kdgu *k, enum normalization norm);
 
-bool kdgu_cmp(const kdgu *k1, const kdgu *k2, bool insensitive);
-bool kdgu_ncmp(const kdgu *k1, const kdgu *k2, unsigned i, unsigned j, int n, bool insensitive);
+bool kdgu_cmp(const kdgu *k1, const kdgu *k2, bool insensitive, const char *locale);
+bool kdgu_ncmp(const kdgu *k1,
+               const kdgu *k2,
+               unsigned i,
+               unsigned j,
+               int n,
+               bool insensitive,
+               const char *locale);
 bool kdgu_fuzzy(const kdgu *k1, const kdgu *k2);
 
 bool kdgu_append(kdgu *k1, const kdgu *k2);
@@ -108,8 +116,6 @@ double kdgu_octal(const kdgu *k, unsigned *idx);
 uint32_t kdgu_decode(const kdgu *k, unsigned idx);
 struct error kdgu_encode(uint32_t c, uint8_t *buf, unsigned *len,
 			 enum fmt fmt, unsigned idx, int endian);
-
-#include "unicode_data.h"
 
 const struct codepoint *kdgu_codepoint(uint32_t c);
 const char *kdgu_getname(uint32_t c);
