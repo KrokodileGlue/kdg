@@ -1467,17 +1467,13 @@ kdgu_getcode(const kdgu *k)
 		if (kdgu_fuzzy(k, &KDGU(names[i].name)))
 			return names[i].c;
 
-	for (int i = 0; i < num_name_aliases; i++) {
+	for (int i = 0; i < num_name_aliases; i++)
 		for (int j = 0; j < name_aliases[i].num; j++)
-		if (kdgu_fuzzy(k, &KDGU(name_aliases[i].name[j])))
-			return name_aliases[i].c;
-	}
+			if (kdgu_fuzzy(k, &KDGU(name_aliases[i].name[j])))
+				return name_aliases[i].c;
 
-	kdgu *r = fuzzify(k);
+	kdgu *r = fuzzify(k), *str = NULL;
 	enum category cat = 0;
-	kdgu *str = NULL;
-
-	/* TODO: Write number-parsing routines. */
 
 	/*
 	 * The reserved and control categories are here because they
