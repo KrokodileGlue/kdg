@@ -1974,11 +1974,11 @@ print_instructions(ktre *re)
 		DBG("\n%3d. [%4d] ", i, re->c[i].loc);
 
 		if (re->c[i].op == INSTR_SAVE && re->c[i].a % 2 == 0)
-			DBG("<%2d> ", re->c[i].a / 2);
+			DBG("<%3d> ", re->c[i].a / 2);
 		else if (re->c[i].op == INSTR_SAVE && re->c[i].a % 2 != 0)
-			DBG("</%d> ", (re->c[i].a - 1) / 2);
+			DBG("</%2d> ", (re->c[i].a - 1) / 2);
 		else
-			DBG("     ");
+			DBG("      ");
 
 		for (int j = size - 1; j >= 0; j--) {
 			switch (jmp[i][j]) {
