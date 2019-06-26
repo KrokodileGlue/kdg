@@ -385,7 +385,7 @@ kdgu_lc(kdgu *k)
 
 		delete_point(k, idx);
 		for (unsigned i = 0; i < len; i++)
-			insert_point(k, buf[i], idx);
+			insert_point(k, idx, buf[i]);
 	} while (kdgu_inc(k, &idx));
 
 	return true;
@@ -977,7 +977,10 @@ bool
 kdgu_cmp(const kdgu *k1, const kdgu *k2, bool insensitive, const char *locale)
 {
 	if (!k1 || !k2) return false;
-	return kdgu_ncmp(k1, k2, 0, 0, kdgu_len(k1), insensitive, locale);
+	unsigned l1 = kdgu_len(k1);
+	unsigned l2 = kdgu_len(k2);
+	return kdgu_ncmp(k1, k2, 0, 0, l1 < l2 ? l1 : l2, insensitive, locale)
+		&& (insensitive ? true : kdgu_len(k1) == kdgu_len(k2));
 }
 
 bool

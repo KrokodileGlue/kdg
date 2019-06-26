@@ -3118,6 +3118,9 @@ ktre_exec(ktre *re, const kdgu *subject, int ***vec)
 	int **v = NULL;
 	_Bool ret = false;
 
+	if (re->thread_alloc)
+		memset(re->t[0].prog, -1, re->num_prog * sizeof *re->t[0].prog);
+
 	if (vec) ret = run(re, subject, vec);
 	else     ret = run(re, subject, &v);
 
