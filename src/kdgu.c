@@ -654,7 +654,7 @@ kdgu_dec(const kdgu *k, unsigned *idx)
 {
 	if (!k || !idx) return 0;
 	unsigned now = *idx;
-	if (!now) return 0;
+	if (!now || now >= k->len) return 0;
 
 	switch (k->fmt) {
 	case KDGU_FMT_CP1252:
@@ -662,13 +662,11 @@ kdgu_dec(const kdgu *k, unsigned *idx)
 	case KDGU_FMT_ASCII:
 		now--;
 		break;
-
 	case KDGU_FMT_UTF8:
 		do {
 			now--;
 		} while (now && UTF8CONT(k->s[now]));
 		break;
-
 	case KDGU_FMT_UTF16BE:
 	case KDGU_FMT_UTF16LE:
 	case KDGU_FMT_UTF16:
@@ -678,7 +676,6 @@ kdgu_dec(const kdgu *k, unsigned *idx)
 		                                 k->s + now - 2)))
 			now -= 2;
 		break;
-
 	case KDGU_FMT_UTF32BE:
 	case KDGU_FMT_UTF32LE:
 	case KDGU_FMT_UTF32:

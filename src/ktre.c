@@ -2677,6 +2677,7 @@ new_thread(ktre *re,
 	THREAD[TP].ip  = ip;
 	THREAD[TP].sp  = sp;
 	THREAD[TP].opt = opt;
+	if (TP - 1 > 0) THREAD[TP].rev = THREAD[TP - 1].rev;
 
 	re->max_tp = (TP > re->max_tp) ? TP : re->max_tp;
 }
@@ -2709,7 +2710,7 @@ execute_instr(ktre *re,
 		FAIL;
 	}
 
-	if (sp > (int)subject->len) FAIL;
+	if (sp > (int)subject->len || sp <= -2) FAIL;
 	uint32_t c = kdgu_decode(subject, sp);
 
 	switch (re->c[ip].op) {
