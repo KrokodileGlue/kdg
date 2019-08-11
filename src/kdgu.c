@@ -1067,7 +1067,9 @@ kdgu_ncmp(const kdgu *k1,
 		for (unsigned z = 0; z < l1; z++)
 			if (seq1[z] != seq2[z])
 				return false;
-	} while ((n < 0
+	} while (i < k1->len
+	         && j < k2->len
+	         && (n < 0
 	          ? (kdgu_chrbound(k1, i) ? ++c : c) < -n && kdgu_dec(k1, &i) && kdgu_dec(k2, &j)
 		  : (kdgu_chrbound(k1, i) ? ++c : c) < n && kdgu_inc(k1, &i) && kdgu_inc(k2, &j))
 		 && i < k1->len && j < k2->len);
@@ -1379,6 +1381,7 @@ kdgu_chrcmp(const kdgu *k, unsigned idx, uint32_t c)
 kdgu *
 kdgu_substr(const kdgu *k, unsigned a, unsigned b)
 {
+	if (b < a || a >= k->len || a + b >= k->len) return NULL;
 	return kdgu_new(k->fmt, k->s + a, b - a);
 }
 

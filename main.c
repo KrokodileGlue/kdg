@@ -31,8 +31,8 @@ main(int argc, char **argv)
 	char *text = load_file(argv[argc - 1], &len);
 	if (!text) return EXIT_FAILURE;
 
-	char *a = "foo (?Si)bar baz(?-Si) quz";
-	char *b = "foo bar          BAZ quz";
+	char *a = "(?<=12.*) ";
+	char *b = "foo 12 year old";
 	kdgu *c = kdgu_news(a);
 	kdgu *d = kdgu_news(b);
 
@@ -41,6 +41,12 @@ main(int argc, char **argv)
 
 	kdgu_free(c), kdgu_free(d);
 	ktre_free(re);
+
+	ktre_replace(&KDGU("Spongebob was a SPAMIT."),
+	             &KDGU("(\\w)(\\w)"),
+	             &KDGU("\\l$1\\u$2"),
+	             &KDGU("$"),
+	             KTRE_DEBUG | KTRE_GLOBAL | KTRE_INSENSITIVE);
 
 	assert(kdgu_cmp(&KDGU("<süß>"), &KDGU("<SÜẞ>"), true, NULL));
 	assert(kdgu_cmp(&KDGU("<süß>"), &KDGU("<SÜss>"), true, NULL));
@@ -57,6 +63,8 @@ main(int argc, char **argv)
 	assert(!kdgu_cmp(&KDGU("quit"), &KDGU("QUIT"), true, "tr"));
 	assert(kdgu_cmp(&KDGU("QUİT"), &KDGU("quit"), true, "tr"));
 	assert(kdgu_cmp(&KDGU("quıt"), &KDGU("QUIT"), true, "tr"));
+	assert(!kdgu_cmp(&KDGU("while"), &KDGU("w"), false, NULL));
+	assert(!kdgu_cmp(&KDGU("w"), &KDGU("while"), false, NULL));
 
 	free(text);
 
