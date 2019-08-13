@@ -1381,7 +1381,7 @@ kdgu_chrcmp(const kdgu *k, unsigned idx, uint32_t c)
 kdgu *
 kdgu_substr(const kdgu *k, unsigned a, unsigned b)
 {
-	if (b < a || a >= k->len || a + b >= k->len) return NULL;
+	if (b < a || a > k->len || b > k->len) return NULL;
 	return kdgu_new(k->fmt, k->s + a, b - a);
 }
 
