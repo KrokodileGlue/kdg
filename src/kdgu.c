@@ -1034,11 +1034,22 @@ kdgu_ncmp(const kdgu *k1,
 			continue;
 		}
 
-		uint32_t *seq1, *seq2;
-		unsigned l1 = insensitive ? lookup_fold(c1, &seq1) : 0;
-		unsigned l2 = insensitive ? lookup_fold(c2, &seq2) : 0;
-		if (!l1) l1 = 1, seq1 = (uint32_t []){c1};
-		if (!l2) l2 = 1, seq2 = (uint32_t []){c2};
+		uint32_t *seq1 = NULL;
+		uint32_t *seq2 = NULL;
+		unsigned l1 = lookup_fold(c1, &seq1);
+		unsigned l2 = lookup_fold(c2, &seq2);
+		uint32_t *a = (uint32_t []){c1};
+		uint32_t *b = (uint32_t []){c2};
+
+		if (!l1) {
+			l1 = 1;
+			seq1 = a;
+		}
+
+		if (!l2) {
+			l2 = 1;
+			seq2 = b;
+		}
 
 		if (l1 > l2) {
 			kdgu_inc(k2, &j);
@@ -1070,8 +1081,10 @@ kdgu_ncmp(const kdgu *k1,
 	} while (i < k1->len
 	         && j < k2->len
 	         && (n < 0
-	          ? (kdgu_chrbound(k1, i) ? ++c : c) < -n && kdgu_dec(k1, &i) && kdgu_dec(k2, &j)
-		  : (kdgu_chrbound(k1, i) ? ++c : c) < n && kdgu_inc(k1, &i) && kdgu_inc(k2, &j))
+	          ? (kdgu_chrbound(k1, i) ? ++c : c) < -n
+	             && kdgu_dec(k1, &i) && kdgu_dec(k2, &j)
+		  : (kdgu_chrbound(k1, i) ? ++c : c) < n
+	             && kdgu_inc(k1, &i) && kdgu_inc(k2, &j))
 		 && i < k1->len && j < k2->len);
 
 	return c == abs(n);

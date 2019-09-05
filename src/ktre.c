@@ -2722,7 +2722,7 @@ execute_instr(ktre *re,
 			      rev ? sp + 1 : sp,
 			      THREAD[TP].vec[re->c[ip].c * 2] + (rev ? THREAD[TP].vec[re->c[ip].c * 2 + 1] : 0),
 			      rev ? -THREAD[TP].vec[re->c[ip].c * 2 + 1] : THREAD[TP].vec[re->c[ip].c * 2 + 1],
-		              (opt & KTRE_INSENSITIVE) != 0,
+		              (opt & KTRE_INSENSITIVE),
 		              NULL))
 			THREAD[TP].sp += rev
 				? -THREAD[TP].vec[re->c[ip].c * 2 + 1]
@@ -3269,13 +3269,8 @@ ktre_filter(ktre *re,
 			case 'E': l = u = false; break;
 			case 'l': lch =   true;  break;
 			case 'u': uch =   true;  break;
-
-			case '0': case '1': case '2': case '3':
-			case '4': case '5': case '6': case '7':
-			case '8': case '9': {
-				int n = kdgu_decode(replacement, r) - '0';
-				kdgu_chrappend(match, n);
-			} break;
+			default:
+				kdgu_chrappend(match, kdgu_decode(replacement, r));
 			}
 		}
 
